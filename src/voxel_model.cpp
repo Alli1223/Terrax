@@ -149,58 +149,69 @@ BipedalRig::BipedalRig() {
 }
 
 void BipedalRig::setupDefaultHuman(bool male) {
-    // 32x32x32 is our "resolution" for a blocky human
-    // Torso: 12x18x8
-    torso->volume = new VoxelVolume(12, 18, 8);
-    torso->pivot = glm::vec3(6, 9, 4);
-    torso->localPos = glm::vec3(0, 30, 0); // elevated for now
-
+    // Colors
     Voxel skin = male ? Voxel{210, 160, 130, 255} : Voxel{230, 180, 150, 255};
     Voxel shirt = male ? Voxel{50, 100, 200, 255} : Voxel{200, 50, 100, 255};
+    Voxel pants = {30, 30, 30, 255};
 
-    for(int x=0; x<12; x++) for(int y=0; y<18; y++) for(int z=0; z<8; z++) {
+    // --- Torso (Heart of the chibi) ---
+    // Size: 10x12x8 (slightly taller and deeper)
+    torso->volume = new VoxelVolume(10, 12, 8);
+    torso->pivot = glm::vec3(5, 0, 4);
+    torso->localPos = glm::vec3(0, 10, 0); 
+    for(int x=0; x<10; x++) for(int y=0; y<12; y++) for(int z=0; z<8; z++) {
         torso->volume->setVoxel(x, y, z, shirt);
     }
+    // Add slight chest/back detail
+    for(int x=2; x<8; x++) for(int y=8; y<11; y++) torso->volume->setVoxel(x, y, 7, shirt);
     torso->volume->updateMesh();
 
-    // Head: 10x10x10
-    head->volume = new VoxelVolume(10, 10, 10);
-    head->pivot = glm::vec3(5, 0, 5);
-    head->localPos = glm::vec3(0, 9, 0); // relative to torso pivot (which is middle)
-    for(int x=0; x<10; x++) for(int y=0; y<10; y++) for(int z=0; z<10; z++) {
+    // --- Head (Large and Cute) ---
+    head->volume = new VoxelVolume(12, 12, 12);
+    head->pivot = glm::vec3(6, 0, 6);
+    head->localPos = glm::vec3(0, 12, 0); 
+    for(int x=0; x<12; x++) for(int y=0; y<12; y++) for(int z=0; z<12; z++) {
         head->volume->setVoxel(x, y, z, skin);
     }
-    // Eyes
-    head->volume->setVoxel(2, 6, 9, {255, 255, 255, 255});
-    head->volume->setVoxel(3, 6, 9, {0, 0, 0, 255});
-    head->volume->setVoxel(6, 6, 9, {255, 255, 255, 255});
-    head->volume->setVoxel(7, 6, 9, {0, 0, 0, 255});
+    // Base features will be redrawn in applyCustomization
     head->volume->updateMesh();
 
-    // Arms: 4x18x4
+    // --- Arms (Shoulder detail) ---
     for (auto arm : {lArm, rArm}) {
-        arm->volume = new VoxelVolume(4, 18, 4);
-        arm->pivot = glm::vec3(2, 16, 2);
-        for(int x=0; x<4; x++) for(int y=0; y<18; y++) for(int z=0; z<4; z++) {
-            arm->volume->setVoxel(x, y, z, (y > 4 ? shirt : skin));
+        arm->volume = new VoxelVolume(6, 12, 6); // Wider for shoulder
+        arm->pivot = glm::vec3(3, 10, 3);
+        for(int x=1; x<5; x++) for(int y=0; y<10; y++) for(int z=1; z<5; z++) {
+            arm->volume->setVoxel(x, y, z, (y > 6 ? shirt : skin));
+        }
+        // Shoulder pads
+        for(int x=0; x<6; x++) for(int y=9; y<12; y++) for(int z=0; z<6; z++) {
+            arm->volume->setVoxel(x, y, z, shirt);
         }
         arm->volume->updateMesh();
     }
-    lArm->localPos = glm::vec3(-8, 8, 0);
-    rArm->localPos = glm::vec3(8, 8, 0);
+    lArm->localPos = glm::vec3(-6, 10, 0);
+    rArm->localPos = glm::vec3(6, 10, 0);
 
-    // Legs: 4x18x4
-    Voxel pants = {30, 30, 30, 255};
+    // --- Legs (Knee detail) ---
     for (auto leg : {lLeg, rLeg}) {
-        leg->volume = new VoxelVolume(4, 18, 4);
-        leg->pivot = glm::vec3(2, 18, 2);
-        for(int x=0; x<4; x++) for(int y=0; y<18; y++) for(int z=0; z<4; z++) {
+        leg->volume = new VoxelVolume(6, 12, 6);
+        leg->pivot = glm::vec3(3, 11, 3);
+        for(int x=1; x<5; x++) for(int y=0; y<11; y++) for(int z=1; z<5; z++) {
             leg->volume->setVoxel(x, y, z, pants);
+        }
+        // Knee bulges
+        for(int x=1; x<5; x++) for(int y=5; y<7; y++) leg->volume->setVoxel(x, y, 5, pants);
+        // Boots
+        Voxel bootColor = {20, 20, 20, 255};
+        for(int x=0; x<6; x++) for(int y=0; y<3; y++) for(int z=0; z<6; z++) {
+            leg->volume->setVoxel(x, y, z, bootColor);
         }
         leg->volume->updateMesh();
     }
-    lLeg->localPos = glm::vec3(-3, -9, 0);
-    rLeg->localPos = glm::vec3(3, -9, 0);
+    lLeg->localPos = glm::vec3(-2.5, 0, 0);
+    rLeg->localPos = glm::vec3(2.5, 0, 0);
+    
+    applyCustomization(); // Apply hair/ears/armor
 }
 
 void BipedalRig::update(float dt, float velocity) {
@@ -230,48 +241,104 @@ void BipedalRig::update(float dt, float velocity) {
 }
 
 void BipedalRig::applyCustomization() {
-    if (!head || !head->volume) return;
+    if (!head || !head->volume || !torso || !torso->volume) return;
     
-    // Reset head voxels (except basic skin)
-    // Actually for simplicity let's just clear the top/sides for hair
-    for(int x=0; x<10; x++) for(int y=0; y<10; y++) for(int z=0; z<10; z++) {
-        Voxel v = head->volume->getVoxel(x,y,z);
-        if (v.r == hairColor.r && v.g == hairColor.g && v.b == hairColor.b) {
-            // Keep skin color
-        }
+    // --- Base Body Reset ---
+    Voxel skin = {210, 160, 130, 255};
+    Voxel shirt = {50, 100, 200, 255};
+    Voxel pants = {30, 30, 30, 255};
+    // Note: In a real system, these would be members of the rig for full customization
+
+    // Reset Torso
+    for(int x=0; x<10; x++) for(int y=0; y<12; y++) for(int z=0; z<8; z++) torso->volume->setVoxel(x, y, z, shirt);
+    for(int x=2; x<8; x++) for(int y=8; y<11; y++) torso->volume->setVoxel(x, y, 7, shirt);
+
+    // Reset Arms
+    for (auto arm : {lArm, rArm}) {
+        for(int x=0; x<6; x++) for(int y=0; y<12; y++) for(int z=0; z<6; z++) arm->volume->setVoxel(x, y, z, {0,0,0,0});
+        for(int x=1; x<5; x++) for(int y=0; y<10; y++) for(int z=1; z<5; z++) arm->volume->setVoxel(x, y, z, (y > 6 ? shirt : skin));
+        for(int x=0; x<6; x++) for(int y=9; y<12; y++) for(int z=0; z<6; z++) arm->volume->setVoxel(x, y, z, shirt);
     }
-    // Re-fill hair
-    if (hairStyle == 1) { // Short
-        for(int x=0; x<10; x++) for(int z=0; z<10; z++) {
-            head->volume->setVoxel(x, 9, z, hairColor);
-            if (x==0 || x==9 || z==0) head->volume->setVoxel(x, 8, z, hairColor);
+
+    // Reset Legs
+    for (auto leg : {lLeg, rLeg}) {
+        for(int x=0; x<6; x++) for(int y=0; y<12; y++) for(int z=0; z<6; z++) leg->volume->setVoxel(x, y, z, {0,0,0,0});
+        for(int x=1; x<5; x++) for(int y=0; y<11; y++) for(int z=1; z<5; z++) leg->volume->setVoxel(x, y, z, pants);
+        for(int x=1; x<5; x++) for(int y=5; y<7; y++) leg->volume->setVoxel(x, y, 5, pants);
+        Voxel bootColor = {20, 20, 20, 255};
+        for(int x=0; x<6; x++) for(int y=0; y<3; y++) for(int z=0; z<6; z++) leg->volume->setVoxel(x, y, z, bootColor);
+    }
+
+    // --- Head Redraw ---
+    for(int x=0; x<12; x++) for(int y=0; y<12; y++) for(int z=0; z<12; z++) {
+        head->volume->setVoxel(x, y, z, {210, 160, 130, 255});
+    }
+
+    // Detailed Hair
+    if (hairStyle == 1) { // Short/Messy
+        for(int x=1; x<11; x++) for(int z=1; z<11; z++) {
+            head->volume->setVoxel(x, 11, z, hairColor);
+            if ((x+z)%2 == 0) head->volume->setVoxel(x, 10, z, hairColor);
         }
-    } else if (hairStyle == 2) { // Long
-        for(int x=0; x<10; x++) for(int z=0; z<10; z++) {
-            head->volume->setVoxel(x, 9, z, hairColor);
-            if (x==0 || x==9 || z==0) {
-                for(int y=4; y<9; y++) head->volume->setVoxel(x, y, z, hairColor);
+        for(int ey : {8,9,10}) for(int ex : {0,11}) for(int ez : {3,4,5,6,7,8}) head->volume->setVoxel(ex, ey, ez, hairColor);
+    } else if (hairStyle == 2) { // Long/Flowing
+        for(int x=0; x<12; x++) for(int z=0; z<12; z++) head->volume->setVoxel(x, 11, z, hairColor);
+        for(int ex : {0,1,10,11}) for(int ey=2; ey<11; ey++) for(int ez=0; ez<11; ez++) {
+             if (ez < 10) head->volume->setVoxel(ex, ey, ez, hairColor);
+        }
+        for(int x=0; x<12; x++) for(int y=2; y<11; y++) head->volume->setVoxel(x, y, 0, hairColor);
+    }
+
+    // Eyes: 2x2 blocks
+    for(int ex : {2,3, 8,9}) for(int ey : {6,7}) {
+        head->volume->setVoxel(ex, ey, 11, {255, 255, 255, 255});
+        if (ey == 7) head->volume->setVoxel(ex, ey, 11, eyeColor);
+    }
+
+    // Ears
+    if (earType == 1) { // Human
+        for(int ey:{4,5}) { head->volume->setVoxel(0, ey, 6, skin); head->volume->setVoxel(11, ey, 6, skin); }
+    } else if (earType == 2) { // Elven
+        for(int ey:{4,5,6,7}) { head->volume->setVoxel(0, ey, 6-ey+4, skin); head->volume->setVoxel(11, ey, 6-ey+4, skin); }
+    }
+    head->volume->updateMesh();
+
+    // --- Armor Overlay ---
+    Voxel armorCol = {0,0,0,0};
+    if (armorType == 1) armorCol = {40, 120, 40, 255}; // Cloth (Green)
+    else if (armorType == 2) armorCol = {100, 60, 30, 255}; // Leather (Brown)
+    else if (armorType == 3) armorCol = {180, 180, 200, 255}; // Heavy (Silver)
+
+    if (armorType > 0) {
+        // Torso Armor
+        for(int x=0; x<10; x++) for(int y=0; y<12; y++) for(int z=0; z<8; z++) {
+            if (x==0 || x==9 || z==0 || z==7 || y==0 || y==11) {
+                // Add "trim" for heavy armor
+                if (armorType == 3 && (y == 0 || y == 11)) torso->volume->setVoxel(x, y, z, {220, 220, 100, 255}); // Gold trim
+                else torso->volume->setVoxel(x, y, z, armorCol);
+            }
+        }
+        
+        // Shoulder Armor
+        for (auto arm : {lArm, rArm}) {
+            for(int x=0; x<6; x++) for(int y=8; y<12; y++) for(int z=0; z<6; z++) {
+                arm->volume->setVoxel(x, y, z, armorCol);
+            }
+        }
+
+        // Leg/Knee Armor
+        for (auto leg : {lLeg, rLeg}) {
+            for(int x=0; x<6; x++) for(int y=4; y<8; y++) for(int z=0; z<6; z++) {
+                if (x==0 || x==5 || z==5) leg->volume->setVoxel(x, y, z, armorCol);
             }
         }
     }
 
-    // Eyes
-    head->volume->setVoxel(2, 6, 9, {255, 255, 255, 255});
-    head->volume->setVoxel(3, 6, 9, eyeColor);
-    head->volume->setVoxel(6, 6, 9, {255, 255, 255, 255});
-    head->volume->setVoxel(7, 6, 9, eyeColor);
-
-    // Ears
-    Voxel skin = {210, 160, 130, 255}; // Default skin
-    if (earType == 1) { // Human
-        head->volume->setVoxel(0, 5, 5, skin); head->volume->setVoxel(0, 4, 5, skin);
-        head->volume->setVoxel(9, 5, 5, skin); head->volume->setVoxel(9, 4, 5, skin);
-    } else if (earType == 2) { // Elven
-        head->volume->setVoxel(0, 6, 5, skin); head->volume->setVoxel(0, 5, 5, skin); head->volume->setVoxel(0, 4, 5, skin);
-        head->volume->setVoxel(9, 6, 5, skin); head->volume->setVoxel(9, 5, 5, skin); head->volume->setVoxel(9, 4, 5, skin);
-    }
-
-    head->volume->updateMesh();
+    torso->volume->updateMesh();
+    lArm->volume->updateMesh();
+    rArm->volume->updateMesh();
+    lLeg->volume->updateMesh();
+    rLeg->volume->updateMesh();
 }
 
 QuadrupedRig::QuadrupedRig() {

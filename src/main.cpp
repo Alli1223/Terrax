@@ -40,6 +40,10 @@ static constexpr float PLAYER_WIDTH  = 0.4f;
 // --- Globals ---
 GameState      g_state = GameState::MainMenu;
 BipedalRig*    g_localPlayerRig = nullptr;
+float          g_editorRotX = 0.0f, g_editorRotY = 0.0f;
+bool           g_wasEditorClick = false;
+bool           g_isEditorRotating = false;
+double         g_lastEditorX = 0, g_lastEditorY = 0;
 glm::vec4      g_editorColor = glm::vec4(1.0f);
 enum class EditorTool { Paint, Add, Erase };
 EditorTool     g_editorTool = EditorTool::Paint;
@@ -424,10 +428,12 @@ int main(int argc, char** argv) {
             glViewport(0, 0, fbW, fbH);
             glm::mat4 proj = glm::perspective(glm::radians(45.0f), fbW / (float)fbH, 0.1f, 1000.0f);
             
-            // Rotation based on time for visualization
-            float rotY = (float)glfwGetTime() * 20.0f;
-            glm::mat4 view = glm::lookAt(glm::vec3(0, 35, 60), glm::vec3(0, 30, 0), glm::vec3(0, 1, 0));
-            glm::mat4 model = glm::rotate(glm::mat4(1.0f), glm::radians(rotY), glm::vec3(0, 1, 0));
+            // Build model matrix from manual rotation
+            glm::mat4 model = glm::rotate(glm::mat4(1.0f), glm::radians(g_editorRotY), glm::vec3(0, 1, 0));
+            model = glm::rotate(model, glm::radians(g_editorRotX), glm::vec3(1, 0, 0));
+
+            // Camera looks at center of character (height ~23)
+            glm::mat4 view = glm::lookAt(glm::vec3(0, 25, 70), glm::vec3(0, 20, 0), glm::vec3(0, 1, 0));
 
             charShader.use();
             charShader.setMat4("projection", proj);
@@ -466,6 +472,9 @@ int main(int argc, char** argv) {
                 if (ImGui::Combo("Ear Type", &g_localPlayerRig->earType, "None\0Human\0Elven\0")) {
                     g_localPlayerRig->applyCustomization();
                 }
+                if (ImGui::Combo("Armor Set", &g_localPlayerRig->armorType, "None\0Cloth\0Leather\0Heavy\0")) {
+                    g_localPlayerRig->applyCustomization();
+                }
             }
 
             ImGui::Separator();
@@ -485,32 +494,57 @@ int main(int argc, char** argv) {
             
             ImGui::End();
 
-            // Raycasting from mouse
-            if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS && !ImGui::GetIO().WantCaptureMouse) {
+            // Handling Mouse Input (Rotation vs Editing)
+            if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS) {
                 double mx, my; glfwGetCursorPos(window, &mx, &my);
-                glm::vec3 ro, rd;
-                // Calculate ray from screen
-                float x = (2.0f * (float)mx) / fbW - 1.0f;
-                float y = 1.0f - (2.0f * (float)my) / fbH;
-                glm::vec4 clipCoords(x, y, -1.0f, 1.0f);
-                glm::vec4 eyeCoords = glm::inverse(proj) * clipCoords;
-                eyeCoords.z = -1.0f; eyeCoords.w = 0.0f;
-                rd = glm::normalize(glm::vec3(glm::inverse(view) * eyeCoords));
-                ro = glm::vec3(glm::inverse(view) * glm::vec4(0, 0, 0, 1));
+                if (!ImGui::GetIO().WantCaptureMouse) {
+                    // Ray from screen
+                    float rx = (2.0f * (float)mx) / fbW - 1.0f;
+                    float ry = 1.0f - (2.0f * (float)my) / fbH;
+                    glm::vec4 clipCoords(rx, ry, -1.0f, 1.0f);
+                    glm::vec4 eyeCoords = glm::inverse(proj) * clipCoords;
+                    eyeCoords.z = -1.0f; eyeCoords.w = 0.0f;
+                    glm::vec3 rd = glm::normalize(glm::vec3(glm::inverse(view) * eyeCoords));
+                    glm::vec3 ro = glm::vec3(glm::inverse(view) * glm::vec4(0, 0, 0, 1));
 
-                auto hit = g_localPlayerRig->raycast(ro, rd, model);
-                if (hit.node && hit.node->volume) {
-                    Voxel colorV = {(uint8_t)(g_editorColor.r*255), (uint8_t)(g_editorColor.g*255), (uint8_t)(g_editorColor.b*255), (uint8_t)(g_editorColor.a*255)};
-                    if (g_editorTool == EditorTool::Paint) {
-                        hit.node->volume->setVoxel(hit.voxel.x, hit.voxel.y, hit.voxel.z, colorV);
-                    } else if (g_editorTool == EditorTool::Add) {
-                        glm::ivec3 addPos = hit.voxel + hit.normal;
-                        hit.node->volume->setVoxel(addPos.x, addPos.y, addPos.z, colorV);
-                    } else if (g_editorTool == EditorTool::Erase) {
-                        hit.node->volume->setVoxel(hit.voxel.x, hit.voxel.y, hit.voxel.z, {0,0,0,0});
+                    if (!g_wasEditorClick) {
+                        // First frame of click: determine if we hit character
+                        auto hit = g_localPlayerRig->raycast(ro, rd, model);
+                        if (hit.node) {
+                            g_isEditorRotating = false;
+                        } else {
+                            g_isEditorRotating = true;
+                        }
+                        g_wasEditorClick = true;
                     }
-                    hit.node->volume->updateMesh();
+
+                    if (g_isEditorRotating) {
+                        float dx = (float)(mx - g_lastEditorX);
+                        float dy = (float)(my - g_lastEditorY);
+                        g_editorRotY += dx * 0.5f;
+                        g_editorRotX += dy * 0.5f;
+                        // Limit X rotation to avoid flipping
+                        g_editorRotX = std::clamp(g_editorRotX, -80.0f, 80.0f);
+                    } else {
+                        // Continuous editing while holding click
+                        auto hit = g_localPlayerRig->raycast(ro, rd, model);
+                        if (hit.node && hit.node->volume) {
+                            Voxel colorV = {(uint8_t)(g_editorColor.r*255), (uint8_t)(g_editorColor.g*255), (uint8_t)(g_editorColor.b*255), (uint8_t)(g_editorColor.a*255)};
+                            if (g_editorTool == EditorTool::Paint) {
+                                hit.node->volume->setVoxel(hit.voxel.x, hit.voxel.y, hit.voxel.z, colorV);
+                            } else if (g_editorTool == EditorTool::Add) {
+                                glm::ivec3 addPos = hit.voxel + hit.normal;
+                                hit.node->volume->setVoxel(addPos.x, addPos.y, addPos.z, colorV);
+                            } else if (g_editorTool == EditorTool::Erase) {
+                                hit.node->volume->setVoxel(hit.voxel.x, hit.voxel.y, hit.voxel.z, {0,0,0,0});
+                            }
+                            hit.node->volume->updateMesh();
+                        }
+                    }
                 }
+                g_lastEditorX = mx; g_lastEditorY = my;
+            } else {
+                g_wasEditorClick = false;
             }
         }
         else if (g_state == GameState::Playing) {
@@ -547,8 +581,10 @@ int main(int argc, char** argv) {
                 camera.processKeyboard(keyFwd - keyBack, keyRight - keyLeft, keyJump, deltaTime);
                 if (noclip) {
                     glm::vec3 move(0);
-                    if (keyFwd) move += camera.front; if (keyBack) move -= camera.front;
-                    if (keyRight) move += camera.right; if (keyLeft) move -= camera.right;
+                    if (keyFwd) move += camera.front;
+                    if (keyBack) move -= camera.front;
+                    if (keyRight) move += camera.right;
+                    if (keyLeft) move -= camera.right;
                     if (keyJump) move += camera.worldUp;
                     if (glm::length(move) > 0.001f) move = glm::normalize(move);
                     camera.position += move * 15.0f * deltaTime;

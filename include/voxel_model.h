@@ -142,6 +142,7 @@ public:
     Voxel hairColor = {60, 40, 20, 255};
     Voxel eyeColor = {0, 0, 0, 255};
     int earType = 0; // 0=None, 1=Human, 2=Elven
+    int armorType = 0; // 0=None, 1=Cloth, 2=Leather, 3=Heavy
 
     BipedalRig();
     void setupDefaultHuman(bool male);

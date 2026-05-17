@@ -11,6 +11,7 @@
 #include <queue>
 #include <condition_variable>
 #include <memory>
+#include <functional>
 
 enum class BlockType : uint8_t {
     Air       = 0,
@@ -66,6 +67,7 @@ class World;
 class Chunk {
 public:
     ChunkPos pos;
+    bool isServer;
     std::array<BlockType, CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE> blocks;
     // Light map: high nibble = sky light (0-15), low nibble = block light (0-15)
     std::array<uint8_t, CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE> lightMap;
@@ -79,7 +81,7 @@ public:
     std::mutex meshMutex;
     int neighborsAtMeshTime = 0;
 
-    Chunk(ChunkPos p);
+    Chunk(ChunkPos p, bool isServer);
     ~Chunk();
 
     BlockType get(int x, int y, int z) const;
@@ -102,9 +104,12 @@ public:
     std::unordered_map<ChunkPos, std::unique_ptr<Chunk>, ChunkPosHash> chunks;
     mutable std::mutex chunksMutex;
     int renderDistance = 30;
+    bool isServer;
 
-    World();
+    World(bool isServer);
     ~World();
+
+    std::function<void(int, int)> onRequestChunk;
 
     void generate(int centerX, int centerZ);
     void update(int centerX, int centerZ);

@@ -14,7 +14,7 @@ static PerlinNoise gRiverNoise(11111);
 
 // ---- Chunk ----
 
-Chunk::Chunk(ChunkPos p) : pos(p) {
+Chunk::Chunk(ChunkPos p, bool isServer) : pos(p), isServer(isServer) {
     blocks.fill(BlockType::Air);
     lightMap.fill(0);
 }
@@ -100,8 +100,10 @@ void Chunk::computeLight() {
 }
 
 Chunk::~Chunk() {
-    if (vao)      { glDeleteVertexArrays(1, &vao);      glDeleteBuffers(1, &vbo);      }
-    if (waterVao) { glDeleteVertexArrays(1, &waterVao); glDeleteBuffers(1, &waterVbo); }
+    if (!isServer) {
+        if (vao)      { glDeleteVertexArrays(1, &vao);      glDeleteBuffers(1, &vbo);      }
+        if (waterVao) { glDeleteVertexArrays(1, &waterVao); glDeleteBuffers(1, &waterVbo); }
+    }
 }
 
 BlockType Chunk::get(int x, int y, int z) const {
@@ -295,6 +297,7 @@ static void setupVertexAttribs() {
 }
 
 void Chunk::uploadMesh() {
+    if (isServer) return;
     std::lock_guard<std::mutex> lock(meshMutex);
 
     // Opaque mesh
@@ -320,14 +323,14 @@ void Chunk::uploadMesh() {
 }
 
 void Chunk::draw() const {
-    if (state != ChunkState::Ready || vertexCount == 0) return;
+    if (isServer || state != ChunkState::Ready || vertexCount == 0) return;
     glBindVertexArray(vao);
     glDrawArrays(GL_TRIANGLES, 0, vertexCount);
     glBindVertexArray(0);
 }
 
 void Chunk::drawWater() const {
-    if (state != ChunkState::Ready || waterVertexCount == 0) return;
+    if (isServer || state != ChunkState::Ready || waterVertexCount == 0) return;
     glBindVertexArray(waterVao);
     glDrawArrays(GL_TRIANGLES, 0, waterVertexCount);
     glBindVertexArray(0);
@@ -907,7 +910,7 @@ static void generateChunk(Chunk* c) {
 
 // ---- World ----
 
-World::World() {
+World::World(bool isServer) : isServer(isServer) {
     int numWorkers = std::max(1u, std::thread::hardware_concurrency());
     for (int i = 0; i < numWorkers; i++) {
         workers.emplace_back(&World::workerThread, this);
@@ -964,7 +967,7 @@ static int chunkDist(const ChunkPos& a, int cx, int cz) {
 }
 
 void World::update(int cx, int cz) {
-    // 1. Discover new chunks and queue for generation, closest first
+    // 1. Discover new chunks
     {
         std::vector<std::pair<int,Chunk*>> newChunks;
         {
@@ -973,15 +976,24 @@ void World::update(int cx, int cz) {
                 for (int dz = -renderDistance; dz <= renderDistance; dz++) {
                     ChunkPos cp{cx+dx, cz+dz};
                     if (chunks.find(cp) != chunks.end()) continue;
-                    auto c = std::make_unique<Chunk>(cp);
-                    Chunk* ptr = c.get();
-                    ptr->state = ChunkState::Generating;
-                    chunks[cp] = std::move(c);
-                    newChunks.push_back({std::max(abs(dx),abs(dz)), ptr});
+                    
+                    if (isServer) {
+                        auto c = std::make_unique<Chunk>(cp, true);
+                        Chunk* ptr = c.get();
+                        ptr->state = ChunkState::Generating;
+                        chunks[cp] = std::move(c);
+                        newChunks.push_back({std::max(abs(dx),abs(dz)), ptr});
+                    } else if (onRequestChunk) {
+                        // Create a placeholder chunk so we don't request it again
+                        auto c = std::make_unique<Chunk>(cp, false);
+                        c->state = ChunkState::Empty; // Mark as empty/requesting
+                        chunks[cp] = std::move(c);
+                        onRequestChunk(cp.x, cp.z);
+                    }
                 }
             }
         }
-        if (!newChunks.empty()) {
+        if (!newChunks.empty() && isServer) {
             std::sort(newChunks.begin(), newChunks.end());
             std::lock_guard<std::mutex> qlock(queueMutex);
             for (auto& [d, ptr] : newChunks) generationQueue.push(ptr);
@@ -999,30 +1011,32 @@ void World::update(int cx, int cz) {
         for (auto& [pos, c] : chunks) {
             ChunkState s = c->state.load();
 
-            if (s == ChunkState::Generated) {
-                // Mesh as soon as possible, even if not all neighbors are present.
-                // Incomplete seams will be fixed when the missing neighbor loads.
-                toMesh.push_back({chunkDist(pos, cx, cz), c.get()});
-                c->state = ChunkState::Meshing;
-
-            } else if (s == ChunkState::Ready && c->neighborsAtMeshTime < 4) {
-                // This chunk was meshed when some neighbors weren't loaded yet.
-                // Check if all 4 neighbors are now at least Generated so we can fix seams.
-                bool allPresent = true;
-                for (auto& off : offsets) {
-                    auto it = chunks.find({pos.x+off.x, pos.z+off.z});
-                    if (it == chunks.end() || it->second->state == ChunkState::Empty
-                                          || it->second->state == ChunkState::Generating) {
-                        allPresent = false; break;
-                    }
-                }
-                if (allPresent) {
+            if (!isServer) {
+                if (s == ChunkState::Generated) {
+                    // Mesh as soon as possible, even if not all neighbors are present.
+                    // Incomplete seams will be fixed when the missing neighbor loads.
                     toMesh.push_back({chunkDist(pos, cx, cz), c.get()});
                     c->state = ChunkState::Meshing;
-                }
 
-            } else if (s == ChunkState::MeshReady) {
-                toUpload.push_back(c.get());
+                } else if (s == ChunkState::Ready && c->neighborsAtMeshTime < 4) {
+                    // This chunk was meshed when some neighbors weren't loaded yet.
+                    // Check if all 4 neighbors are now at least Generated so we can fix seams.
+                    bool allPresent = true;
+                    for (auto& off : offsets) {
+                        auto it = chunks.find({pos.x+off.x, pos.z+off.z});
+                        if (it == chunks.end() || it->second->state == ChunkState::Empty
+                                              || it->second->state == ChunkState::Generating) {
+                            allPresent = false; break;
+                        }
+                    }
+                    if (allPresent) {
+                        toMesh.push_back({chunkDist(pos, cx, cz), c.get()});
+                        c->state = ChunkState::Meshing;
+                    }
+
+                } else if (s == ChunkState::MeshReady) {
+                    toUpload.push_back(c.get());
+                }
             }
         }
     }

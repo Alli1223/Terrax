@@ -1,8 +1,8 @@
 CXX      := g++
 CXXFLAGS := -std=c++17 -O2 -Wall -Iinclude -Isrc
-LIBS     := -lGL -lglfw -lm
+LIBS     := -lGL -lglfw -lm -lpthread
 
-SRCS := src/main.cpp src/shader.cpp src/camera.cpp src/world.cpp src/gl_loader.cpp src/atlas.cpp
+SRCS := src/main.cpp src/shader.cpp src/camera.cpp src/world.cpp src/gl_loader.cpp src/atlas.cpp src/network.cpp
 OBJS := $(SRCS:src/%.cpp=build/%.o)
 TARGET := terrax
 

@@ -14,138 +14,89 @@ class VoxelVolume {
 public:
     int sizeX, sizeY, sizeZ;
     std::vector<Voxel> voxels;
-    
     GLuint vao = 0, vbo = 0;
     int vertexCount = 0;
     bool needsMeshUpdate = true;
 
     VoxelVolume(int x, int y, int z);
     ~VoxelVolume();
-
     void setVoxel(int x, int y, int z, Voxel v);
     Voxel getVoxel(int x, int y, int z) const;
-    
     void updateMesh();
     void draw() const;
-
     bool raycast(glm::vec3 ro, glm::vec3 rd, float maxDist, glm::ivec3& hitVoxel, glm::ivec3& hitNormal) const;
-
 private:
-    struct CharacterVertex {
-        glm::vec3 pos;
-        glm::vec3 normal;
-        glm::vec4 color;
-    };
+    struct CharacterVertex { glm::vec3 pos; glm::vec3 normal; glm::vec4 color; };
 };
 
 class CharacterNode {
 public:
     std::string name;
     VoxelVolume* volume = nullptr;
-    glm::vec3 localPos{0.0f};
-    glm::vec3 localRot{0.0f}; // Euler angles for simplicity in editor
-    glm::vec3 scale{1.0f};
-    glm::vec3 pivot{0.0f};
-
+    glm::vec3 localPos{0.0f}, localRot{0.0f}, scale{1.0f}, pivot{0.0f};
     CharacterNode* parent = nullptr;
     std::vector<CharacterNode*> children;
 
     CharacterNode(std::string name) : name(name) {}
-    ~CharacterNode() {
-        delete volume;
-        for (auto c : children) delete c;
-    }
+    ~CharacterNode() { delete volume; for (auto c : children) delete c; }
+    void addChild(CharacterNode* child) { child->parent = this; children.push_back(child); }
 
-    void addChild(CharacterNode* child) {
-        child->parent = this;
-        children.push_back(child);
-    }
-
-    glm::mat4 getLocalTransform() const {
+    glm::mat4 getNodeTransform() const {
         glm::mat4 m = glm::translate(glm::mat4(1.0f), localPos);
         m = glm::rotate(m, glm::radians(localRot.y), glm::vec3(0, 1, 0));
         m = glm::rotate(m, glm::radians(localRot.x), glm::vec3(1, 0, 0));
         m = glm::rotate(m, glm::radians(localRot.z), glm::vec3(0, 0, 1));
         m = glm::scale(m, scale);
-        m = glm::translate(m, -pivot);
         return m;
     }
 
     void draw(const glm::mat4& parentTransform, GLuint modelLoc) const {
-        glm::mat4 worldM = parentTransform * getLocalTransform();
+        glm::mat4 nodeM = parentTransform * getNodeTransform();
         if (volume) {
-            glUniformMatrix4fv(modelLoc, 1, GL_FALSE, &worldM[0][0]);
+            glm::mat4 meshM = glm::translate(nodeM, -pivot);
+            glUniformMatrix4fv(modelLoc, 1, GL_FALSE, &meshM[0][0]);
             volume->draw();
         }
-        for (auto c : children) {
-            c->draw(worldM, modelLoc);
-        }
+        for (auto c : children) c->draw(nodeM, modelLoc);
     }
 
-    struct RayHit {
-        CharacterNode* node = nullptr;
-        glm::ivec3 voxel;
-        glm::ivec3 normal;
-        float dist = 1e9f;
-    };
-
+    struct RayHit { CharacterNode* node = nullptr; glm::ivec3 voxel, normal; float dist = 1e9f; };
     void raycast(glm::vec3 ro, glm::vec3 rd, const glm::mat4& parentTransform, RayHit& bestHit) {
-        glm::mat4 worldM = parentTransform * getLocalTransform();
+        glm::mat4 nodeM = parentTransform * getNodeTransform();
         if (volume) {
-            glm::mat4 invM = glm::inverse(worldM);
+            glm::mat4 meshM = glm::translate(nodeM, -pivot);
+            glm::mat4 invM = glm::inverse(meshM);
             glm::vec3 localRo = glm::vec3(invM * glm::vec4(ro, 1.0f));
             glm::vec3 localRd = glm::normalize(glm::vec3(invM * glm::vec4(rd, 0.0f)));
-            
             glm::ivec3 hitV, hitN;
             if (volume->raycast(localRo, localRd, 100.0f, hitV, hitN)) {
-                float d = glm::distance(ro, glm::vec3(worldM * glm::vec4(glm::vec3(hitV) + 0.5f, 1.0f)));
-                if (d < bestHit.dist) {
-                    bestHit.dist = d;
-                    bestHit.node = this;
-                    bestHit.voxel = hitV;
-                    bestHit.normal = hitN;
-                }
+                float d = glm::distance(ro, glm::vec3(meshM * glm::vec4(glm::vec3(hitV) + 0.5f, 1.0f)));
+                if (d < bestHit.dist) { bestHit.dist = d; bestHit.node = this; bestHit.voxel = hitV; bestHit.normal = hitN; }
             }
         }
-        for (auto c : children) {
-            c->raycast(ro, rd, worldM, bestHit);
-        }
+        for (auto c : children) c->raycast(ro, rd, nodeM, bestHit);
     }
 };
 
 class CharacterRig {
 public:
     CharacterNode* root = nullptr;
-    
     CharacterRig() {}
     virtual ~CharacterRig() { delete root; }
-
     virtual void update(float dt, float velocity) = 0;
-    void draw(const glm::mat4& baseTransform, GLuint modelLoc) const {
-        if (root) root->draw(baseTransform, modelLoc);
-    }
-
+    void draw(const glm::mat4& baseTransform, GLuint modelLoc) const { if (root) root->draw(baseTransform, modelLoc); }
     CharacterNode::RayHit raycast(glm::vec3 ro, glm::vec3 rd, const glm::mat4& baseTransform) {
-        CharacterNode::RayHit hit;
-        if (root) root->raycast(ro, rd, baseTransform, hit);
-        return hit;
+        CharacterNode::RayHit hit; if (root) root->raycast(ro, rd, baseTransform, hit); return hit;
     }
 };
 
 class BipedalRig : public CharacterRig {
 public:
-    CharacterNode *torso, *head, *lArm, *rArm, *lLeg, *rLeg;
-    float animTime = 0.0f;
-
-    // Customization state
-    int hairStyle    = 0; // 0=Bald, 1=Short, 2=Long, 3=Mohawk, 4=Spiky, 5=Bob
-    Voxel hairColor  = {60, 40, 20, 255};
-    Voxel eyeColor   = {0, 0, 0, 255};
-    int earType      = 0; // 0=None, 1=Human, 2=Elven, 3=Rounded, 4=Wide
-    int noseStyle    = 0; // 0=Button, 1=Wide, 2=Narrow, 3=Upturned, 4=Broad
-    int eyebrowStyle = 0; // 0=Straight, 1=Arched, 2=Thick, 3=Thin, 4=Furrowed
-    int armorType    = 0; // 0=None, 1=Cloth, 2=Leather, 3=Heavy
-
+    CharacterNode *torso, *head, *lArm, *rArm, *lLeg, *rLeg, *sword;
+    float animTime = 0.0f, attackAnim = 0.0f;
+    bool isAttacking = false;
+    int hairStyle = 0, earType = 0, armorType = 0, noseStyle = 0, eyebrowStyle = 0;
+    Voxel hairColor = {60, 40, 20, 255}, eyeColor = {0, 0, 0, 255};
     BipedalRig();
     void setupDefaultHuman(bool male);
     void update(float dt, float velocity) override;
@@ -156,7 +107,6 @@ class QuadrupedRig : public CharacterRig {
 public:
     CharacterNode *body, *head, *flLeg, *frLeg, *blLeg, *brLeg, *tail;
     float animTime = 0.0f;
-
     QuadrupedRig();
     void update(float dt, float velocity) override;
 };

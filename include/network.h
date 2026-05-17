@@ -20,13 +20,34 @@ enum class PacketType : uint8_t {
     BlockUpdate = 2,
     PlayerPos = 3, // UDP
     PlayerDisconnect = 4,
-    ChunkRequest = 5
+    ChunkRequest = 5,
+    PlayerModel = 6,
+    PlayerAttack = 7,
+    PlayerHealth = 8
 };
 
 #pragma pack(push, 1)
 struct PacketHeader {
     PacketType type;
     uint32_t size;
+};
+
+struct PlayerModelHeader {
+    uint32_t clientID;
+    int hairStyle;
+    Voxel hairColor;
+    Voxel eyeColor;
+    int earType;
+    int armorType;
+};
+
+struct PlayerAttackPacket {
+    uint32_t clientID;
+};
+
+struct PlayerHealthPacket {
+    uint32_t clientID;
+    float health;
 };
 
 struct ChunkRequestPacket {
@@ -83,6 +104,9 @@ struct RemotePlayer {
     float targetPitch, targetYaw;
     double lastUpdate;
     BipedalRig* rig = nullptr;
+    float health = 100.0f;
+    bool isAttacking = false;
+    float attackAnim = 0.0f;
 };
 
 class NetworkServer {
@@ -119,6 +143,9 @@ private:
     };
     std::vector<ClientUDPInfo> udp_clients;
     std::mutex udpClientsMutex;
+
+    std::unordered_map<uint32_t, PlayerModelHeader> playerModels;
+    std::mutex modelsMutex;
 
     uint32_t nextClientID = 1;
 

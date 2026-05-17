@@ -631,6 +631,17 @@ int main(int argc, char** argv) {
                         ChunkRequestPacket p { x, z };
                         g_client->send(PacketType::ChunkRequest, &p, sizeof(p));
                     };
+                    
+                    // Send our character model
+                    PlayerModelHeader mh;
+                    mh.clientID = g_client->clientID;
+                    mh.hairStyle = g_localPlayerRig->hairStyle;
+                    mh.hairColor = g_localPlayerRig->hairColor;
+                    mh.eyeColor = g_localPlayerRig->eyeColor;
+                    mh.earType = g_localPlayerRig->earType;
+                    mh.armorType = g_localPlayerRig->armorType;
+                    g_client->send(PacketType::PlayerModel, &mh, sizeof(mh));
+
                     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
                     clientInitialized = true;
                     noclip = true; // Stay in noclip until ground is found
@@ -644,16 +655,24 @@ int main(int argc, char** argv) {
                     std::lock_guard<std::mutex> lock(clientWorld.chunksMutex);
                     auto it = clientWorld.chunks.find({0, 0});
                     if (it != clientWorld.chunks.end() && it->second->state != ChunkState::Empty) {
-                        // Find highest block at center
                         for (int y = CHUNK_HEIGHT - 1; y >= 0; y--) {
                             if (it->second->get(8, y, 8) != BlockType::Air) {
                                 camera.position = glm::vec3(8.5f, (float)y + 1.0f, 8.5f);
-                                noclip = false;
-                                spawnedOnGround = true;
+                                noclip = false; spawnedOnGround = true;
                                 std::cout << "[Client] Spawned on ground at Y=" << y << std::endl;
                                 break;
                             }
                         }
+                    }
+                }
+
+                // Handle Attack Input
+                if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS && !ImGui::GetIO().WantCaptureMouse) {
+                    if (!g_localPlayerRig->isAttacking) {
+                        g_localPlayerRig->isAttacking = true;
+                        g_localPlayerRig->attackAnim = 0.0f;
+                        PlayerAttackPacket ap { g_client->clientID };
+                        g_client->send(PacketType::PlayerAttack, &ap, sizeof(ap));
                     }
                 }
 
@@ -767,7 +786,7 @@ int main(int argc, char** argv) {
                         float velocity = glm::length(camera.velocity);
                         g_localPlayerRig->update(deltaTime, std::min(velocity * 0.5f, 5.0f));
                         glm::mat4 playerM = glm::translate(glm::mat4(1.0f), camera.position);
-                        playerM = glm::rotate(playerM, glm::radians(-g_playerYaw + 90.0f), glm::vec3(0, 1, 0));
+                        playerM = glm::rotate(playerM, glm::radians(g_playerYaw), glm::vec3(0, 1, 0));
                         playerM = glm::scale(playerM, glm::vec3(0.06f));
                         g_localPlayerRig->draw(playerM, modelLoc);
                     }
@@ -785,10 +804,17 @@ int main(int argc, char** argv) {
                         p.yaw = glm::mix(p.yaw, p.targetYaw, std::min(1.0f, lerpFactor));
 
                         float velocity = glm::length(p.position - lastPos) / (deltaTime > 0 ? deltaTime : 1.0f);
+                        
+                        if (p.isAttacking) {
+                            p.attackAnim += deltaTime * 5.0f;
+                            if (p.attackAnim > 1.0f) { p.isAttacking = false; p.attackAnim = 0.0f; }
+                        }
+                        p.rig->isAttacking = p.isAttacking;
+                        p.rig->attackAnim = p.attackAnim;
                         p.rig->update(deltaTime, std::min(velocity, 10.0f));
 
                         glm::mat4 playerM = glm::translate(glm::mat4(1.0f), p.position);
-                        playerM = glm::rotate(playerM, glm::radians(-p.yaw + 90.0f), glm::vec3(0, 1, 0));
+                        playerM = glm::rotate(playerM, glm::radians(p.yaw), glm::vec3(0, 1, 0));
                         playerM = glm::scale(playerM, glm::vec3(0.06f));
                         p.rig->draw(playerM, modelLoc);
                     }
@@ -818,6 +844,20 @@ int main(int argc, char** argv) {
                         glfwSetWindowTitle(window, title.c_str());
                         fpsCount = 0; fpsTimer = 0;
                     }
+
+                    // --- Fantasy HUD ---
+                    ImGui::SetNextWindowPos(ImVec2(WIDTH/2 - 150, HEIGHT - 80));
+                    ImGui::SetNextWindowSize(ImVec2(300, 60));
+                    ImGui::Begin("HUD", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoMove);
+                    
+                    // Health Bar
+                    static float health = 1.0f; // Placeholder local health
+                    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.7f, 0.1f, 0.1f, 1.0f));
+                    ImGui::ProgressBar(health, ImVec2(-1, 20), "");
+                    ImGui::PopStyleColor();
+                    ImGui::Text("Health: %d / 100", (int)(health * 100));
+                    
+                    ImGui::End();
                 }
             }
         }

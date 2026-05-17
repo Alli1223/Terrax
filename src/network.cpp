@@ -96,6 +96,14 @@ void NetworkServer::doAccept() {
             HandshakePacket hp { conn->id };
             conn->send(PacketType::Handshake, &hp, sizeof(hp));
             
+            // Send existing player models
+            {
+                std::lock_guard<std::mutex> lock(modelsMutex);
+                for (auto& [id, model] : playerModels) {
+                    conn->send(PacketType::PlayerModel, &model, sizeof(model));
+                }
+            }
+            
             conn->start(
                 [this](std::shared_ptr<Connection> c, PacketType type, std::vector<uint8_t> data) {
                     std::lock_guard<std::mutex> lock(queueMutex);
@@ -187,6 +195,17 @@ void NetworkServer::update(World& world) {
             }
         } else if (msg.type == PacketType::PlayerPos) {
             broadcastUDP(msg.data.data(), msg.data.size());
+        } else if (msg.type == PacketType::PlayerModel) {
+            if (msg.data.size() >= sizeof(PlayerModelHeader)) {
+                PlayerModelHeader* h = (PlayerModelHeader*)msg.data.data();
+                {
+                    std::lock_guard<std::mutex> lock(modelsMutex);
+                    playerModels[h->clientID] = *h;
+                }
+                broadcast(PacketType::PlayerModel, msg.data.data(), msg.data.size(), msg.client);
+            }
+        } else if (msg.type == PacketType::PlayerAttack) {
+            broadcast(PacketType::PlayerAttack, msg.data.data(), msg.data.size(), msg.client);
         }
     }
 
@@ -387,6 +406,25 @@ void NetworkClient::update(World& world, std::unordered_map<uint32_t, RemotePlay
                     rp.yaw = rp.targetYaw;
                 }
                 rp.lastUpdate = glfwGetTime();
+            }
+        } else if (msg.type == PacketType::PlayerModel) {
+            if (msg.data.size() >= sizeof(PlayerModelHeader)) {
+                PlayerModelHeader* h = (PlayerModelHeader*)msg.data.data();
+                auto& rp = players[h->clientID];
+                if (!rp.rig) rp.rig = new BipedalRig();
+                rp.rig->hairStyle = h->hairStyle;
+                rp.rig->hairColor = h->hairColor;
+                rp.rig->eyeColor = h->eyeColor;
+                rp.rig->earType = h->earType;
+                rp.rig->armorType = h->armorType;
+                rp.rig->applyCustomization();
+            }
+        } else if (msg.type == PacketType::PlayerAttack) {
+            if (msg.data.size() == sizeof(PlayerAttackPacket)) {
+                PlayerAttackPacket* p = (PlayerAttackPacket*)msg.data.data();
+                auto& rp = players[p->clientID];
+                rp.isAttacking = true;
+                rp.attackAnim = 0.0f;
             }
         }
     }

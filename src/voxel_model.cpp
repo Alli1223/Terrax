@@ -275,18 +275,19 @@ void BipedalRig::applyCustomization() {
     }
 
     // Detailed Hair
-    if (hairStyle == 1) { // Short/Messy
+    if (hairStyle == 1) { // Short/Messy 3D
         for(int x=1; x<11; x++) for(int z=1; z<11; z++) {
             head->volume->setVoxel(x, 11, z, hairColor);
-            if ((x+z)%2 == 0) head->volume->setVoxel(x, 10, z, hairColor);
+            if ((x+z)%2 == 0) head->volume->setVoxel(x, 12, z, hairColor); // Protruding bits
         }
-        for(int ey : {8,9,10}) for(int ex : {0,11}) for(int ez : {3,4,5,6,7,8}) head->volume->setVoxel(ex, ey, ez, hairColor);
-    } else if (hairStyle == 2) { // Long/Flowing
+        for(int ey : {8,9,10,11}) for(int ex : {0,11}) for(int ez : {3,4,5,6,7,8}) head->volume->setVoxel(ex, ey, ez, hairColor);
+    } else if (hairStyle == 2) { // Long/Flowing 3D
         for(int x=0; x<12; x++) for(int z=0; z<12; z++) head->volume->setVoxel(x, 11, z, hairColor);
-        for(int ex : {0,1,10,11}) for(int ey=2; ey<11; ey++) for(int ez=0; ez<11; ez++) {
-             if (ez < 10) head->volume->setVoxel(ex, ey, ez, hairColor);
+        for(int ex : {-1, 0, 1, 10, 11, 12}) for(int ey=0; ey<11; ey++) for(int ez=-1; ez<11; ez++) {
+            // Note: VoxelVolume bounds check in setVoxel handles the -1/12
+             head->volume->setVoxel(ex, ey, ez, hairColor);
         }
-        for(int x=0; x<12; x++) for(int y=2; y<11; y++) head->volume->setVoxel(x, y, 0, hairColor);
+        for(int x=0; x<12; x++) for(int y=0; y<11; y++) head->volume->setVoxel(x, y, -1, hairColor);
     }
 
     // Eyes: 2x2 blocks
@@ -295,11 +296,27 @@ void BipedalRig::applyCustomization() {
         if (ey == 7) head->volume->setVoxel(ex, ey, 11, eyeColor);
     }
 
-    // Ears
+    // Physical Eyebrows (protruding)
+    for(int ex : {2,3,4, 7,8,9}) {
+        head->volume->setVoxel(ex, 8, 12, hairColor); // One voxel forward from face
+    }
+
+    // Physical Nose (protruding)
+    head->volume->setVoxel(5, 5, 12, skin);
+    head->volume->setVoxel(6, 5, 12, skin);
+
+    // Physical Ears (protruding)
     if (earType == 1) { // Human
-        for(int ey:{4,5}) { head->volume->setVoxel(0, ey, 6, skin); head->volume->setVoxel(11, ey, 6, skin); }
+        for(int ey:{4,5}) {
+            head->volume->setVoxel(-1, ey, 6, skin);
+            head->volume->setVoxel(12, ey, 6, skin);
+        }
     } else if (earType == 2) { // Elven
-        for(int ey:{4,5,6,7}) { head->volume->setVoxel(0, ey, 6-ey+4, skin); head->volume->setVoxel(11, ey, 6-ey+4, skin); }
+        for(int ey:{4,5,6,7}) {
+            int depth = 6 - (ey - 4);
+            head->volume->setVoxel(-1, ey, depth, skin);
+            head->volume->setVoxel(12, ey, depth, skin);
+        }
     }
     head->volume->updateMesh();
 

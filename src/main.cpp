@@ -561,10 +561,30 @@ int main(int argc, char** argv) {
                     };
                     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
                     clientInitialized = true;
+                    noclip = true; // Stay in noclip until ground is found
                 }
             }
 
             if (clientInitialized) {
+                // Ground spawning logic: once (0,0) is loaded, find height
+                static bool spawnedOnGround = false;
+                if (!spawnedOnGround) {
+                    std::lock_guard<std::mutex> lock(clientWorld.chunksMutex);
+                    auto it = clientWorld.chunks.find({0, 0});
+                    if (it != clientWorld.chunks.end() && it->second->state != ChunkState::Empty) {
+                        // Find highest block at center
+                        for (int y = CHUNK_HEIGHT - 1; y >= 0; y--) {
+                            if (it->second->get(8, y, 8) != BlockType::Air) {
+                                camera.position = glm::vec3(8.5f, (float)y + 1.0f, 8.5f);
+                                noclip = false;
+                                spawnedOnGround = true;
+                                std::cout << "[Client] Spawned on ground at Y=" << y << std::endl;
+                                break;
+                            }
+                        }
+                    }
+                }
+
                 gameTime = fmodf(gameTime + deltaTime / DAY_CYCLE_SECONDS, 1.0f);
 
                 g_client->update(clientWorld, g_remotePlayers);
@@ -602,7 +622,12 @@ int main(int argc, char** argv) {
                 glViewport(0, 0, fbW, fbH);
                 float aspect = fbW / (float)fbH;
                 glm::mat4 proj = glm::perspective(glm::radians(camera.fov), aspect, 0.1f, 1000.0f);
-                glm::mat4 view = camera.getViewMatrix();
+                
+                // Third-person camera matrix
+                float camDist = 5.0f;
+                glm::vec3 eyePos = camera.position + glm::vec3(0, 1.6f, 0) - (camera.front * camDist);
+                glm::mat4 view = glm::lookAt(eyePos, camera.position + glm::vec3(0, 1.2f, 0), camera.worldUp);
+                
                 float sunY = sunElevation(gameTime);
                 float dayness = smoothstep(-0.12f, 0.22f, sunY);
                 float dawnDusk = smoothstep(-0.30f, 0.0f, sunY) * (1.0f - smoothstep(0.0f, 0.30f, sunY));
@@ -623,7 +648,6 @@ int main(int argc, char** argv) {
                     glEnable(GL_DEPTH_TEST); glDepthMask(GL_TRUE); glEnable(GL_CULL_FACE);
                 }
 
-                glm::vec3 eyePos = camera.position + glm::vec3(0.0f, 1.6f, 0.0f);
                 {
                     chunkShader.use();
                     glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, atlasTexture);
@@ -635,6 +659,16 @@ int main(int argc, char** argv) {
                     chunkShader.setVec3("skyAmbient", skyAmbient);
                     chunkShader.setVec3("camPos", eyePos);
                     clientWorld.drawAll();
+                    
+                    // Render local player in third-person
+                    if (g_localPlayerRig) {
+                        float velocity = glm::length(camera.velocity);
+                        g_localPlayerRig->update(deltaTime, std::min(velocity * 0.5f, 5.0f));
+                        glm::mat4 playerM = glm::translate(glm::mat4(1.0f), camera.position);
+                        playerM = glm::rotate(playerM, glm::radians(-camera.yaw + 90.0f), glm::vec3(0, 1, 0));
+                        g_localPlayerRig->draw(playerM, glGetUniformLocation(charShader.id, "model"));
+                    }
+                    
                     renderRemotePlayers(charShader, sunFactor, skyAmbient, eyePos, view, proj);
                 }
                 {

@@ -45,7 +45,8 @@ bool           g_wasEditorClick = false;
 bool           g_isEditorRotating = false;
 double         g_lastEditorX = 0, g_lastEditorY = 0;
 glm::vec4      g_editorColor = glm::vec4(1.0f);
-float          g_camDist = 10.0f; // Default zoom
+float          g_camDist = 10.0f; 
+float          g_playerYaw = 0.0f; // Character facing direction
 enum class EditorTool { Paint, Add, Erase };
 EditorTool     g_editorTool = EditorTool::Paint;
 NetworkServer* g_server = nullptr;
@@ -507,7 +508,11 @@ int main(int argc, char** argv) {
             g_localPlayerRig->draw(model, glGetUniformLocation(charShader.id, "model"));
 
             // ImGui Panels
-            ImGui::Begin("Character Editor");
+            ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always);
+            ImGui::SetNextWindowSize(ImVec2(300, (float)fbH), ImGuiCond_Always);
+            ImGui::Begin("Character Editor", nullptr,
+                ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+                ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus);
             if (ImGui::Button("Back to Menu", ImVec2(-1, 0))) g_state = GameState::MainMenu;
             ImGui::Separator();
 
@@ -517,7 +522,7 @@ int main(int argc, char** argv) {
             }
             
             if (ImGui::CollapsingHeader("Face Features", ImGuiTreeNodeFlags_DefaultOpen)) {
-                if (ImGui::Combo("Hair Style", &g_localPlayerRig->hairStyle, "Bald\0Short\0Long\0Mohawk\0Spiky\0Bob\0")) {
+                if (ImGui::Combo("Hair Style", &g_localPlayerRig->hairStyle, "Bald\0Crew Cut\0Messy Short\0Mohawk\0Spiky\0Side Swept\0Bob\0Long Straight\0Wavy Long\0Bun\0Pigtails\0Braided\0")) {
                     g_localPlayerRig->applyCustomization();
                 }
                 float hCol[3] = {g_localPlayerRig->hairColor.r/255.0f, g_localPlayerRig->hairColor.g/255.0f, g_localPlayerRig->hairColor.b/255.0f};
@@ -659,24 +664,46 @@ int main(int argc, char** argv) {
                     static float posSendTimer = 0;
                     posSendTimer += deltaTime;
                     if (posSendTimer >= 0.05f) {
-                        PlayerPosPacket p { g_client->clientID, camera.position.x, camera.position.y, camera.position.z, camera.pitch, camera.yaw };
+                        PlayerPosPacket p { g_client->clientID, camera.position.x, camera.position.y, camera.position.z, camera.pitch, g_playerYaw };
                         g_client->sendUDP(&p, sizeof(p));
                         posSendTimer = 0;
                     }
                 }
 
-                camera.processKeyboard(keyFwd - keyBack, keyRight - keyLeft, keyJump, deltaTime);
+                // --- Player Movement relative to Camera ---
+                glm::vec3 camForward = glm::normalize(glm::vec3(camera.front.x, 0.0f, camera.front.z));
+                glm::vec3 camRight   = glm::normalize(glm::vec3(camera.right.x, 0.0f, camera.right.z));
+                
+                glm::vec3 moveDir(0.0f);
+                if (keyFwd)   moveDir += camForward;
+                if (keyBack)  moveDir -= camForward;
+                if (keyRight) moveDir += camRight;
+                if (keyLeft)  moveDir -= camRight;
+
+                if (glm::length(moveDir) > 0.001f) {
+                    moveDir = glm::normalize(moveDir);
+                    // Update player facing direction
+                    float targetYaw = glm::degrees(atan2f(moveDir.x, moveDir.z));
+                    // Smoothly rotate character to face movement direction
+                    float angleDiff = targetYaw - g_playerYaw;
+                    while (angleDiff > 180.0f) angleDiff -= 360.0f;
+                    while (angleDiff < -180.0f) angleDiff += 360.0f;
+                    g_playerYaw += angleDiff * std::min(1.0f, deltaTime * 10.0f);
+                }
+
                 if (noclip) {
-                    glm::vec3 move(0);
-                    if (keyFwd) move += camera.front;
-                    if (keyBack) move -= camera.front;
-                    if (keyRight) move += camera.right;
-                    if (keyLeft) move -= camera.right;
-                    if (keyJump) move += camera.worldUp;
-                    if (glm::length(move) > 0.001f) move = glm::normalize(move);
-                    camera.position += move * 15.0f * deltaTime;
+                    if (keyJump) moveDir.y += 1.0f;
+                    // In noclip, just move position
+                    camera.position += moveDir * 15.0f * deltaTime;
                     camera.velocity = glm::vec3(0);
                 } else {
+                    // Normal physics movement
+                    // We need to translate moveDir into camera's processKeyboard style inputs or just apply velocity
+                    float speed = 10.0f;
+                    camera.velocity.x = moveDir.x * speed;
+                    camera.velocity.z = moveDir.z * speed;
+                    if (keyJump && camera.onGround) camera.velocity.y = 8.0f;
+
                     camera.applyGravity(deltaTime);
                     camera.position = resolveCollision(camera.position, clientWorld);
                 }
@@ -690,7 +717,7 @@ int main(int argc, char** argv) {
                 float aspect = fbW / (float)fbH;
                 glm::mat4 proj = glm::perspective(glm::radians(camera.fov), aspect, 0.1f, 1000.0f);
                 
-                // Third-person camera matrix
+                // Third-person camera matrix: orbits around the player
                 glm::vec3 eyePos = camera.position + glm::vec3(0, 1.6f, 0) - (camera.front * g_camDist);
                 glm::mat4 view = glm::lookAt(eyePos, camera.position + glm::vec3(0, 1.2f, 0), camera.worldUp);
                 
@@ -740,7 +767,7 @@ int main(int argc, char** argv) {
                         float velocity = glm::length(camera.velocity);
                         g_localPlayerRig->update(deltaTime, std::min(velocity * 0.5f, 5.0f));
                         glm::mat4 playerM = glm::translate(glm::mat4(1.0f), camera.position);
-                        playerM = glm::rotate(playerM, glm::radians(-camera.yaw + 90.0f), glm::vec3(0, 1, 0));
+                        playerM = glm::rotate(playerM, glm::radians(-g_playerYaw + 90.0f), glm::vec3(0, 1, 0));
                         playerM = glm::scale(playerM, glm::vec3(0.06f));
                         g_localPlayerRig->draw(playerM, modelLoc);
                     }

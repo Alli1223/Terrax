@@ -131,6 +131,27 @@ bool VoxelVolume::raycast(glm::vec3 ro, glm::vec3 rd, float maxDist, glm::ivec3&
     return false;
 }
 
+// Returns true if this voxel (local coords: lx 0-11, y 0-11, z 0-11) belongs to the head.
+// Uses graduated x-margins and back-of-head z-rounding to create an oval silhouette.
+static bool inHeadCore(int lx, int y, int z) {
+    // Vertical oval: head narrows significantly at crown and chin
+    int xm = 0;
+    if      (y == 0 || y == 11) xm = 3;
+    else if (y == 1 || y == 10) xm = 2;
+    else if (y == 2 || y == 9)  xm = 1;
+    if (lx < xm || lx > 11 - xm) return false;
+
+    // Back-of-head rounding (z=0 is back)
+    if (y >= 9  && z == 0) return false;
+    if (y >= 10 && z <= 1) return false;
+    if (y <= 1  && z == 0) return false;
+
+    // Front-crown corners clipped slightly
+    if (y == 11 && z >= 10) return false;
+
+    return true;
+}
+
 BipedalRig::BipedalRig() {
     root = new CharacterNode("Root");
     torso = new CharacterNode("Torso");
@@ -177,12 +198,13 @@ void BipedalRig::setupDefaultHuman(bool male) {
         torso->volume->setVoxel(x, y, z, shirt);
     torso->volume->updateMesh();
 
-    // --- Head: 14×12×13, core at x=1..12 ---
-    head->volume = new VoxelVolume(14, 12, 13);
+    // --- Head: 14×15×13, core y=0..11, hair space y=12..14 ---
+    head->volume = new VoxelVolume(14, 15, 13);
     head->pivot    = glm::vec3(6.5f, 0.0f, 6.0f);
     head->localPos = glm::vec3(4.0f, 9.0f, 3.0f);
     for(int x=1; x<=12; x++) for(int y=0; y<12; y++) for(int z=0; z<12; z++)
-        head->volume->setVoxel(x, y, z, skin);
+        if (inHeadCore(x-1, y, z))
+            head->volume->setVoxel(x, y, z, skin);
     head->volume->updateMesh();
 
     // --- Arms: 4×8×4 ---
@@ -277,61 +299,167 @@ void BipedalRig::applyCustomization() {
             leg->volume->setVoxel(x, y, z, pants);
     }
 
-    // --- Head Redraw ---
-    for(int x=0; x<12; x++) for(int y=0; y<12; y++) for(int z=0; z<12; z++) {
-        head->volume->setVoxel(x, y, z, {210, 160, 130, 255});
-    }
-
     Voxel noseSkin = {182, 132, 102, 255};
     Voxel earSkin  = {220, 168, 138, 255};
 
-    // --- Head Redraw ---
-    // Clear the full 14×12×13 volume (core + ear slots + protrusion layer)
-    for(int x=0; x<14; x++) for(int y=0; y<12; y++) for(int z=0; z<13; z++)
+    // --- Head Redraw: clear 14×15×13, re-fill rounded core ---
+    for(int x=0; x<14; x++) for(int y=0; y<15; y++) for(int z=0; z<13; z++)
         head->volume->setVoxel(x, y, z, {0,0,0,0});
-    // Fill core head with skin (x=1..12, y=0..11, z=0..11)
     for(int x=1; x<=12; x++) for(int y=0; y<12; y++) for(int z=0; z<12; z++)
-        head->volume->setVoxel(x, y, z, skin);
+        if (inHeadCore(x-1, y, z))
+            head->volume->setVoxel(x, y, z, skin);
 
-    // --- Hair (core uses x=1..12; ear columns x=1,x=12 for side coverage) ---
-    if (hairStyle == 1) { // Short/Messy
-        for(int x=2; x<=11; x++) for(int z=1; z<11; z++) head->volume->setVoxel(x, 11, z, hairColor);
-        for(int ey : {9,10,11}) for(int ez : {3,4,5,6,7,8}) {
-            head->volume->setVoxel(1,  ey, ez, hairColor);
-            head->volume->setVoxel(12, ey, ez, hairColor);
+    // --- Hair: physical voxels. Core top = y11, raised layers y12-14. ---
+    // x coords are in the 14-wide volume (core x=1..12).
+    switch (hairStyle) {
+        case 1: { // Crew Cut: tight scalp cap
+            for(int x=3; x<=10; x++) for(int z=2; z<=9; z++)
+                head->volume->setVoxel(x, 11, z, hairColor);
+            for(int y=9; y<=11; y++) for(int z=2; z<=9; z++) {
+                head->volume->setVoxel(2,  y, z, hairColor);
+                head->volume->setVoxel(11, y, z, hairColor);
+            }
+            break;
         }
-        for(int x=2; x<=11; x++) head->volume->setVoxel(x, 10, 11, hairColor);
-    } else if (hairStyle == 2) { // Long/Flowing
-        for(int x=1; x<=12; x++) for(int z=0; z<12; z++) head->volume->setVoxel(x, 11, z, hairColor);
-        for(int ey=0; ey<11; ey++) for(int ez=0; ez<12; ez++) {
-            head->volume->setVoxel(1,  ey, ez, hairColor);
-            head->volume->setVoxel(12, ey, ez, hairColor);
+        case 2: { // Messy Short: full cap + raised clumps
+            for(int x=2; x<=11; x++) for(int z=1; z<=10; z++)
+                head->volume->setVoxel(x, 11, z, hairColor);
+            // Irregular raised clumps at y=12
+            for(int x=3; x<=10; x+=2) for(int z=2; z<=9; z+=3)
+                head->volume->setVoxel(x, 12, z, hairColor);
+            for(int x=4; x<=9; x+=3) for(int z=4; z<=7; z+=2)
+                head->volume->setVoxel(x, 12, z, hairColor);
+            break;
         }
-        for(int x=1; x<=12; x++) for(int y=0; y<11; y++) head->volume->setVoxel(x, y, 0, hairColor);
-    } else if (hairStyle == 3) { // Mohawk: narrow center strip
-        for(int z=0; z<12; z++) {
-            head->volume->setVoxel(6, 11, z, hairColor);
-            head->volume->setVoxel(7, 11, z, hairColor);
-        }
-        for(int z=8; z<12; z++) {
-            head->volume->setVoxel(5, 11, z, hairColor);
-            head->volume->setVoxel(8, 11, z, hairColor);
-        }
-    } else if (hairStyle == 4) { // Spiky
-        for(int x=1; x<=12; x++) for(int z=0; z<12; z++) {
-            if ((x + z) % 2 == 0) head->volume->setVoxel(x, 11, z, hairColor);
-        }
-        for(int x=2; x<=11; x+=2) head->volume->setVoxel(x, 10, 11, hairColor);
-    } else if (hairStyle == 5) { // Bob/Rounded
-        for(int x=1; x<=12; x++) for(int z=0; z<12; z++) head->volume->setVoxel(x, 11, z, hairColor);
-        for(int y=7; y<11; y++) {
-            for(int x=1; x<=12; x++) head->volume->setVoxel(x, y, 0, hairColor);
+        case 3: { // Mohawk: tall fin tapering toward front and back
             for(int z=0; z<12; z++) {
+                head->volume->setVoxel(6, 11, z, hairColor);
+                head->volume->setVoxel(7, 11, z, hairColor);
+            }
+            for(int z=1; z<=10; z++) {
+                head->volume->setVoxel(6, 12, z, hairColor);
+                head->volume->setVoxel(7, 12, z, hairColor);
+            }
+            for(int z=2; z<=9; z++) {
+                head->volume->setVoxel(6, 13, z, hairColor);
+                head->volume->setVoxel(7, 13, z, hairColor);
+            }
+            for(int z=3; z<=8; z++) {
+                head->volume->setVoxel(6, 14, z, hairColor);
+                head->volume->setVoxel(7, 14, z, hairColor);
+            }
+            break;
+        }
+        case 4: { // Spiky: base cap + individual spike towers
+            for(int x=2; x<=11; x++) for(int z=1; z<=10; z++)
+                head->volume->setVoxel(x, 11, z, hairColor);
+            // 3×3 grid of spikes; every other one is taller
+            static const int sx[] = {3,6,9, 3,6,9, 3,6,9};
+            static const int sz[] = {2,2,2, 5,5,5, 8,8,8};
+            for(int i=0; i<9; i++) {
+                head->volume->setVoxel(sx[i], 12, sz[i], hairColor);
+                if (i % 2 == 0)
+                    head->volume->setVoxel(sx[i], 13, sz[i], hairColor);
+            }
+            break;
+        }
+        case 5: { // Side Swept: volume swept to one side + fringe
+            for(int x=2; x<=11; x++) for(int z=1; z<=10; z++)
+                head->volume->setVoxel(x, 11, z, hairColor);
+            // Raised volume on right side
+            for(int x=8; x<=11; x++) for(int z=3; z<=8; z++)
+                head->volume->setVoxel(x, 12, z, hairColor);
+            // Front fringe sweeping right
+            for(int x=3; x<=10; x++) head->volume->setVoxel(x, 10, 11, hairColor);
+            // Right-side flow
+            for(int y=5; y<=11; y++) for(int z=2; z<=9; z++)
+                head->volume->setVoxel(12, y, z, hairColor);
+            break;
+        }
+        case 6: { // Bob: jaw-length curtains framing face
+            for(int x=1; x<=12; x++) for(int z=1; z<=10; z++)
+                head->volume->setVoxel(x, 11, z, hairColor);
+            for(int y=3; y<=11; y++) for(int z=1; z<=9; z++) {
                 head->volume->setVoxel(1,  y, z, hairColor);
                 head->volume->setVoxel(12, y, z, hairColor);
             }
+            for(int x=2; x<=11; x++) for(int y=4; y<=10; y++)
+                head->volume->setVoxel(x, y, 0, hairColor);
+            for(int x=3; x<=10; x++) {
+                head->volume->setVoxel(x, 10, 11, hairColor);
+                head->volume->setVoxel(x,  9, 11, hairColor);
+            }
+            break;
         }
-        for(int x=2; x<=11; x++) head->volume->setVoxel(x, 10, 11, hairColor);
+        case 7: { // Long Straight: cascades fully down sides and back
+            for(int x=1; x<=12; x++) for(int z=0; z<=11; z++)
+                head->volume->setVoxel(x, 11, z, hairColor);
+            for(int y=0; y<=11; y++) for(int z=0; z<=10; z++) {
+                head->volume->setVoxel(1,  y, z, hairColor);
+                head->volume->setVoxel(12, y, z, hairColor);
+            }
+            for(int x=2; x<=11; x++) for(int y=0; y<=10; y++)
+                head->volume->setVoxel(x, y, 0, hairColor);
+            for(int x=3; x<=10; x++) head->volume->setVoxel(x, 10, 11, hairColor);
+            break;
+        }
+        case 8: { // Wavy Long: long with layered wave bumps
+            for(int x=1; x<=12; x++) for(int z=0; z<=11; z++)
+                head->volume->setVoxel(x, 11, z, hairColor);
+            for(int y=0; y<=11; y++) for(int z=0; z<=10; z++) {
+                head->volume->setVoxel(1,  y, z, hairColor);
+                head->volume->setVoxel(12, y, z, hairColor);
+            }
+            for(int x=2; x<=11; x++) for(int y=0; y<=10; y++)
+                head->volume->setVoxel(x, y, 0, hairColor);
+            // Wave bumps at y=12 across the crown
+            for(int x=3; x<=10; x+=2) for(int z : {2, 5, 8})
+                head->volume->setVoxel(x, 12, z, hairColor);
+            for(int x=3; x<=10; x++) head->volume->setVoxel(x, 10, 11, hairColor);
+            break;
+        }
+        case 9: { // Bun: compact tiered dome on top
+            for(int x=3; x<=10; x++) for(int z=2; z<=9; z++)
+                head->volume->setVoxel(x, 11, z, hairColor);
+            for(int x=5; x<=8; x++) for(int z=4; z<=7; z++) {
+                head->volume->setVoxel(x, 12, z, hairColor);
+                head->volume->setVoxel(x, 13, z, hairColor);
+            }
+            for(int x=6; x<=7; x++) for(int z=5; z<=6; z++)
+                head->volume->setVoxel(x, 14, z, hairColor);
+            break;
+        }
+        case 10: { // Pigtails: two side bunches
+            for(int x=2; x<=11; x++) for(int z=1; z<=10; z++)
+                head->volume->setVoxel(x, 11, z, hairColor);
+            for(int y=5; y<=10; y++) for(int z=3; z<=8; z++) {
+                head->volume->setVoxel(0,  y, z, hairColor);
+                head->volume->setVoxel(13, y, z, hairColor);
+            }
+            for(int y=6; y<=9; y++) for(int z=4; z<=7; z++) {
+                head->volume->setVoxel(1,  y, z, hairColor);
+                head->volume->setVoxel(12, y, z, hairColor);
+            }
+            break;
+        }
+        case 11: { // Braided: top + alternating braid down back
+            for(int x=2; x<=11; x++) for(int z=1; z<=10; z++)
+                head->volume->setVoxel(x, 11, z, hairColor);
+            for(int y=4; y<=11; y++) for(int z=1; z<=9; z++) {
+                head->volume->setVoxel(1,  y, z, hairColor);
+                head->volume->setVoxel(12, y, z, hairColor);
+            }
+            for(int y=0; y<=10; y++) {
+                bool odd = (y % 2 != 0);
+                int bx1 = odd ? 5 : 7, bx2 = odd ? 6 : 8;
+                head->volume->setVoxel(bx1, y, 0, hairColor);
+                head->volume->setVoxel(bx2, y, 0, hairColor);
+                head->volume->setVoxel(bx1, y, 1, hairColor);
+                head->volume->setVoxel(bx2, y, 1, hairColor);
+            }
+            break;
+        }
+        default: break; // Bald
     }
 
     // --- Eyes: 2×2 blocks on front face z=11 (x shifted by 1 vs old 12-wide head) ---

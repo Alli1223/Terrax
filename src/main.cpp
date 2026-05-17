@@ -45,6 +45,7 @@ bool           g_wasEditorClick = false;
 bool           g_isEditorRotating = false;
 double         g_lastEditorX = 0, g_lastEditorY = 0;
 glm::vec4      g_editorColor = glm::vec4(1.0f);
+float          g_camDist = 10.0f; // Default zoom
 enum class EditorTool { Paint, Add, Erase };
 EditorTool     g_editorTool = EditorTool::Paint;
 NetworkServer* g_server = nullptr;
@@ -203,38 +204,6 @@ glm::vec3 resolveCollision(const glm::vec3& pos, const World& w) {
     return p;
 }
 
-// --- Remote Players Rendering ---
-void renderRemotePlayers(Shader& charShader, float sunFactor, const glm::vec3& skyAmbient, const glm::vec3& eyePos, const glm::mat4& view, const glm::mat4& proj) {
-    charShader.use();
-    charShader.setMat4("view", view);
-    charShader.setMat4("projection", proj);
-    charShader.setVec3("lightDir", glm::vec3(0.5f, 1.0f, 0.3f)); // Simplified for now
-    charShader.setVec3("lightColor", glm::vec3(sunFactor));
-    charShader.setVec3("skyAmbient", skyAmbient * 0.5f);
-
-    GLuint modelLoc = glGetUniformLocation(charShader.id, "model");
-for (auto& [id, p] : g_remotePlayers) {
-    if (!p.rig) {
-        p.rig = new BipedalRig();
-        p.rig->setupDefaultHuman(true);
-    }
-
-    float lerpFactor = 10.0f * deltaTime;
-    glm::vec3 lastPos = p.position;
-    p.position = glm::mix(p.position, p.targetPosition, std::min(1.0f, lerpFactor));
-    p.pitch = glm::mix(p.pitch, p.targetPitch, std::min(1.0f, lerpFactor));
-    p.yaw = glm::mix(p.yaw, p.targetYaw, std::min(1.0f, lerpFactor));
-
-    float velocity = glm::length(p.position - lastPos) / (deltaTime > 0 ? deltaTime : 1.0f);
-    p.rig->update(deltaTime, std::min(velocity, 10.0f));
-
-    glm::mat4 model = glm::translate(glm::mat4(1.0f), p.position);
-    model = glm::rotate(model, glm::radians(-p.yaw + 90.0f), glm::vec3(0, 1, 0));
-        
-        p.rig->draw(model, modelLoc);
-    }
-}
-
 // --- GLFW callbacks ---
 void framebuffer_size_callback(GLFWwindow*, int w, int h) {
     glViewport(0, 0, w, h);
@@ -269,6 +238,12 @@ void mouse_button_callback(GLFWwindow*, int button, int action, int) {
             }
         }
     }
+}
+
+void scroll_callback(GLFWwindow*, double, double yoffset) {
+    if (ImGui::GetIO().WantCaptureMouse) return;
+    g_camDist -= (float)yoffset;
+    g_camDist = std::clamp(g_camDist, 2.0f, 20.0f);
 }
 
 void key_callback(GLFWwindow* window, int key, int, int action, int) {
@@ -317,12 +292,96 @@ void runServer() {
     }
 }
 
+void setupFantasyStyle() {
+    ImGuiStyle& style = ImGui::GetStyle();
+    ImVec4* colors = style.Colors;
+
+    // --- Fantasy Palette ---
+    // Backgrounds: Deep Mahogany / Old Wood
+    ImVec4 bg_base        = ImVec4(0.15f, 0.08f, 0.05f, 1.00f);
+    ImVec4 bg_mid         = ImVec4(0.22f, 0.12f, 0.08f, 1.00f);
+    // Accents: Burnished Gold / Brass
+    ImVec4 gold_bright    = ImVec4(0.85f, 0.65f, 0.25f, 1.00f);
+    ImVec4 gold_dim       = ImVec4(0.60f, 0.45f, 0.15f, 1.00f);
+    // Text: Parchment / Old Paper
+    ImVec4 parchment      = ImVec4(0.92f, 0.85f, 0.75f, 1.00f);
+    ImVec4 parchment_dim  = ImVec4(0.70f, 0.65f, 0.55f, 1.00f);
+
+    colors[ImGuiCol_Text]                   = parchment;
+    colors[ImGuiCol_TextDisabled]           = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
+    colors[ImGuiCol_WindowBg]               = bg_base;
+    colors[ImGuiCol_ChildBg]                = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+    colors[ImGuiCol_PopupBg]                = bg_base;
+    colors[ImGuiCol_Border]                 = gold_dim;
+    colors[ImGuiCol_BorderShadow]           = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+    colors[ImGuiCol_FrameBg]                = bg_mid;
+    colors[ImGuiCol_FrameBgHovered]         = ImVec4(0.30f, 0.18f, 0.12f, 1.00f);
+    colors[ImGuiCol_FrameBgActive]          = ImVec4(0.35f, 0.22f, 0.15f, 1.00f);
+    colors[ImGuiCol_TitleBg]                = bg_base;
+    colors[ImGuiCol_TitleBgActive]          = bg_mid;
+    colors[ImGuiCol_TitleBgCollapsed]       = bg_base;
+    colors[ImGuiCol_MenuBarBg]              = bg_base;
+    colors[ImGuiCol_ScrollbarBg]            = bg_base;
+    colors[ImGuiCol_ScrollbarGrab]          = gold_dim;
+    colors[ImGuiCol_ScrollbarGrabHovered]   = gold_bright;
+    colors[ImGuiCol_ScrollbarGrabActive]    = gold_bright;
+    colors[ImGuiCol_CheckMark]              = gold_bright;
+    colors[ImGuiCol_SliderGrab]             = gold_dim;
+    colors[ImGuiCol_SliderGrabActive]       = gold_bright;
+    colors[ImGuiCol_Button]                 = bg_mid;
+    colors[ImGuiCol_ButtonHovered]          = ImVec4(0.40f, 0.25f, 0.15f, 1.00f);
+    colors[ImGuiCol_ButtonActive]           = gold_dim;
+    colors[ImGuiCol_Header]                 = bg_mid;
+    colors[ImGuiCol_HeaderHovered]          = ImVec4(0.35f, 0.20f, 0.12f, 1.00f);
+    colors[ImGuiCol_HeaderActive]           = gold_dim;
+    colors[ImGuiCol_Separator]              = gold_dim;
+    colors[ImGuiCol_SeparatorHovered]       = gold_bright;
+    colors[ImGuiCol_SeparatorActive]        = gold_bright;
+    colors[ImGuiCol_ResizeGrip]             = gold_dim;
+    colors[ImGuiCol_ResizeGripHovered]      = gold_bright;
+    colors[ImGuiCol_ResizeGripActive]       = gold_bright;
+    colors[ImGuiCol_Tab]                    = bg_base;
+    colors[ImGuiCol_TabHovered]             = bg_mid;
+    colors[ImGuiCol_TabActive]              = bg_mid;
+    colors[ImGuiCol_TabUnfocused]           = bg_base;
+    colors[ImGuiCol_TabUnfocusedActive]     = bg_mid;
+    colors[ImGuiCol_PlotLines]              = gold_bright;
+    colors[ImGuiCol_PlotLinesHovered]       = parchment;
+    colors[ImGuiCol_PlotHistogram]          = gold_bright;
+    colors[ImGuiCol_PlotHistogramHovered]   = parchment;
+    colors[ImGuiCol_TextSelectedBg]         = ImVec4(0.45f, 0.30f, 0.15f, 1.00f);
+    colors[ImGuiCol_DragDropTarget]         = gold_bright;
+    colors[ImGuiCol_NavHighlight]           = gold_bright;
+    colors[ImGuiCol_NavWindowingHighlight]  = gold_bright;
+    colors[ImGuiCol_NavWindowingDimBg]      = ImVec4(0.80f, 0.80f, 0.80f, 0.20f);
+    colors[ImGuiCol_ModalWindowDimBg]       = ImVec4(0.20f, 0.15f, 0.10f, 0.60f);
+
+    // --- Style Vars ---
+    style.WindowPadding     = ImVec2(12, 12);
+    style.FramePadding      = ImVec2(8, 6);
+    style.ItemSpacing       = ImVec2(10, 8);
+    style.IndentSpacing     = 25.0f;
+    style.ScrollbarSize     = 15.0f;
+    style.ScrollbarRounding = 9.0f;
+    style.GrabMinSize       = 12.0f;
+    style.WindowRounding    = 8.0f;
+    style.ChildRounding     = 6.0f;
+    style.FrameRounding     = 4.0f;
+    style.PopupRounding     = 6.0f;
+    style.TabRounding       = 4.0f;
+    style.WindowTitleAlign  = ImVec2(0.5f, 0.5f);
+    style.WindowBorderSize  = 2.0f;
+    style.FrameBorderSize   = 1.0f;
+}
+
 void initImGui(GLFWwindow* window) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    ImGui::StyleColorsDark();
+    
+    setupFantasyStyle();
+
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
 }
@@ -375,6 +434,7 @@ int main(int argc, char** argv) {
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     glfwSetCursorPosCallback(window, mouse_callback);
     glfwSetMouseButtonCallback(window, mouse_button_callback);
+    glfwSetScrollCallback(window, scroll_callback);
     glfwSetKeyCallback(window, key_callback);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
     glfwSwapInterval(0);
@@ -431,9 +491,10 @@ int main(int argc, char** argv) {
             // Build model matrix from manual rotation
             glm::mat4 model = glm::rotate(glm::mat4(1.0f), glm::radians(g_editorRotY), glm::vec3(0, 1, 0));
             model = glm::rotate(model, glm::radians(g_editorRotX), glm::vec3(1, 0, 0));
+            model = glm::scale(model, glm::vec3(0.06f)); // Scale character to fit world units
 
-            // Camera looks at center of character (height ~23)
-            glm::mat4 view = glm::lookAt(glm::vec3(0, 25, 70), glm::vec3(0, 20, 0), glm::vec3(0, 1, 0));
+            // Camera looks at center of character (height ~1.0 world units)
+            glm::mat4 view = glm::lookAt(glm::vec3(0, 1.5, 4), glm::vec3(0, 1.0, 0), glm::vec3(0, 1, 0));
 
             charShader.use();
             charShader.setMat4("projection", proj);
@@ -456,20 +517,26 @@ int main(int argc, char** argv) {
             }
             
             if (ImGui::CollapsingHeader("Face Features", ImGuiTreeNodeFlags_DefaultOpen)) {
-                if (ImGui::Combo("Hair Style", &g_localPlayerRig->hairStyle, "Bald\0Short\0Long\0")) {
+                if (ImGui::Combo("Hair Style", &g_localPlayerRig->hairStyle, "Bald\0Short\0Long\0Mohawk\0Spiky\0Bob\0")) {
                     g_localPlayerRig->applyCustomization();
                 }
-                float hCol[4] = {g_localPlayerRig->hairColor.r/255.0f, g_localPlayerRig->hairColor.g/255.0f, g_localPlayerRig->hairColor.b/255.0f, 1.0f};
+                float hCol[3] = {g_localPlayerRig->hairColor.r/255.0f, g_localPlayerRig->hairColor.g/255.0f, g_localPlayerRig->hairColor.b/255.0f};
                 if (ImGui::ColorEdit3("Hair Color", hCol)) {
                     g_localPlayerRig->hairColor = {(uint8_t)(hCol[0]*255), (uint8_t)(hCol[1]*255), (uint8_t)(hCol[2]*255), 255};
                     g_localPlayerRig->applyCustomization();
                 }
-                float eCol[4] = {g_localPlayerRig->eyeColor.r/255.0f, g_localPlayerRig->eyeColor.g/255.0f, g_localPlayerRig->eyeColor.b/255.0f, 1.0f};
+                if (ImGui::Combo("Eyebrow Style", &g_localPlayerRig->eyebrowStyle, "Straight\0Arched\0Thick\0Thin\0Furrowed\0")) {
+                    g_localPlayerRig->applyCustomization();
+                }
+                float eCol[3] = {g_localPlayerRig->eyeColor.r/255.0f, g_localPlayerRig->eyeColor.g/255.0f, g_localPlayerRig->eyeColor.b/255.0f};
                 if (ImGui::ColorEdit3("Eye Color", eCol)) {
                     g_localPlayerRig->eyeColor = {(uint8_t)(eCol[0]*255), (uint8_t)(eCol[1]*255), (uint8_t)(eCol[2]*255), 255};
                     g_localPlayerRig->applyCustomization();
                 }
-                if (ImGui::Combo("Ear Type", &g_localPlayerRig->earType, "None\0Human\0Elven\0")) {
+                if (ImGui::Combo("Nose Style", &g_localPlayerRig->noseStyle, "Button\0Wide\0Narrow\0Upturned\0Broad\0")) {
+                    g_localPlayerRig->applyCustomization();
+                }
+                if (ImGui::Combo("Ear Type", &g_localPlayerRig->earType, "None\0Human\0Elven\0Rounded\0Wide\0")) {
                     g_localPlayerRig->applyCustomization();
                 }
                 if (ImGui::Combo("Armor Set", &g_localPlayerRig->armorType, "None\0Cloth\0Leather\0Heavy\0")) {
@@ -624,8 +691,7 @@ int main(int argc, char** argv) {
                 glm::mat4 proj = glm::perspective(glm::radians(camera.fov), aspect, 0.1f, 1000.0f);
                 
                 // Third-person camera matrix
-                float camDist = 5.0f;
-                glm::vec3 eyePos = camera.position + glm::vec3(0, 1.6f, 0) - (camera.front * camDist);
+                glm::vec3 eyePos = camera.position + glm::vec3(0, 1.6f, 0) - (camera.front * g_camDist);
                 glm::mat4 view = glm::lookAt(eyePos, camera.position + glm::vec3(0, 1.2f, 0), camera.worldUp);
                 
                 float sunY = sunElevation(gameTime);
@@ -660,16 +726,45 @@ int main(int argc, char** argv) {
                     chunkShader.setVec3("camPos", eyePos);
                     clientWorld.drawAll();
                     
-                    // Render local player in third-person
+                    // Render players using charShader
+                    charShader.use();
+                    charShader.setMat4("view", view);
+                    charShader.setMat4("projection", proj);
+                    charShader.setVec3("lightDir", glm::vec3(0.5f, 1.0f, 0.3f));
+                    charShader.setVec3("lightColor", glm::vec3(sunFactor));
+                    charShader.setVec3("skyAmbient", skyAmbient * 0.5f);
+                    GLuint modelLoc = glGetUniformLocation(charShader.id, "model");
+
+                    // Local Player
                     if (g_localPlayerRig) {
                         float velocity = glm::length(camera.velocity);
                         g_localPlayerRig->update(deltaTime, std::min(velocity * 0.5f, 5.0f));
                         glm::mat4 playerM = glm::translate(glm::mat4(1.0f), camera.position);
                         playerM = glm::rotate(playerM, glm::radians(-camera.yaw + 90.0f), glm::vec3(0, 1, 0));
-                        g_localPlayerRig->draw(playerM, glGetUniformLocation(charShader.id, "model"));
+                        playerM = glm::scale(playerM, glm::vec3(0.06f));
+                        g_localPlayerRig->draw(playerM, modelLoc);
                     }
                     
-                    renderRemotePlayers(charShader, sunFactor, skyAmbient, eyePos, view, proj);
+                    // Remote Players
+                    for (auto& [id, p] : g_remotePlayers) {
+                        if (!p.rig) {
+                            p.rig = new BipedalRig();
+                            p.rig->setupDefaultHuman(true);
+                        }
+                        float lerpFactor = 10.0f * deltaTime;
+                        glm::vec3 lastPos = p.position;
+                        p.position = glm::mix(p.position, p.targetPosition, std::min(1.0f, lerpFactor));
+                        p.pitch = glm::mix(p.pitch, p.targetPitch, std::min(1.0f, lerpFactor));
+                        p.yaw = glm::mix(p.yaw, p.targetYaw, std::min(1.0f, lerpFactor));
+
+                        float velocity = glm::length(p.position - lastPos) / (deltaTime > 0 ? deltaTime : 1.0f);
+                        p.rig->update(deltaTime, std::min(velocity, 10.0f));
+
+                        glm::mat4 playerM = glm::translate(glm::mat4(1.0f), p.position);
+                        playerM = glm::rotate(playerM, glm::radians(-p.yaw + 90.0f), glm::vec3(0, 1, 0));
+                        playerM = glm::scale(playerM, glm::vec3(0.06f));
+                        p.rig->draw(playerM, modelLoc);
+                    }
                 }
                 {
                     glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);

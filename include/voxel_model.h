@@ -138,11 +138,13 @@ public:
     float animTime = 0.0f;
 
     // Customization state
-    int hairStyle = 0;
-    Voxel hairColor = {60, 40, 20, 255};
-    Voxel eyeColor = {0, 0, 0, 255};
-    int earType = 0; // 0=None, 1=Human, 2=Elven
-    int armorType = 0; // 0=None, 1=Cloth, 2=Leather, 3=Heavy
+    int hairStyle    = 0; // 0=Bald, 1=Short, 2=Long, 3=Mohawk, 4=Spiky, 5=Bob
+    Voxel hairColor  = {60, 40, 20, 255};
+    Voxel eyeColor   = {0, 0, 0, 255};
+    int earType      = 0; // 0=None, 1=Human, 2=Elven, 3=Rounded, 4=Wide
+    int noseStyle    = 0; // 0=Button, 1=Wide, 2=Narrow, 3=Upturned, 4=Broad
+    int eyebrowStyle = 0; // 0=Straight, 1=Arched, 2=Thick, 3=Thin, 4=Furrowed
+    int armorType    = 0; // 0=None, 1=Cloth, 2=Leather, 3=Heavy
 
     BipedalRig();
     void setupDefaultHuman(bool male);

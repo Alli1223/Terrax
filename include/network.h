@@ -9,6 +9,7 @@
 #include <unordered_set>
 #include <glm/glm.hpp>
 #include "world.h"
+#include "voxel_model.h"
 
 using boost::asio::ip::tcp;
 using boost::asio::ip::udp;
@@ -81,6 +82,7 @@ struct RemotePlayer {
     float pitch, yaw;
     float targetPitch, targetYaw;
     double lastUpdate;
+    BipedalRig* rig = nullptr;
 };
 
 class NetworkServer {

@@ -16,6 +16,18 @@
 #include "shader.h"
 #include "camera.h"
 #include "network.h"
+#include "voxel_model.h"
+
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_opengl3.h"
+
+// --- Enums ---
+enum class GameState {
+    MainMenu,
+    CharacterEditor,
+    Playing
+};
 
 // --- Config ---
 static constexpr int   WIDTH  = 1280;
@@ -26,6 +38,11 @@ static constexpr float PLAYER_HEIGHT = 1.8f;
 static constexpr float PLAYER_WIDTH  = 0.4f;
 
 // --- Globals ---
+GameState      g_state = GameState::MainMenu;
+BipedalRig*    g_localPlayerRig = nullptr;
+glm::vec4      g_editorColor = glm::vec4(1.0f);
+enum class EditorTool { Paint, Add, Erase };
+EditorTool     g_editorTool = EditorTool::Paint;
 NetworkServer* g_server = nullptr;
 NetworkClient* g_client = nullptr;
 std::unordered_map<uint32_t, RemotePlayer> g_remotePlayers;
@@ -183,53 +200,34 @@ glm::vec3 resolveCollision(const glm::vec3& pos, const World& w) {
 }
 
 // --- Remote Players Rendering ---
-void renderRemotePlayers(Shader& shader, float sunFactor, const glm::vec3& skyAmbient, const glm::vec3& eyePos, const glm::mat4& view, const glm::mat4& proj) {
-    static GLuint playerVAO = 0, playerVBO = 0;
-    if (playerVAO == 0) {
-        float hw = PLAYER_WIDTH / 2.0f;
-        float h  = PLAYER_HEIGHT;
-        float v[] = {
-            -hw, 0, -hw,  0,0,-1, 0,0, 3, 1, 1,   hw, 0, -hw,  0,0,-1, 1,0, 3, 1, 1,   hw, h, -hw,  0,0,-1, 1,1, 3, 1, 1,
-             hw, h, -hw,  0,0,-1, 1,1, 3, 1, 1,  -hw, h, -hw,  0,0,-1, 0,1, 3, 1, 1,  -hw, 0, -hw,  0,0,-1, 0,0, 3, 1, 1,
-            -hw, 0,  hw,  0,0, 1, 0,0, 3, 1, 1,   hw, 0,  hw,  0,0, 1, 1,0, 3, 1, 1,   hw, h,  hw,  0,0, 1, 1,1, 3, 1, 1,
-             hw, h,  hw,  0,0, 1, 1,1, 3, 1, 1,  -hw, h,  hw,  0,0, 1, 0,1, 3, 1, 1,  -hw, 0,  hw,  0,0, 1, 0,0, 3, 1, 1,
-            -hw, h,  hw, -1,0, 0, 1,0, 3, 1, 1,  -hw, h, -hw, -1,0, 0, 1,1, 3, 1, 1,  -hw, 0, -hw, -1,0, 0, 0,1, 3, 1, 1,
-            -hw, 0, -hw, -1,0, 0, 0,1, 3, 1, 1,  -hw, 0,  hw, -1,0, 0, 0,0, 3, 1, 1,  -hw, h,  hw, -1,0, 0, 1,0, 3, 1, 1,
-             hw, h,  hw,  1,0, 0, 1,0, 3, 1, 1,   hw, h, -hw,  1,0, 0, 1,1, 3, 1, 1,   hw, 0, -hw,  1,0, 0, 0,1, 3, 1, 1,
-             hw, 0, -hw,  1,0, 0, 0,1, 3, 1, 1,   hw, 0,  hw,  1,0, 0, 0,0, 3, 1, 1,   hw, h,  hw,  1,0, 0, 1,0, 3, 1, 1,
-            -hw, 0, -hw,  0,-1,0, 0,1, 3, 1, 1,   hw, 0, -hw,  0,-1,0, 1,1, 3, 1, 1,   hw, 0,  hw,  0,-1,0, 1,0, 3, 1, 1,
-             hw, 0,  hw,  0,-1,0, 1,0, 3, 1, 1,  -hw, 0,  hw,  0,-1,0, 0,0, 3, 1, 1,  -hw, 0, -hw,  0,-1,0, 0,1, 3, 1, 1,
-            -hw, h, -hw,  0, 1,0, 0,1, 3, 1, 1,   hw, h, -hw,  0, 1,0, 1,1, 3, 1, 1,   hw, h,  hw,  0, 1,0, 1,0, 3, 1, 1,
-             hw, h,  hw,  0, 1,0, 1,0, 3, 1, 1,  -hw, h,  hw,  0, 1,0, 0,0, 3, 1, 1,  -hw, h, -hw,  0, 1,0, 0,1, 3, 1, 1,
-        };
-        glGenVertexArrays(1, &playerVAO);
-        glGenBuffers(1, &playerVBO);
-        glBindVertexArray(playerVAO);
-        glBindBuffer(GL_ARRAY_BUFFER, playerVBO);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(v), v, GL_STATIC_DRAW);
-        for (int i=0; i<6; i++) {
-            glVertexAttribPointer(i, (i==0||i==1?3:i==2?2:1), GL_FLOAT, GL_FALSE, 11*sizeof(float), (void*)( (i==0?0:i==1?3:i==2?6:i==3?8:i==4?9:10) * sizeof(float)));
-            glEnableVertexAttribArray(i);
-        }
+void renderRemotePlayers(Shader& charShader, float sunFactor, const glm::vec3& skyAmbient, const glm::vec3& eyePos, const glm::mat4& view, const glm::mat4& proj) {
+    charShader.use();
+    charShader.setMat4("view", view);
+    charShader.setMat4("projection", proj);
+    charShader.setVec3("lightDir", glm::vec3(0.5f, 1.0f, 0.3f)); // Simplified for now
+    charShader.setVec3("lightColor", glm::vec3(sunFactor));
+    charShader.setVec3("skyAmbient", skyAmbient * 0.5f);
+
+    GLuint modelLoc = glGetUniformLocation(charShader.id, "model");
+for (auto& [id, p] : g_remotePlayers) {
+    if (!p.rig) {
+        p.rig = new BipedalRig();
+        p.rig->setupDefaultHuman(true);
     }
 
-    shader.use();
-    shader.setMat4("view", view);
-    shader.setMat4("projection", proj);
-    shader.setFloat("sunFactor", sunFactor);
-    shader.setVec3("skyAmbient", skyAmbient);
-    shader.setVec3("camPos", eyePos);
+    float lerpFactor = 10.0f * deltaTime;
+    glm::vec3 lastPos = p.position;
+    p.position = glm::mix(p.position, p.targetPosition, std::min(1.0f, lerpFactor));
+    p.pitch = glm::mix(p.pitch, p.targetPitch, std::min(1.0f, lerpFactor));
+    p.yaw = glm::mix(p.yaw, p.targetYaw, std::min(1.0f, lerpFactor));
 
-    for (auto& [id, p] : g_remotePlayers) {
-        float lerpFactor = 10.0f * deltaTime;
-        p.position = glm::mix(p.position, p.targetPosition, std::min(1.0f, lerpFactor));
-        p.pitch = glm::mix(p.pitch, p.targetPitch, std::min(1.0f, lerpFactor));
-        p.yaw = glm::mix(p.yaw, p.targetYaw, std::min(1.0f, lerpFactor));
+    float velocity = glm::length(p.position - lastPos) / (deltaTime > 0 ? deltaTime : 1.0f);
+    p.rig->update(deltaTime, std::min(velocity, 10.0f));
 
-        glm::mat4 model = glm::translate(glm::mat4(1.0f), p.position);
-        shader.setMat4("model", model);
-        glBindVertexArray(playerVAO);
-        glDrawArrays(GL_TRIANGLES, 0, 36);
+    glm::mat4 model = glm::translate(glm::mat4(1.0f), p.position);
+    model = glm::rotate(model, glm::radians(-p.yaw + 90.0f), glm::vec3(0, 1, 0));
+        
+        p.rig->draw(model, modelLoc);
     }
 }
 
@@ -239,6 +237,8 @@ void framebuffer_size_callback(GLFWwindow*, int w, int h) {
 }
 
 void mouse_callback(GLFWwindow*, double xpos, double ypos) {
+    if (ImGui::GetIO().WantCaptureMouse) return;
+    if (g_state != GameState::Playing && g_state != GameState::CharacterEditor) return;
     if (firstMouse) { lastX = xpos; lastY = ypos; firstMouse = false; }
     float xoff = (float)(xpos - lastX);
     float yoff = (float)(lastY - ypos);
@@ -247,6 +247,8 @@ void mouse_callback(GLFWwindow*, double xpos, double ypos) {
 }
 
 void mouse_button_callback(GLFWwindow*, int button, int action, int) {
+    if (ImGui::GetIO().WantCaptureMouse) return;
+    if (g_state != GameState::Playing) return;
     if (action != GLFW_PRESS || !g_client) return;
     glm::ivec3 hitBlock, hitNormal;
     if (clientWorld.raycast(camera.position + glm::vec3(0.0f, 1.6f, 0.0f),
@@ -266,7 +268,9 @@ void mouse_button_callback(GLFWwindow*, int button, int action, int) {
 }
 
 void key_callback(GLFWwindow* window, int key, int, int action, int) {
+    if (ImGui::GetIO().WantCaptureKeyboard) return;
     if (key == GLFW_KEY_ESCAPE) glfwSetWindowShouldClose(window, GLFW_TRUE);
+    if (g_state != GameState::Playing) return;
     if (key == GLFW_KEY_N && action == GLFW_PRESS) noclip = !noclip;
     if (key == GLFW_KEY_W) { if(action==GLFW_PRESS) keyFwd=1; else if(action==GLFW_RELEASE) keyFwd=0; }
     if (key == GLFW_KEY_S) { if(action==GLFW_PRESS) keyBack=1; else if(action==GLFW_RELEASE) keyBack=0; }
@@ -309,6 +313,40 @@ void runServer() {
     }
 }
 
+void initImGui(GLFWwindow* window) {
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    ImGui::StyleColorsDark();
+    ImGui_ImplGlfw_InitForOpenGL(window, true);
+    ImGui_ImplOpenGL3_Init("#version 330");
+}
+
+void renderMainMenu() {
+    ImGui::SetNextWindowPos(ImVec2(WIDTH/2 - 150, HEIGHT/2 - 100));
+    ImGui::SetNextWindowSize(ImVec2(300, 200));
+    ImGui::Begin("Main Menu", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove);
+    
+    ImGui::Text("TERRAX");
+    ImGui::Separator();
+    
+    if (ImGui::Button("Join Local Host", ImVec2(-1, 40))) {
+        // Assume host logic handled by --host or similar, but for now just transition
+        g_state = GameState::Playing;
+    }
+    
+    if (ImGui::Button("Character Editor", ImVec2(-1, 40))) {
+        g_state = GameState::CharacterEditor;
+    }
+    
+    if (ImGui::Button("Exit", ImVec2(-1, 40))) {
+        exit(0);
+    }
+    
+    ImGui::End();
+}
+
 int main(int argc, char** argv) {
     bool isServerOnly = false, isHost = false;
     for (int i = 1; i < argc; i++) {
@@ -339,130 +377,264 @@ int main(int argc, char** argv) {
     if (!gl_load()) { std::cerr << "Failed to load OpenGL functions\n"; return 1; }
     glEnable(GL_DEPTH_TEST); glEnable(GL_CULL_FACE); glCullFace(GL_BACK); glEnable(GL_MULTISAMPLE);
 
+    initImGui(window);
+
     Shader chunkShader("shaders/chunk.vert", "shaders/chunk.frag");
     Shader waterShader("shaders/water.vert", "shaders/water.frag");
     Shader skyShader("shaders/sky.vert", "shaders/sky.frag");
+    Shader charShader("shaders/char.vert", "shaders/char.frag");
     setupSkybox();
     GLuint atlasTexture = generateAtlas();
 
-    std::cout << "Connecting to server..." << std::endl;
-    g_client = new NetworkClient();
-    if (!g_client->connect("127.0.0.1", 12345)) { std::cerr << "Failed to connect to server\n"; return 1; }
-    clientWorld.onRequestChunk = [](int x, int z) {
-        ChunkRequestPacket p { x, z };
-        g_client->send(PacketType::ChunkRequest, &p, sizeof(p));
-    };
+    g_localPlayerRig = new BipedalRig();
+    g_localPlayerRig->setupDefaultHuman(true);
 
     noclip = true;
     camera.position = glm::vec3(8.5f, 42.0f, 8.5f);
     camera.pitch = -20.0f;
     camera.updateVectors();
 
+    bool clientInitialized = false;
+
     while (!glfwWindowShouldClose(window)) {
         float currentFrame = (float)glfwGetTime();
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
         deltaTime = std::min(deltaTime, 0.05f);
-        gameTime = fmodf(gameTime + deltaTime / DAY_CYCLE_SECONDS, 1.0f);
 
-        g_client->update(clientWorld, g_remotePlayers);
-        if (g_client->clientID != 0) {
-            static float posSendTimer = 0;
-            posSendTimer += deltaTime;
-            if (posSendTimer >= 0.05f) {
-                PlayerPosPacket p { g_client->clientID, camera.position.x, camera.position.y, camera.position.z, camera.pitch, camera.yaw };
-                g_client->sendUDP(&p, sizeof(p));
-                posSendTimer = 0;
+        glfwPollEvents();
+
+        // Start ImGui frame
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+
+        if (g_state == GameState::MainMenu) {
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+            glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            renderMainMenu();
+        } 
+        else if (g_state == GameState::CharacterEditor) {
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+            glClearColor(0.2f, 0.2f, 0.25f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            
+            int fbW, fbH; glfwGetFramebufferSize(window, &fbW, &fbH);
+            glViewport(0, 0, fbW, fbH);
+            glm::mat4 proj = glm::perspective(glm::radians(45.0f), fbW / (float)fbH, 0.1f, 1000.0f);
+            
+            // Rotation based on time for visualization
+            float rotY = (float)glfwGetTime() * 20.0f;
+            glm::mat4 view = glm::lookAt(glm::vec3(0, 35, 60), glm::vec3(0, 30, 0), glm::vec3(0, 1, 0));
+            glm::mat4 model = glm::rotate(glm::mat4(1.0f), glm::radians(rotY), glm::vec3(0, 1, 0));
+
+            charShader.use();
+            charShader.setMat4("projection", proj);
+            charShader.setMat4("view", view);
+            charShader.setVec3("lightDir", glm::vec3(0.5f, 1.0f, 0.3f));
+            charShader.setVec3("lightColor", glm::vec3(1.0f));
+            charShader.setVec3("skyAmbient", glm::vec3(0.2f));
+
+            g_localPlayerRig->update(deltaTime, 0.0f);
+            g_localPlayerRig->draw(model, glGetUniformLocation(charShader.id, "model"));
+
+            // ImGui Panels
+            ImGui::Begin("Character Editor");
+            if (ImGui::Button("Back to Menu", ImVec2(-1, 0))) g_state = GameState::MainMenu;
+            ImGui::Separator();
+
+            static int charType = 0; // 0=Male, 1=Female
+            if (ImGui::Combo("Character Type", &charType, "Human Male\0Human Female\0")) {
+                g_localPlayerRig->setupDefaultHuman(charType == 0);
+            }
+            
+            if (ImGui::CollapsingHeader("Face Features", ImGuiTreeNodeFlags_DefaultOpen)) {
+                if (ImGui::Combo("Hair Style", &g_localPlayerRig->hairStyle, "Bald\0Short\0Long\0")) {
+                    g_localPlayerRig->applyCustomization();
+                }
+                float hCol[4] = {g_localPlayerRig->hairColor.r/255.0f, g_localPlayerRig->hairColor.g/255.0f, g_localPlayerRig->hairColor.b/255.0f, 1.0f};
+                if (ImGui::ColorEdit3("Hair Color", hCol)) {
+                    g_localPlayerRig->hairColor = {(uint8_t)(hCol[0]*255), (uint8_t)(hCol[1]*255), (uint8_t)(hCol[2]*255), 255};
+                    g_localPlayerRig->applyCustomization();
+                }
+                float eCol[4] = {g_localPlayerRig->eyeColor.r/255.0f, g_localPlayerRig->eyeColor.g/255.0f, g_localPlayerRig->eyeColor.b/255.0f, 1.0f};
+                if (ImGui::ColorEdit3("Eye Color", eCol)) {
+                    g_localPlayerRig->eyeColor = {(uint8_t)(eCol[0]*255), (uint8_t)(eCol[1]*255), (uint8_t)(eCol[2]*255), 255};
+                    g_localPlayerRig->applyCustomization();
+                }
+                if (ImGui::Combo("Ear Type", &g_localPlayerRig->earType, "None\0Human\0Elven\0")) {
+                    g_localPlayerRig->applyCustomization();
+                }
+            }
+
+            ImGui::Separator();
+            ImGui::Text("Voxel Tools");
+            if (ImGui::RadioButton("Paint", g_editorTool == EditorTool::Paint)) g_editorTool = EditorTool::Paint;
+            if (ImGui::RadioButton("Add", g_editorTool == EditorTool::Add)) g_editorTool = EditorTool::Add;
+            if (ImGui::RadioButton("Erase", g_editorTool == EditorTool::Erase)) g_editorTool = EditorTool::Erase;
+            
+            ImGui::Separator();
+            ImGui::Text("Color");
+            ImGui::ColorPicker4("##picker", (float*)&g_editorColor);
+            
+            ImGui::Separator();
+            if (ImGui::Button("Save Model", ImVec2(-1, 0))) {
+                // Future Phase 4 save
+            }
+            
+            ImGui::End();
+
+            // Raycasting from mouse
+            if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS && !ImGui::GetIO().WantCaptureMouse) {
+                double mx, my; glfwGetCursorPos(window, &mx, &my);
+                glm::vec3 ro, rd;
+                // Calculate ray from screen
+                float x = (2.0f * (float)mx) / fbW - 1.0f;
+                float y = 1.0f - (2.0f * (float)my) / fbH;
+                glm::vec4 clipCoords(x, y, -1.0f, 1.0f);
+                glm::vec4 eyeCoords = glm::inverse(proj) * clipCoords;
+                eyeCoords.z = -1.0f; eyeCoords.w = 0.0f;
+                rd = glm::normalize(glm::vec3(glm::inverse(view) * eyeCoords));
+                ro = glm::vec3(glm::inverse(view) * glm::vec4(0, 0, 0, 1));
+
+                auto hit = g_localPlayerRig->raycast(ro, rd, model);
+                if (hit.node && hit.node->volume) {
+                    Voxel colorV = {(uint8_t)(g_editorColor.r*255), (uint8_t)(g_editorColor.g*255), (uint8_t)(g_editorColor.b*255), (uint8_t)(g_editorColor.a*255)};
+                    if (g_editorTool == EditorTool::Paint) {
+                        hit.node->volume->setVoxel(hit.voxel.x, hit.voxel.y, hit.voxel.z, colorV);
+                    } else if (g_editorTool == EditorTool::Add) {
+                        glm::ivec3 addPos = hit.voxel + hit.normal;
+                        hit.node->volume->setVoxel(addPos.x, addPos.y, addPos.z, colorV);
+                    } else if (g_editorTool == EditorTool::Erase) {
+                        hit.node->volume->setVoxel(hit.voxel.x, hit.voxel.y, hit.voxel.z, {0,0,0,0});
+                    }
+                    hit.node->volume->updateMesh();
+                }
+            }
+        }
+        else if (g_state == GameState::Playing) {
+            if (!clientInitialized) {
+                std::cout << "Connecting to server..." << std::endl;
+                g_client = new NetworkClient();
+                if (!g_client->connect("127.0.0.1", 12345)) {
+                    std::cerr << "Failed to connect to server\n";
+                    g_state = GameState::MainMenu;
+                } else {
+                    clientWorld.onRequestChunk = [](int x, int z) {
+                        ChunkRequestPacket p { x, z };
+                        g_client->send(PacketType::ChunkRequest, &p, sizeof(p));
+                    };
+                    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+                    clientInitialized = true;
+                }
+            }
+
+            if (clientInitialized) {
+                gameTime = fmodf(gameTime + deltaTime / DAY_CYCLE_SECONDS, 1.0f);
+
+                g_client->update(clientWorld, g_remotePlayers);
+                if (g_client->clientID != 0) {
+                    static float posSendTimer = 0;
+                    posSendTimer += deltaTime;
+                    if (posSendTimer >= 0.05f) {
+                        PlayerPosPacket p { g_client->clientID, camera.position.x, camera.position.y, camera.position.z, camera.pitch, camera.yaw };
+                        g_client->sendUDP(&p, sizeof(p));
+                        posSendTimer = 0;
+                    }
+                }
+
+                camera.processKeyboard(keyFwd - keyBack, keyRight - keyLeft, keyJump, deltaTime);
+                if (noclip) {
+                    glm::vec3 move(0);
+                    if (keyFwd) move += camera.front; if (keyBack) move -= camera.front;
+                    if (keyRight) move += camera.right; if (keyLeft) move -= camera.right;
+                    if (keyJump) move += camera.worldUp;
+                    if (glm::length(move) > 0.001f) move = glm::normalize(move);
+                    camera.position += move * 15.0f * deltaTime;
+                    camera.velocity = glm::vec3(0);
+                } else {
+                    camera.applyGravity(deltaTime);
+                    camera.position = resolveCollision(camera.position, clientWorld);
+                }
+
+                int pcx = (int)floorf(camera.position.x / (float)CHUNK_SIZE);
+                int pcz = (int)floorf(camera.position.z / (float)CHUNK_SIZE);
+                clientWorld.update(pcx, pcz);
+
+                int fbW, fbH; glfwGetFramebufferSize(window, &fbW, &fbH);
+                glViewport(0, 0, fbW, fbH);
+                float aspect = fbW / (float)fbH;
+                glm::mat4 proj = glm::perspective(glm::radians(camera.fov), aspect, 0.1f, 1000.0f);
+                glm::mat4 view = camera.getViewMatrix();
+                float sunY = sunElevation(gameTime);
+                float dayness = smoothstep(-0.12f, 0.22f, sunY);
+                float dawnDusk = smoothstep(-0.30f, 0.0f, sunY) * (1.0f - smoothstep(0.0f, 0.30f, sunY));
+                float sunFactor = 0.04f + 0.96f * dayness;
+                glm::vec3 dayAmb(0.70f, 0.84f, 1.00f), dawnAmb(1.00f, 0.58f, 0.24f), nightAmb(0.18f, 0.22f, 0.50f);
+                glm::vec3 skyAmbient = glm::mix(nightAmb, glm::mix(dayAmb, dawnAmb, dawnDusk), dayness);
+
+                glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+                {
+                    glDisable(GL_DEPTH_TEST); glDepthMask(GL_FALSE); glDisable(GL_CULL_FACE);
+                    skyShader.use();
+                    skyShader.setMat4("view", glm::mat4(glm::mat3(view)));
+                    skyShader.setMat4("projection", proj);
+                    skyShader.setFloat("timeOfDay", gameTime);
+                    skyShader.setFloat("time", currentFrame);
+                    glBindVertexArray(skyVAO); glDrawArrays(GL_TRIANGLES, 0, 36);
+                    glEnable(GL_DEPTH_TEST); glDepthMask(GL_TRUE); glEnable(GL_CULL_FACE);
+                }
+
+                glm::vec3 eyePos = camera.position + glm::vec3(0.0f, 1.6f, 0.0f);
+                {
+                    chunkShader.use();
+                    glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, atlasTexture);
+                    chunkShader.setInt("atlas", 0);
+                    chunkShader.setMat4("model", glm::mat4(1.0f));
+                    chunkShader.setMat4("view", view);
+                    chunkShader.setMat4("projection", proj);
+                    chunkShader.setFloat("sunFactor", sunFactor);
+                    chunkShader.setVec3("skyAmbient", skyAmbient);
+                    chunkShader.setVec3("camPos", eyePos);
+                    clientWorld.drawAll();
+                    renderRemotePlayers(charShader, sunFactor, skyAmbient, eyePos, view, proj);
+                }
+                {
+                    glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                    glDepthMask(GL_FALSE); glDisable(GL_CULL_FACE);
+                    waterShader.use();
+                    glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, atlasTexture);
+                    waterShader.setInt("atlas", 0);
+                    waterShader.setMat4("model", glm::mat4(1.0f));
+                    waterShader.setMat4("view", view);
+                    waterShader.setMat4("projection", proj);
+                    waterShader.setFloat("sunFactor", sunFactor);
+                    waterShader.setVec3("skyAmbient", skyAmbient);
+                    waterShader.setVec3("camPos", eyePos);
+                    waterShader.setFloat("time", currentFrame);
+                    waterShader.setFloat("timeOfDay", gameTime);
+                    clientWorld.drawAllWater();
+                    glDepthMask(GL_TRUE); glDisable(GL_BLEND); glEnable(GL_CULL_FACE);
+                }
+                {
+                    static int fpsCount = 0; static float fpsTimer = 0;
+                    fpsCount++; fpsTimer += deltaTime;
+                    if (fpsTimer >= 1.0f) {
+                        std::string title = "Terrax | FPS: " + std::to_string(fpsCount) + " | Chunks: " + std::to_string(clientWorld.chunks.size());
+                        glfwSetWindowTitle(window, title.c_str());
+                        fpsCount = 0; fpsTimer = 0;
+                    }
+                }
             }
         }
 
-        camera.processKeyboard(keyFwd - keyBack, keyRight - keyLeft, keyJump, deltaTime);
-        if (noclip) {
-            glm::vec3 move(0);
-            if (keyFwd)   move += camera.front;
-            if (keyBack)  move -= camera.front;
-            if (keyRight) move += camera.right;
-            if (keyLeft)  move -= camera.right;
-            if (keyJump)  move += camera.worldUp;
-            if (glm::length(move) > 0.001f) move = glm::normalize(move);
-            camera.position += move * 15.0f * deltaTime;
-            camera.velocity = glm::vec3(0);
-        } else {
-            camera.applyGravity(deltaTime);
-            camera.position = resolveCollision(camera.position, clientWorld);
-        }
+        // Render ImGui
+        ImGui::Render();
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
-        // Update chunks around player
-        int pcx = (int)floorf(camera.position.x / (float)CHUNK_SIZE);
-        int pcz = (int)floorf(camera.position.z / (float)CHUNK_SIZE);
-        clientWorld.update(pcx, pcz);
-
-        int fbW, fbH; glfwGetFramebufferSize(window, &fbW, &fbH);
-        glViewport(0, 0, fbW, fbH);
-        float aspect = fbW / (float)fbH;
-        glm::mat4 proj = glm::perspective(glm::radians(camera.fov), aspect, 0.1f, 1000.0f);
-        glm::mat4 view = camera.getViewMatrix();
-        float sunY = sunElevation(gameTime);
-        float dayness = smoothstep(-0.12f, 0.22f, sunY);
-        float dawnDusk = smoothstep(-0.30f, 0.0f, sunY) * (1.0f - smoothstep(0.0f, 0.30f, sunY));
-        float sunFactor = 0.04f + 0.96f * dayness;
-        glm::vec3 dayAmb(0.70f, 0.84f, 1.00f), dawnAmb(1.00f, 0.58f, 0.24f), nightAmb(0.18f, 0.22f, 0.50f);
-        glm::vec3 skyAmbient = glm::mix(nightAmb, glm::mix(dayAmb, dawnAmb, dawnDusk), dayness);
-
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        {
-            glDisable(GL_DEPTH_TEST); glDepthMask(GL_FALSE); glDisable(GL_CULL_FACE);
-            skyShader.use();
-            skyShader.setMat4("view", glm::mat4(glm::mat3(view)));
-            skyShader.setMat4("projection", proj);
-            skyShader.setFloat("timeOfDay", gameTime);
-            skyShader.setFloat("time", currentFrame);
-            glBindVertexArray(skyVAO); glDrawArrays(GL_TRIANGLES, 0, 36);
-            glEnable(GL_DEPTH_TEST); glDepthMask(GL_TRUE); glEnable(GL_CULL_FACE);
-        }
-
-        glm::vec3 eyePos = camera.position + glm::vec3(0.0f, 1.6f, 0.0f);
-        {
-            chunkShader.use();
-            glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, atlasTexture);
-            chunkShader.setInt("atlas", 0);
-            chunkShader.setMat4("model", glm::mat4(1.0f));
-            chunkShader.setMat4("view", view);
-            chunkShader.setMat4("projection", proj);
-            chunkShader.setFloat("sunFactor", sunFactor);
-            chunkShader.setVec3("skyAmbient", skyAmbient);
-            chunkShader.setVec3("camPos", eyePos);
-            clientWorld.drawAll();
-            renderRemotePlayers(chunkShader, sunFactor, skyAmbient, eyePos, view, proj);
-        }
-        {
-            glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            glDepthMask(GL_FALSE); glDisable(GL_CULL_FACE);
-            waterShader.use();
-            glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, atlasTexture);
-            waterShader.setInt("atlas", 0);
-            waterShader.setMat4("model", glm::mat4(1.0f));
-            waterShader.setMat4("view", view);
-            waterShader.setMat4("projection", proj);
-            waterShader.setFloat("sunFactor", sunFactor);
-            waterShader.setVec3("skyAmbient", skyAmbient);
-            waterShader.setVec3("camPos", eyePos);
-            waterShader.setFloat("time", currentFrame);
-            waterShader.setFloat("timeOfDay", gameTime);
-            clientWorld.drawAllWater();
-            glDepthMask(GL_TRUE); glDisable(GL_BLEND); glEnable(GL_CULL_FACE);
-        }
-        {
-            static int fpsCount = 0; static float fpsTimer = 0;
-            fpsCount++; fpsTimer += deltaTime;
-            if (fpsTimer >= 1.0f) {
-                std::string title = "Terrax | FPS: " + std::to_string(fpsCount) + " | Chunks: " + std::to_string(clientWorld.chunks.size());
-                glfwSetWindowTitle(window, title.c_str());
-                fpsCount = 0; fpsTimer = 0;
-            }
-        }
-        glfwSwapBuffers(window); glfwPollEvents();
+        glfwSwapBuffers(window);
     }
     glfwTerminate(); return 0;
 }

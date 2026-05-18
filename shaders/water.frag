@@ -55,7 +55,7 @@ void main() {
     vec3 shallowColor = vec3(0.05, 0.52, 0.62);
     vec3 crestColor   = vec3(0.20, 0.80, 0.86);
 
-    float wh          = clamp(WaveHeight / 0.80, -1.0, 1.0);   // ~[-1,1]
+    float wh          = clamp(WaveHeight / 1.84, -1.0, 1.0);   // ~[-1,1]
     float crestT      = smoothstep(0.20, 0.72, wh);
     vec3  waterBase   = mix(deepColor, shallowColor, 0.5 + 0.5 * wh);
     waterBase         = mix(waterBase, crestColor, crestT * 0.55);

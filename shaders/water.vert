@@ -6,6 +6,7 @@ layout(location = 2) in vec2  aTexCoord;
 layout(location = 3) in float aMaterialID;
 layout(location = 4) in float aSkyLight;
 layout(location = 5) in float aBlockLight;
+layout(location = 6) in float aShoreDistance;
 
 uniform mat4  model;
 uniform mat4  view;
@@ -22,7 +23,6 @@ out vec3  FaceNormal;
 out float WaveHeight;
 out vec4  v_reflClipPos;
 
-// Value noise for spatially-varying wave envelope
 float hashV(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float vnoise(vec2 p) {
     vec2 i = floor(p), f = fract(p);
@@ -35,42 +35,57 @@ void main() {
     vec3 pos = aPos;
 
     if (aNormal.y > 0.5) {
-        // 8 waves at varied irrational directions + speeds
-        // Each row: (kx, kz, omega, amplitude)
-        // Directions spread across 0-360° so wave fronts cancel/reinforce
-        float ph0 = pos.x * 0.620 + pos.z * 0.000 + time * 1.15;
-        float ph1 = pos.x * 0.000 + pos.z * 0.740 + time * 0.85;
-        float ph2 = pos.x * 0.340 + pos.z * 0.340 + time * 1.05;
-        float ph3 = pos.x * 0.715 - pos.z * 0.495 + time * 1.38;
-        float ph4 =-pos.x * 0.495 + pos.z * 0.715 + time * 0.93;
-        float ph5 = pos.x * 0.880 + pos.z * 0.420 + time * 1.62;
-        float ph6 =-pos.x * 0.310 + pos.z * 0.860 + time * 0.74;
-        float ph7 = pos.x * 0.460 - pos.z * 0.890 + time * 1.95;
+        // --- Group A: Ocean swells (long wavelength, dominant height) ---
+        float pa0 = pos.x * 0.110 + pos.z * 0.000  + time * 0.38;
+        float pa1 = pos.x * 0.000 + pos.z * 0.135  + time * 0.32;
+        float pa2 = pos.x * 0.078 + pos.z * 0.082  + time * 0.43;
+        float pa3 =-pos.x * 0.048 + pos.z * 0.112  + time * 0.36;
 
-        float h = sin(ph0)*0.28 + sin(ph1)*0.22 + sin(ph2)*0.16
-                + sin(ph3)*0.10 + sin(ph4)*0.10 + sin(ph5)*0.07
-                + sin(ph6)*0.08 + sin(ph7)*0.05;
+        // --- Group B: Mid-range chop ---
+        float pb0 = pos.x * 0.530 + pos.z * 0.185  + time * 1.05;
+        float pb1 =-pos.x * 0.245 + pos.z * 0.555  + time * 0.88;
+        float pb2 = pos.x * 0.375 - pos.z * 0.428  + time * 1.22;
 
-        float dhdx = cos(ph0)*0.620*0.28 + cos(ph1)*0.000*0.22
-                   + cos(ph2)*0.340*0.16 + cos(ph3)*0.715*0.10
-                   + cos(ph4)*(-0.495)*0.10 + cos(ph5)*0.880*0.07
-                   + cos(ph6)*(-0.310)*0.08 + cos(ph7)*0.460*0.05;
+        // --- Group C: Short surface ripple ---
+        float pc0 = pos.x * 1.340 + pos.z * 0.730  + time * 2.18;
+        float pc1 =-pos.x * 0.850 + pos.z * 1.470  + time * 1.92;
+        float pc2 = pos.x * 1.610 - pos.z * 0.550  + time * 2.52;
 
-        float dhdz = cos(ph0)*0.000*0.28 + cos(ph1)*0.740*0.22
-                   + cos(ph2)*0.340*0.16 + cos(ph3)*(-0.495)*0.10
-                   + cos(ph4)*0.715*0.10 + cos(ph5)*0.420*0.07
-                   + cos(ph6)*0.860*0.08 + cos(ph7)*(-0.890)*0.05;
+        // Independent envelopes per group — each drifts at a different speed/scale
+        // so patches of rough/calm water emerge at different spatial frequencies.
+        vec2  ep   = pos.xz * 0.052;
+        float envA = 0.32 + 0.68 * vnoise(ep * 0.55 + vec2(time *  0.013, time *  0.009));
+        float envB = 0.28 + 0.72 * vnoise(ep * 1.30 + vec2(time * -0.021, time *  0.027));
+        float envC = 0.38 + 0.62 * vnoise(ep * 2.60 + vec2(time *  0.034, time * -0.017));
 
-        // Spatially-varying envelope: creates calmer hollows and rougher swells
-        // Two noise octaves drifting at different speeds break up uniformity
-        vec2 ep = pos.xz * 0.065;
-        float env = 0.55
-                  + 0.28 * vnoise(ep + vec2(time * 0.022,  time * 0.016))
-                  + 0.17 * vnoise(ep * 2.3 + vec2(time * -0.031, time * 0.041));
+        float hA = (sin(pa0)*0.30 + sin(pa1)*0.25 + sin(pa2)*0.18 + sin(pa3)*0.14) * envA;
+        float hB = (sin(pb0)*0.12 + sin(pb1)*0.10 + sin(pb2)*0.08) * envB;
+        float hC = (sin(pc0)*0.048+ sin(pc1)*0.038+ sin(pc2)*0.028) * envC;
 
-        WaveHeight = h * env;
-        pos.y += WaveHeight;
-        WaveNorm = normalize(vec3(-dhdx * env, 1.0, -dhdz * env));
+        float h = hA + hB + hC;
+
+        // Shore attenuation + open-water amplitude boost.
+        float waveMask = smoothstep(0.0, 1.0, aShoreDistance) * 2.0;
+
+        h *= waveMask;
+
+        // Partial derivatives for normals (envelope treated as locally constant)
+        float dhdx =
+            envA*(cos(pa0)*0.110*0.30 + cos(pa2)*0.078*0.18 + cos(pa3)*(-0.048)*0.14) +
+            envB*(cos(pb0)*0.530*0.12 + cos(pb1)*(-0.245)*0.10 + cos(pb2)*0.375*0.08) +
+            envC*(cos(pc0)*1.340*0.048+ cos(pc1)*(-0.850)*0.038+ cos(pc2)*1.610*0.028);
+
+        float dhdz =
+            envA*(cos(pa1)*0.135*0.25 + cos(pa2)*0.082*0.18 + cos(pa3)*0.112*0.14) +
+            envB*(cos(pb0)*0.185*0.12 + cos(pb1)*0.555*0.10 + cos(pb2)*(-0.428)*0.08) +
+            envC*(cos(pc0)*0.730*0.048+ cos(pc1)*1.470*0.038+ cos(pc2)*(-0.550)*0.028);
+
+        dhdx *= waveMask;
+        dhdz *= waveMask;
+
+        WaveHeight = h;
+        pos.y     += h;
+        WaveNorm   = normalize(vec3(-dhdx, 1.0, -dhdz));
     } else {
         WaveHeight = 0.0;
         WaveNorm   = aNormal;

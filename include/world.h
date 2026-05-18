@@ -49,6 +49,7 @@ struct Vertex {
     float materialID;    // BlockType cast to float
     float skyLight;      // (skyLevel/15) * faceShadeFactor, baked at mesh time
     float blockLight;    // (blockLevel/15) * faceShadeFactor
+    float shoreDistance; // [0,1] distance to nearest land, used by water shader
 };
 
 struct ChunkPos {

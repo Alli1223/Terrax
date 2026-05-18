@@ -211,6 +211,25 @@ void Chunk::buildMesh(World* world) {
         return 0xF0; // unloaded neighbour: assume open sky
     };
 
+    // Shore distance sampled at an exact xz position so adjacent blocks' shared
+    // edge vertices always evaluate identically, preventing cracks at block seams.
+    auto shoreDistAt = [&](int vx, int vy, int vz) -> float {
+        const int R = 6;
+        int minDistSq = (R + 1) * (R + 1);
+        for (int dz2 = -R; dz2 <= R; dz2++) {
+            for (int dx2 = -R; dx2 <= R; dx2++) {
+                if (dx2 == 0 && dz2 == 0) continue;
+                int dSq = dx2*dx2 + dz2*dz2;
+                if (dSq >= minDistSq) continue;
+                BlockType nb = worldGet(vx + dx2, vy, vz + dz2);
+                if (nb != BlockType::Air && nb != BlockType::Water) { minDistSq = dSq; continue; }
+                nb = worldGet(vx + dx2, vy + 1, vz + dz2);
+                if (nb != BlockType::Air && nb != BlockType::Water) minDistSq = dSq;
+            }
+        }
+        return std::min(sqrtf((float)minDistSq) / (float)R, 1.0f);
+    };
+
     static const int   FDX[6] = {1,-1, 0, 0, 0, 0};
     static const int   FDY[6] = {0, 0, 1,-1, 0, 0};
     static const int   FDZ[6] = {0, 0, 0, 0, 1,-1};
@@ -267,11 +286,14 @@ void Chunk::buildMesh(World* world) {
 
                     Vertex quad[4];
                     for (int vi = 0; vi < 4; vi++) {
+                        float sd = (isWater && face == 2)
+                            ? shoreDistAt(wx + (int)FV[face][vi][0], y, wz + (int)FV[face][vi][2])
+                            : 0.0f;
                         quad[vi] = {
                             (float)wx + FV[face][vi][0], (float)y + FV[face][vi][1], (float)wz + FV[face][vi][2],
                             FNX[face], FNY[face], FNZ[face],
                             u0 + LU[vi] * (u1 - u0), v0 + LV[vi] * (v1 - v0),
-                            (float)bt, skyL, blockL
+                            (float)bt, skyL, blockL, sd
                         };
                     }
                     pushQuad(isWater ? wverts : verts, quad);
@@ -293,10 +315,10 @@ void Chunk::buildMesh(World* world) {
         float skyL, float blkL)
     {
         Vertex q[4];
-        q[0] = {x0,y0,z0, 0,1,0, fu0, fv0, 0, skyL, blkL};
-        q[1] = {x1,y1,z1, 0,1,0, fu0, fv1, 0, skyL, blkL};
-        q[2] = {x2,y2,z2, 0,1,0, fu1, fv1, 0, skyL, blkL};
-        q[3] = {x3,y3,z3, 0,1,0, fu1, fv0, 0, skyL, blkL};
+        q[0] = {x0,y0,z0, 0,1,0, fu0, fv0, 0, skyL, blkL, 0.0f};
+        q[1] = {x1,y1,z1, 0,1,0, fu0, fv1, 0, skyL, blkL, 0.0f};
+        q[2] = {x2,y2,z2, 0,1,0, fu1, fv1, 0, skyL, blkL, 0.0f};
+        q[3] = {x3,y3,z3, 0,1,0, fu1, fv0, 0, skyL, blkL, 0.0f};
         fverts.push_back(q[0]); fverts.push_back(q[1]); fverts.push_back(q[2]);
         fverts.push_back(q[0]); fverts.push_back(q[2]); fverts.push_back(q[3]);
     };
@@ -364,6 +386,8 @@ static void setupVertexAttribs() {
     glEnableVertexAttribArray(4);
     glVertexAttribPointer(5, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, blockLight));
     glEnableVertexAttribArray(5);
+    glVertexAttribPointer(6, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, shoreDistance));
+    glEnableVertexAttribArray(6);
 }
 
 void Chunk::uploadMesh() {

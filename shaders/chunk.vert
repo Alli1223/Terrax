@@ -10,16 +10,22 @@ layout(location = 5) in float aBlockLight;
 uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
+uniform mat4 lightSpaceMatrix;
 
 out vec2  TexCoord;
 out float SkyLight;
 out float BlockLight;
 out vec3  FragWorldPos;
+out vec3  FragNormal;
+out vec4  FragPosLightSpace;
 
 void main() {
-    TexCoord     = aTexCoord;
-    SkyLight     = aSkyLight;
-    BlockLight   = aBlockLight;
-    FragWorldPos = (model * vec4(aPos, 1.0)).xyz;
-    gl_Position  = projection * view * model * vec4(aPos, 1.0);
+    vec4 worldPos = model * vec4(aPos, 1.0);
+    TexCoord          = aTexCoord;
+    SkyLight          = aSkyLight;
+    BlockLight        = aBlockLight;
+    FragWorldPos      = worldPos.xyz;
+    FragNormal        = aNormal;
+    FragPosLightSpace = lightSpaceMatrix * worldPos;
+    gl_Position       = projection * view * worldPos;
 }

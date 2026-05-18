@@ -1,5 +1,5 @@
 CXX      := g++
-CXXFLAGS := -std=c++17 -O2 -Wall -Iinclude -Isrc -Ithird_party/imgui
+CXXFLAGS := -std=c++17 -O2 -Wall -Iinclude -Isrc -Ithird_party/imgui -MMD -MP
 LIBS     := -lGL -lglfw -lm -lpthread -ldl
 
 IMGUI_DIR := third_party/imgui
@@ -9,6 +9,9 @@ IMGUI_OBJS := $(IMGUI_SRCS:$(IMGUI_DIR)/%.cpp=build/imgui/%.o)
 
 SRCS := src/main.cpp src/shader.cpp src/camera.cpp src/world.cpp src/gl_loader.cpp src/atlas.cpp src/network.cpp src/voxel_model.cpp
 OBJS := $(SRCS:src/%.cpp=build/%.o)
+
+DEPS := $(OBJS:.o=.d) $(IMGUI_OBJS:.o=.d)
+-include $(DEPS)
 
 TARGET := terrax
 

@@ -1,10 +1,12 @@
 #pragma once
 #include "gl_loader.h"
 
-// Texture atlas layout: 4 columns × 4 rows, each tile is 64×64 px → 256×256 atlas.
-static constexpr int ATLAS_COLS = 4;
-static constexpr int TILE_PX    = 64;
-static constexpr int ATLAS_PX   = ATLAS_COLS * TILE_PX; // 256
+// Texture atlas layout: 4 columns × 5 rows, each tile 64×64 px → 256×320 atlas.
+static constexpr int ATLAS_COLS   = 4;
+static constexpr int ATLAS_ROWS   = 5;
+static constexpr int TILE_PX      = 64;
+static constexpr int ATLAS_PX     = ATLAS_COLS * TILE_PX; // 256 (width)
+static constexpr int ATLAS_HEIGHT = ATLAS_ROWS * TILE_PX; // 320 (height)
 
 enum class TileID : int {
     GrassTop   = 0,  // col 0, row 0
@@ -23,12 +25,14 @@ enum class TileID : int {
     Ice        = 13, // col 1, row 3
     Glowstone  = 14, // col 2, row 3
     Water      = 15, // col 3, row 3
+    TallGrass  = 16, // col 0, row 4  — foliage cross, alpha-cutout
+    FlowerRed  = 17, // col 1, row 4
+    FlowerYellow = 18, // col 2, row 4
+    FlowerBlue = 19, // col 3, row 4
 };
 
 // Returns atlas UV corners for a tile (with half-texel inset to prevent bleeding).
-// u0,v0 = bottom-left; u1,v1 = top-right (in GL texture space, V=0 at bottom).
+// u0,v0 = bottom-left; u1,v1 = top-right (GL texture space, V=0 at bottom).
 void tileUV(TileID tile, float& u0, float& v0, float& u1, float& v1);
 
-// Generates and uploads the procedural texture atlas.
-// Returns the GL texture object ID. Caller owns it.
 GLuint generateAtlas();

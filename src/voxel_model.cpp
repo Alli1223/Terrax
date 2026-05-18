@@ -102,6 +102,7 @@ BipedalRig::BipedalRig() {
     lLeg = new CharacterNode("LLeg");
     rLeg = new CharacterNode("RLeg");
     sword = new CharacterNode("Sword");
+    lantern = new CharacterNode("Lantern");
     root->addChild(torso);
     torso->addChild(head);
     torso->addChild(lArm);
@@ -109,6 +110,7 @@ BipedalRig::BipedalRig() {
     torso->addChild(lLeg);
     torso->addChild(rLeg);
     rArm->addChild(sword);
+    lArm->addChild(lantern);
 }
 
 void BipedalRig::setupDefaultHuman(bool male) {
@@ -164,6 +166,16 @@ void BipedalRig::setupDefaultHuman(bool male) {
     }
     sword->volume->updateMesh();
 
+    // Lantern: small metal-and-glass box hanging at the left hand
+    lantern->volume = new VoxelVolume(3, 5, 2);
+    lantern->pivot = glm::vec3(1, 4, 1);
+    lantern->localPos = glm::vec3(0, -12, -1);
+    for (int x = 0; x < 3; x++) for (int y = 0; y < 5; y++) for (int z = 0; z < 2; z++) {
+        bool frame = (x == 0 || x == 2 || y == 0 || y == 4);
+        lantern->volume->setVoxel(x, y, z, frame ? Voxel{60, 50, 30, 255} : Voxel{255, 190, 60, 255});
+    }
+    lantern->volume->updateMesh();
+
     applyCustomization();
 }
 
@@ -172,22 +184,30 @@ void BipedalRig::update(float dt, float velocity) {
     float breathe = sinf(animTime * 2.0f) * 1.5f;
     torso->localRot.x = breathe;
     head->localRot.x = -breathe * 0.5f;
+
     if (isAttacking) {
         attackAnim += dt * 5.0f;
         if (attackAnim > 1.0f) { isAttacking = false; attackAnim = 0.0f; }
         float swing = sinf(attackAnim * 3.14159f) * 90.0f;
         rArm->localRot.x = -swing;
         rArm->localRot.y = swing * 0.5f;
+        if (!lanternHeld)
+            lArm->localRot.x = glm::mix(lArm->localRot.x, 0.0f, dt * 5.0f);
     } else if (velocity > 0.1f) {
         float swing = sinf(animTime * velocity * 0.5f * 5.0f) * 30.0f;
-        lArm->localRot.x = swing; rArm->localRot.x = -swing;
+        rArm->localRot.x = -swing;
         lLeg->localRot.x = -swing; rLeg->localRot.x = swing;
+        if (!lanternHeld) lArm->localRot.x = swing;
     } else {
-        lArm->localRot.x = glm::mix(lArm->localRot.x, 0.0f, dt * 5.0f);
         rArm->localRot.x = glm::mix(rArm->localRot.x, 0.0f, dt * 5.0f);
         lLeg->localRot.x = glm::mix(lLeg->localRot.x, 0.0f, dt * 5.0f);
         rLeg->localRot.x = glm::mix(rLeg->localRot.x, 0.0f, dt * 5.0f);
+        if (!lanternHeld) lArm->localRot.x = glm::mix(lArm->localRot.x, 0.0f, dt * 5.0f);
     }
+
+    // Lantern raise: smoothly lift left arm when held high
+    if (lanternHeld)
+        lArm->localRot.x = glm::mix(lArm->localRot.x, -110.0f, dt * 6.0f);
 }
 
 void BipedalRig::applyCustomization() {

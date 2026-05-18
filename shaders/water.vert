@@ -17,6 +17,7 @@ out float SkyLight;
 out float BlockLight;
 out vec3  WorldPos;
 out vec3  WaveNorm;
+out vec3  FaceNormal;
 
 void main() {
     vec3 pos = aPos;
@@ -28,11 +29,12 @@ void main() {
         pos.y += w;
     }
 
-    TexCoord   = aTexCoord;
-    SkyLight   = aSkyLight;
-    BlockLight = aBlockLight;
-    WorldPos   = (model * vec4(pos, 1.0)).xyz;
-    WaveNorm   = aNormal;
+    TexCoord    = aTexCoord;
+    SkyLight    = aSkyLight;
+    BlockLight  = aBlockLight;
+    WorldPos    = (model * vec4(pos, 1.0)).xyz;
+    WaveNorm    = aNormal;
+    FaceNormal  = aNormal;
 
     gl_Position = projection * view * model * vec4(pos, 1.0);
 }

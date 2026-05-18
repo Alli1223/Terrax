@@ -11,18 +11,16 @@ static uint32_t phash(int x, int y, int seed) {
     return h;
 }
 
-// Returns a value in [0,255] deterministically from position and seed
 static int prand(int x, int y, int seed) {
     return (int)(phash(x, y, seed) & 0xFF);
 }
 
-// Clamp a value to [0, 255]
 static uint8_t clamp8(int v) {
     return (uint8_t)(v < 0 ? 0 : v > 255 ? 255 : v);
 }
 
-static void setPixel(std::vector<uint8_t>& data, int ax, int ay,
-                     int r, int g, int b) {
+// Sets pixel with alpha=255 (opaque)
+static void setPixel(std::vector<uint8_t>& data, int ax, int ay, int r, int g, int b) {
     int idx = (ay * ATLAS_PX + ax) * 4;
     data[idx+0] = clamp8(r);
     data[idx+1] = clamp8(g);
@@ -30,38 +28,41 @@ static void setPixel(std::vector<uint8_t>& data, int ax, int ay,
     data[idx+3] = 255;
 }
 
-// ---- Per-tile generators ----
-// Tile local coords: tx,ty in [0, TILE_PX).
-// Atlas coords: ax = col*TILE_PX+tx, ay = row*TILE_PX+ty.
-// In GL texture space V=0 is stored in memory row 0 (bottom of tile).
+// Sets pixel with explicit alpha (for foliage cutout tiles)
+static void setPixelA(std::vector<uint8_t>& data, int ax, int ay, int r, int g, int b, int a) {
+    int idx = (ay * ATLAS_PX + ax) * 4;
+    data[idx+0] = clamp8(r);
+    data[idx+1] = clamp8(g);
+    data[idx+2] = clamp8(b);
+    data[idx+3] = clamp8(a);
+}
+
+// ---- Opaque tile generators ----
 
 static void genGrassTop(std::vector<uint8_t>& d, int col, int row) {
     for (int ty = 0; ty < TILE_PX; ty++) for (int tx = 0; tx < TILE_PX; tx++) {
         int ax = col*TILE_PX+tx, ay = row*TILE_PX+ty;
-        int n = prand(ax, ay, 10);
-        int dark = prand(ax, ay, 11) > 210 ? -20 : 0; // occasional dark patch
-        setPixel(d, ax, ay, 72+n/8+dark, 120+n/4+dark, 40+n/10);
+        int cx = tx / 8, cy = ty / 8;
+        int cellVar = prand(cx, cy, 10) / 36 - 3;
+        int n = prand(ax, ay, 11) / 56 - 2;
+        // Vivid saturated green
+        setPixel(d, ax, ay, 62 + cellVar + n, 175 + cellVar*2 + n, 35 + cellVar + n);
     }
 }
 
 static void genGrassSide(std::vector<uint8_t>& d, int col, int row) {
     for (int ty = 0; ty < TILE_PX; ty++) for (int tx = 0; tx < TILE_PX; tx++) {
         int ax = col*TILE_PX+tx, ay = row*TILE_PX+ty;
-        int n = prand(ax, ay, 20);
-        // ty=0 is bottom (dirt), ty=TILE_PX-1 is top (grass cap)
-        if (ty >= TILE_PX - 6) {
-            // grass cap strip at top
-            setPixel(d, ax, ay, 72+n/8, 120+n/4, 40);
-        } else if (ty >= TILE_PX - 10) {
-            // transition: blend grass green into dirt
-            float t = (ty - (TILE_PX-10)) / 4.0f;
-            int dr = (int)(107 + n/10 + t*(72+n/8  - 107-n/10));
-            int dg = (int)( 70 + n/10 + t*(120+n/4 -  70-n/10));
-            int db = (int)( 40 + n/15 + t*( 40     -  40-n/15));
-            setPixel(d, ax, ay, dr, dg, db);
+        int n = prand(ax, ay, 20) / 40 - 3;
+        if (ty >= TILE_PX - 5) {
+            setPixel(d, ax, ay, 62, 175, 35);
+        } else if (ty >= TILE_PX - 8) {
+            float t = (ty - (TILE_PX - 8)) / 3.0f;
+            setPixel(d, ax, ay, (int)(128 + t*(62-128)), (int)(86 + t*(175-86)), 50);
         } else {
-            // dirt body
-            setPixel(d, ax, ay, 107+n/10, 70+n/10, 40+n/15);
+            bool line = (ty % 16 == 0);
+            int dark = line ? -18 : 0;
+            setPixel(d, ax, ay, 128+n+dark, 86+n+dark, 50+n+dark);
         }
     }
 }
@@ -69,20 +70,23 @@ static void genGrassSide(std::vector<uint8_t>& d, int col, int row) {
 static void genDirt(std::vector<uint8_t>& d, int col, int row) {
     for (int ty = 0; ty < TILE_PX; ty++) for (int tx = 0; tx < TILE_PX; tx++) {
         int ax = col*TILE_PX+tx, ay = row*TILE_PX+ty;
-        int n = prand(ax, ay, 30);
-        int spot = prand(ax, ay, 31) > 230 ? -15 : 0;
-        setPixel(d, ax, ay, 107+n/10+spot, 70+n/10+spot, 40+n/15+spot);
+        int n = prand(ax, ay, 30) / 40 - 3;
+        int gx = (tx + prand(ty/8, 0, 31) % 8) % 10;
+        int gy = (ty + prand(tx/8, 0, 32) % 8) % 10;
+        int dark = (gx == 0 && gy == 0) ? -28 : 0;
+        setPixel(d, ax, ay, 128+n+dark, 86+n+dark, 50+n+dark);
     }
 }
 
 static void genStone(std::vector<uint8_t>& d, int col, int row) {
     for (int ty = 0; ty < TILE_PX; ty++) for (int tx = 0; tx < TILE_PX; tx++) {
         int ax = col*TILE_PX+tx, ay = row*TILE_PX+ty;
-        int n = prand(ax, ay, 40);
-        // Crack-like dark lines
-        int crack = (prand(ax, ay, 41) > 245) ? -40 : 0;
-        int v = 115 + n/6 + crack;
-        setPixel(d, ax, ay, v, v, v+2);
+        int n = prand(ax, ay, 40) / 44 - 3;
+        int row16 = ty / 16;
+        int lx = (tx + (row16 % 2) * 8) % 16;
+        bool mortar = (ty % 16 == 0) || (lx == 0);
+        int dark = mortar ? -38 : 0;
+        setPixel(d, ax, ay, 125+n+dark, 123+n+dark, 128+n+dark);
     }
 }
 
@@ -91,129 +95,179 @@ static void genWoodTop(std::vector<uint8_t>& d, int col, int row) {
     for (int ty = 0; ty < TILE_PX; ty++) for (int tx = 0; tx < TILE_PX; tx++) {
         int ax = col*TILE_PX+tx, ay = row*TILE_PX+ty;
         float dist = sqrtf((tx-cx)*(tx-cx)+(ty-cy)*(ty-cy));
-        int ring = (int)(dist * 1.2f) % 6; // concentric rings
-        int n = prand(ax, ay, 50);
-        int dark = ring < 2 ? -18 : 0;
-        setPixel(d, ax, ay, 175+n/15+dark, 120+n/15+dark, 60+n/20+dark);
+        int ring = (int)(dist * 0.55f) % 2;
+        int n = prand(ax, ay, 50) / 52 - 2;
+        int dark = ring == 0 ? -22 : 0;
+        setPixel(d, ax, ay, 178+n+dark, 118+n+dark, 56+n+dark);
     }
 }
 
 static void genWoodSide(std::vector<uint8_t>& d, int col, int row) {
     for (int ty = 0; ty < TILE_PX; ty++) for (int tx = 0; tx < TILE_PX; tx++) {
         int ax = col*TILE_PX+tx, ay = row*TILE_PX+ty;
-        int n = prand(ax, ay, 60);
-        // Vertical grain stripes
-        int stripe = (tx + prand(0, ty, 61)/16) % 8;
-        int dark = stripe < 2 ? -25 : 0;
-        setPixel(d, ax, ay, 140+n/15+dark, 90+n/15+dark, 45+n/20+dark);
+        int n = prand(ax, ay, 60) / 52 - 2;
+        int wobble = prand(0, ty, 61) / 64 - 2;
+        int stripe = ((tx + wobble) % 18);
+        int dark = (stripe < 5) ? -26 : (stripe < 10) ? 0 : -14;
+        setPixel(d, ax, ay, 165+n+dark, 108+n+dark, 50+n+dark);
     }
 }
 
 static void genLeaves(std::vector<uint8_t>& d, int col, int row) {
     for (int ty = 0; ty < TILE_PX; ty++) for (int tx = 0; tx < TILE_PX; tx++) {
         int ax = col*TILE_PX+tx, ay = row*TILE_PX+ty;
-        int n = prand(ax, ay, 70);
-        int bright = prand(ax, ay, 71) > 200 ? 20 : 0; // lighter patches
-        setPixel(d, ax, ay, 35+n/12, 90+n/8+bright, 25+n/15);
+        int cx2 = tx / 8, cy2 = ty / 8;
+        int cluster = prand(cx2, cy2, 70) % 3;
+        int n = prand(ax, ay, 71) / 52 - 2;
+        int r, g, b;
+        if (cluster == 0)      { r=30; g=100; b=18; }   // deep shade
+        else if (cluster == 1) { r=40; g=128; b=24; }   // mid
+        else                   { r=55; g=158; b=32; }   // bright highlight
+        setPixel(d, ax, ay, r+n, g+n, b+n);
     }
 }
 
 static void genSand(std::vector<uint8_t>& d, int col, int row) {
     for (int ty = 0; ty < TILE_PX; ty++) for (int tx = 0; tx < TILE_PX; tx++) {
         int ax = col*TILE_PX+tx, ay = row*TILE_PX+ty;
-        int n = prand(ax, ay, 80);
-        setPixel(d, ax, ay, 210+n/15, 190+n/15, 115+n/15);
+        int n = prand(ax, ay, 80) / 40 - 3;
+        bool grain = (prand(ax, ay, 81) > 248);
+        int dark = grain ? -22 : 0;
+        setPixel(d, ax, ay, 218+n+dark, 196+n+dark, 112+n+dark);
     }
 }
 
 static void genGravel(std::vector<uint8_t>& d, int col, int row) {
+    static const int CELL = 10;
     for (int ty = 0; ty < TILE_PX; ty++) for (int tx = 0; tx < TILE_PX; tx++) {
         int ax = col*TILE_PX+tx, ay = row*TILE_PX+ty;
-        int n = prand(ax, ay, 90);
-        int v = 100 + (n & 0x3F);
-        int tint = prand(ax, ay, 91) > 150 ? 8 : -4;
-        setPixel(d, ax, ay, v+tint, v, v-tint/2);
+        int bestDist2 = 9999, secondDist2 = 9999, bestCell = 0;
+        for (int dy = -1; dy <= 1; dy++) for (int dx = -1; dx <= 1; dx++) {
+            int gcx = tx/CELL+dx, gcy = ty/CELL+dy;
+            int jx = prand(gcx, gcy, 90) % CELL;
+            int jy = prand(gcx, gcy, 91) % CELL;
+            int px2 = gcx*CELL+jx, py2 = gcy*CELL+jy;
+            int d2 = (tx-px2)*(tx-px2)+(ty-py2)*(ty-py2);
+            if (d2 < bestDist2) { secondDist2=bestDist2; bestDist2=d2; bestCell=gcx*100+gcy; }
+            else if (d2 < secondDist2) secondDist2 = d2;
+        }
+        bool edge = (secondDist2 - bestDist2) < 4;
+        int cv = 90 + (prand(bestCell%100, bestCell/100, 92) % 55);
+        setPixel(d, ax, ay, cv+(edge?-42:0), cv+(edge?-42:0), cv+(edge?-42:0));
     }
 }
 
 static void genSnow(std::vector<uint8_t>& d, int col, int row) {
     for (int ty = 0; ty < TILE_PX; ty++) for (int tx = 0; tx < TILE_PX; tx++) {
         int ax = col*TILE_PX+tx, ay = row*TILE_PX+ty;
-        int n = prand(ax, ay, 100);
-        int sparkle = prand(ax, ay, 101) > 235 ? 12 : 0;
-        int v = 218 + n/14 + sparkle;
-        setPixel(d, ax, ay, v, v, v + 10); // slight blue tint
+        int n = prand(ax, ay, 100) / 44 - 3;
+        int s = (prand(ax, ay, 101) > 250) ? 15 : 0;
+        setPixel(d, ax, ay, 235+n+s, 238+n+s, 250+n+s);
     }
 }
 
 static void genCactusTop(std::vector<uint8_t>& d, int col, int row) {
     for (int ty = 0; ty < TILE_PX; ty++) for (int tx = 0; tx < TILE_PX; tx++) {
         int ax = col*TILE_PX+tx, ay = row*TILE_PX+ty;
-        int n = prand(ax, ay, 110);
-        bool spine = (tx == TILE_PX/2 || ty == TILE_PX/2);
-        int dark = spine ? -18 : 0;
-        setPixel(d, ax, ay, 28+n/18+dark, 95+n/10+dark, 18+n/18);
+        bool spine = (tx==TILE_PX/2 || tx==TILE_PX/2-1 || ty==TILE_PX/2 || ty==TILE_PX/2-1);
+        setPixel(d, ax, ay, 30+(spine?-25:0), 105+(spine?-25:0), 22+(spine?-25:0));
     }
 }
 
 static void genCactusSide(std::vector<uint8_t>& d, int col, int row) {
     for (int ty = 0; ty < TILE_PX; ty++) for (int tx = 0; tx < TILE_PX; tx++) {
         int ax = col*TILE_PX+tx, ay = row*TILE_PX+ty;
-        int n = prand(ax, ay, 120);
-        int ridge = (tx % 10 < 3) ? -12 : 0;                  // vertical ridges
-        int spine = (prand(ax, ay, 121) > 248) ? -25 : 0;     // occasional spine dot
-        setPixel(d, ax, ay, 28+n/18+ridge, 90+n/10+ridge+spine, 18+n/18);
+        int ridge = (tx % 12 < 2) ? -22 : 0;
+        int spine = (ty%14==6 && (tx==5||tx==TILE_PX-7)) ? -40 : 0;
+        setPixel(d, ax, ay, 30+ridge+spine, 105+ridge+spine, 22+ridge+spine);
     }
 }
 
 static void genSandstone(std::vector<uint8_t>& d, int col, int row) {
     for (int ty = 0; ty < TILE_PX; ty++) for (int tx = 0; tx < TILE_PX; tx++) {
         int ax = col*TILE_PX+tx, ay = row*TILE_PX+ty;
-        int n = prand(ax, ay, 130);
-        // Horizontal layering lines
-        int layer = ((ty * 3 / 4) + prand(ax, 0, 131) / 32) % 7;
-        int dark = (layer == 0 || layer == 3) ? -18 : 0;
-        // Warm beige-orange, similar to sand but with visible strata
-        setPixel(d, ax, ay, 200+n/18+dark, 170+n/20+dark, 90+n/25+dark);
+        int n = prand(ax, ay, 130) / 52 - 2;
+        bool sep = (ty%20==0 || ty%20==1);
+        int br, bg, bb;
+        switch ((ty/20) % 3) {
+            case 0: br=205; bg=175; bb=90; break;
+            case 1: br=218; bg=188; bb=100; break;
+            default: br=198; bg=168; bb=84; break;
+        }
+        setPixel(d, ax, ay, br+n+(sep?-35:0), bg+n+(sep?-35:0), bb+n+(sep?-35:0));
     }
 }
 
 static void genIce(std::vector<uint8_t>& d, int col, int row) {
     for (int ty = 0; ty < TILE_PX; ty++) for (int tx = 0; tx < TILE_PX; tx++) {
         int ax = col*TILE_PX+tx, ay = row*TILE_PX+ty;
-        int n = prand(ax, ay, 140);
-        // Crack veins
-        int crack = (prand(ax, ay, 141) > 242) ? -30 : 0;
-        // Sparkle highlights
-        int sparkle = (prand(ax, ay, 142) > 250) ? 25 : 0;
-        int v = 200 + n/14 + crack + sparkle;
-        // Blue-white translucent-looking ice
-        setPixel(d, ax, ay, v - 20, v - 10, v + 15);
-    }
-}
-
-static void genWater(std::vector<uint8_t>& d, int col, int row) {
-    for (int ty = 0; ty < TILE_PX; ty++) for (int tx = 0; tx < TILE_PX; tx++) {
-        int ax = col*TILE_PX+tx, ay = row*TILE_PX+ty;
-        int n  = prand(ax, ay, 160);
-        // Subtle diagonal ripple pattern
-        float ripple = sinf((tx * 0.35f + ty * 0.28f)) * 14.0f
-                     + sinf((tx * 0.20f - ty * 0.40f)) * 8.0f;
-        int r = clamp8(18  + n/24 + (int)(ripple * 0.3f));
-        int g = clamp8(88  + n/12 + (int)(ripple * 0.6f));
-        int b = clamp8(180 + n/18 + (int)(ripple * 0.5f));
-        setPixel(d, ax, ay, r, g, b);
+        int n = prand(ax, ay, 140) / 52 - 2;
+        int d1 = (tx+ty*2)%32, d2 = (tx*2-ty+64)%40;
+        bool crack = (d1<2 && prand(tx/4,ty/4,141)>160) || (d2<2 && prand(tx/4,ty/4,142)>190);
+        setPixel(d, ax, ay, 195+n+(crack?-55:0), 212+n+(crack?-55:0), 238+n+(crack?-55:0));
     }
 }
 
 static void genGlowstone(std::vector<uint8_t>& d, int col, int row) {
     for (int ty = 0; ty < TILE_PX; ty++) for (int tx = 0; tx < TILE_PX; tx++) {
         int ax = col*TILE_PX+tx, ay = row*TILE_PX+ty;
-        int n = prand(ax, ay, 150);
-        // Cracked bright amber with glowing yellow veins
-        int crack = (prand(ax, ay, 151) > 235) ? -35 : 0;
-        int glow  = (prand(ax, ay, 152) > 220) ? 25 : 0;
-        setPixel(d, ax, ay, 230+n/20+crack, 180+n/18+crack+glow, 60+n/25);
+        bool vein = ((tx+ty)%16<2) || ((tx*2-ty+64)%24<2);
+        if (vein) setPixel(d, ax, ay, 255, 215, 70);
+        else { int n=prand(ax,ay,150)/44-3; setPixel(d, ax, ay, 160+n, 100+n, 28+n); }
+    }
+}
+
+static void genWater(std::vector<uint8_t>& d, int col, int row) {
+    for (int ty = 0; ty < TILE_PX; ty++) for (int tx = 0; tx < TILE_PX; tx++) {
+        int ax = col*TILE_PX+tx, ay = row*TILE_PX+ty;
+        float ripple = sinf((tx+ty*0.7f)*0.28f)*18.0f + sinf((tx*0.6f-ty)*0.22f)*10.0f;
+        int n = prand(ax, ay, 160) / 52 - 2;
+        setPixel(d, ax, ay,
+            clamp8(20+n+(int)(ripple*0.2f)),
+            clamp8(95+n+(int)(ripple*0.5f)),
+            clamp8(210+n+(int)(ripple*0.3f)));
+    }
+}
+
+// ---- Foliage tiles (alpha-cutout) ----
+
+static void genTallGrass(std::vector<uint8_t>& d, int col, int row) {
+    const int centers[] = {10, 32, 54};
+    const int baseW[]   = {13, 15, 11};
+    for (int ty = 0; ty < TILE_PX; ty++) for (int tx = 0; tx < TILE_PX; tx++) {
+        int ax = col*TILE_PX+tx, ay = row*TILE_PX+ty;
+        float frac = (float)ty / (TILE_PX - 1); // 0=bottom,1=top
+        bool blade = false;
+        for (int b = 0; b < 3; b++) {
+            float hw = baseW[b] * 0.5f * (1.0f - frac * 0.92f);
+            if (abs(tx - centers[b]) < (int)(hw + 0.5f)) { blade = true; break; }
+        }
+        if (blade) {
+            int r = 50 + (int)(frac * 20);
+            int g = 162 + (int)(frac * 38);
+            int b = 20 + (int)(frac * 5);
+            setPixelA(d, ax, ay, r, g, b, 255);
+        }
+        // else: stays transparent (0,0,0,0)
+    }
+}
+
+static void genFlower(std::vector<uint8_t>& d, int col, int row, int hr, int hg, int hb) {
+    const int cx = TILE_PX / 2;
+    const int headCY = TILE_PX - 18; // center of head (near top)
+    const int headR = 11;
+    for (int ty = 0; ty < TILE_PX; ty++) for (int tx = 0; tx < TILE_PX; tx++) {
+        int ax = col*TILE_PX+tx, ay = row*TILE_PX+ty;
+        float dx = (float)(tx - cx), dy = (float)(ty - headCY);
+        float dist = sqrtf(dx*dx + dy*dy);
+        if (dist < headR) {
+            // Flower head — slight shading toward edges
+            float shade = 1.0f - dist / headR * 0.35f;
+            setPixelA(d, ax, ay, (int)(hr*shade), (int)(hg*shade), (int)(hb*shade), 255);
+        } else if (abs(tx - cx) <= 2 && ty < headCY - headR/2 && ty > 6) {
+            // Stem
+            setPixelA(d, ax, ay, 42, 138, 28, 255);
+        }
     }
 }
 
@@ -223,25 +277,29 @@ void tileUV(TileID tile, float& u0, float& v0, float& u1, float& v1) {
     int id  = (int)tile;
     int col = id % ATLAS_COLS;
     int row = id / ATLAS_COLS;
-    float ts = 1.0f / ATLAS_COLS;          // tile size in UV space (0.25)
-    float half = 0.5f / ATLAS_PX;          // half-texel inset against bleeding
-    u0 = col * ts + half;
-    v0 = row * ts + half;
-    u1 = (col + 1) * ts - half;
-    v1 = (row + 1) * ts - half;
+    float us    = 1.0f / ATLAS_COLS;
+    float vs    = 1.0f / ATLAS_ROWS;
+    float uhalf = 0.5f / ATLAS_PX;
+    float vhalf = 0.5f / ATLAS_HEIGHT;
+    u0 = col * us + uhalf;
+    v0 = row * vs + vhalf;
+    u1 = (col + 1) * us - uhalf;
+    v1 = (row + 1) * vs - vhalf;
 }
 
 GLuint generateAtlas() {
-    std::vector<uint8_t> data(ATLAS_PX * ATLAS_PX * 4, 255);
+    // Init to transparent — foliage tiles rely on this for their background.
+    // Opaque tiles call setPixel for every pixel, which forces alpha=255.
+    std::vector<uint8_t> data(ATLAS_PX * ATLAS_HEIGHT * 4, 0);
 
-    genGrassTop (data, 0, 0);
-    genGrassSide(data, 1, 0);
-    genDirt     (data, 2, 0);
-    genStone    (data, 3, 0);
-    genWoodTop  (data, 0, 1);
-    genWoodSide (data, 1, 1);
-    genLeaves   (data, 2, 1);
-    genSand     (data, 3, 1);
+    genGrassTop  (data, 0, 0);
+    genGrassSide (data, 1, 0);
+    genDirt      (data, 2, 0);
+    genStone     (data, 3, 0);
+    genWoodTop   (data, 0, 1);
+    genWoodSide  (data, 1, 1);
+    genLeaves    (data, 2, 1);
+    genSand      (data, 3, 1);
     genGravel    (data, 0, 2);
     genSnow      (data, 1, 2);
     genCactusTop (data, 2, 2);
@@ -250,11 +308,16 @@ GLuint generateAtlas() {
     genIce       (data, 1, 3);
     genGlowstone (data, 2, 3);
     genWater     (data, 3, 3);
+    // Foliage (row 4)
+    genTallGrass   (data, 0, 4);
+    genFlower      (data, 1, 4, 220, 48, 20);   // FlowerRed
+    genFlower      (data, 2, 4, 240, 200, 20);  // FlowerYellow
+    genFlower      (data, 3, 4, 75,  85, 230);  // FlowerBlue
 
     GLuint tex;
     glGenTextures(1, &tex);
     glBindTexture(GL_TEXTURE_2D, tex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, ATLAS_PX, ATLAS_PX, 0,
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, ATLAS_PX, ATLAS_HEIGHT, 0,
                  GL_RGBA, GL_UNSIGNED_BYTE, data.data());
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);

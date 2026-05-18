@@ -56,9 +56,18 @@ typedef unsigned char  GLubyte;
 #define GL_TEXTURE_MIN_FILTER   0x2801
 #define GL_TEXTURE_MAG_FILTER   0x2800
 #define GL_CLAMP_TO_EDGE        0x812F
+#define GL_CLAMP_TO_BORDER      0x812D
+#define GL_TEXTURE_BORDER_COLOR 0x1004
 #define GL_BLEND                0x0BE2
 #define GL_SRC_ALPHA            0x0302
 #define GL_ONE_MINUS_SRC_ALPHA  0x0303
+#define GL_TEXTURE1             0x84C1
+#define GL_TEXTURE2             0x84C2
+#define GL_DEPTH_COMPONENT      0x1902
+#define GL_DEPTH_COMPONENT24    0x81A6
+#define GL_DEPTH_ATTACHMENT     0x8D00
+#define GL_FRAMEBUFFER          0x8D40
+#define GL_NONE                 0
 
 // --- GL 1.x functions (direct symbols in libGL) ---
 extern "C" {
@@ -109,8 +118,15 @@ typedef void   (*PFN_glDeleteTextures)(GLsizei, const GLuint*);
 typedef void   (*PFN_glBindTexture)(GLenum, GLuint);
 typedef void   (*PFN_glTexImage2D)(GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, const void*);
 typedef void   (*PFN_glTexParameteri)(GLenum, GLenum, GLint);
+typedef void   (*PFN_glTexParameterfv)(GLenum, GLenum, const GLfloat*);
 typedef void   (*PFN_glActiveTexture)(GLenum);
 typedef void   (*PFN_glGenerateMipmap)(GLenum);
+typedef void   (*PFN_glGenFramebuffers)(GLsizei, GLuint*);
+typedef void   (*PFN_glDeleteFramebuffers)(GLsizei, const GLuint*);
+typedef void   (*PFN_glBindFramebuffer)(GLenum, GLuint);
+typedef void   (*PFN_glFramebufferTexture2D)(GLenum, GLenum, GLenum, GLuint, GLint);
+typedef void   (*PFN_glDrawBuffer)(GLenum);
+typedef void   (*PFN_glReadBuffer)(GLenum);
 
 // --- Function pointer declarations ---
 extern PFN_glGenBuffers             glGenBuffers;
@@ -145,8 +161,15 @@ extern PFN_glDeleteTextures         glDeleteTextures;
 extern PFN_glBindTexture            glBindTexture;
 extern PFN_glTexImage2D             glTexImage2D;
 extern PFN_glTexParameteri          glTexParameteri;
+extern PFN_glTexParameterfv         glTexParameterfv;
 extern PFN_glActiveTexture          glActiveTexture;
 extern PFN_glGenerateMipmap         glGenerateMipmap;
+extern PFN_glGenFramebuffers        glGenFramebuffers;
+extern PFN_glDeleteFramebuffers     glDeleteFramebuffers;
+extern PFN_glBindFramebuffer        glBindFramebuffer;
+extern PFN_glFramebufferTexture2D   glFramebufferTexture2D;
+extern PFN_glDrawBuffer             glDrawBuffer;
+extern PFN_glReadBuffer             glReadBuffer;
 
 // Call once after glfwMakeContextCurrent
 bool gl_load();

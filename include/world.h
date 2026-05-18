@@ -73,11 +73,14 @@ public:
     std::array<uint8_t, CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE> lightMap;
     GLuint vao = 0, vbo = 0;
     GLuint waterVao = 0, waterVbo = 0;
+    GLuint foliageVao = 0, foliageVbo = 0;
     int vertexCount = 0;
     int waterVertexCount = 0;
+    int foliageVertexCount = 0;
     std::atomic<ChunkState> state{ChunkState::Empty};
     std::vector<Vertex> meshData;
     std::vector<Vertex> waterData;
+    std::vector<Vertex> foliageData;
     std::mutex meshMutex;
     int neighborsAtMeshTime = 0;
 
@@ -97,6 +100,7 @@ public:
     void uploadMesh();
     void draw() const;
     void drawWater() const;
+    void drawFoliage() const;
 };
 
 class World {
@@ -115,6 +119,7 @@ public:
     void update(int centerX, int centerZ);
     void drawAll() const;
     void drawAllWater() const;
+    void drawAllFoliage() const;
 
     BlockType getBlock(int wx, int wy, int wz) const;
     BlockType getBlockInternal(int wx, int wy, int wz) const;

@@ -33,8 +33,15 @@ PFN_glDeleteTextures         glDeleteTextures         = nullptr;
 PFN_glBindTexture            glBindTexture            = nullptr;
 PFN_glTexImage2D             glTexImage2D             = nullptr;
 PFN_glTexParameteri          glTexParameteri          = nullptr;
+PFN_glTexParameterfv         glTexParameterfv         = nullptr;
 PFN_glActiveTexture          glActiveTexture          = nullptr;
 PFN_glGenerateMipmap         glGenerateMipmap         = nullptr;
+PFN_glGenFramebuffers        glGenFramebuffers        = nullptr;
+PFN_glDeleteFramebuffers     glDeleteFramebuffers     = nullptr;
+PFN_glBindFramebuffer        glBindFramebuffer        = nullptr;
+PFN_glFramebufferTexture2D   glFramebufferTexture2D   = nullptr;
+PFN_glDrawBuffer             glDrawBuffer             = nullptr;
+PFN_glReadBuffer             glReadBuffer             = nullptr;
 
 #define LOAD(name) \
     name = (PFN_##name)glfwGetProcAddress(#name); \
@@ -74,7 +81,14 @@ bool gl_load() {
     LOAD(glBindTexture)
     LOAD(glTexImage2D)
     LOAD(glTexParameteri)
+    LOAD(glTexParameterfv)
     LOAD(glActiveTexture)
     LOAD(glGenerateMipmap)
+    LOAD(glGenFramebuffers)
+    LOAD(glDeleteFramebuffers)
+    LOAD(glBindFramebuffer)
+    LOAD(glFramebufferTexture2D)
+    LOAD(glDrawBuffer)
+    LOAD(glReadBuffer)
     return ok;
 }

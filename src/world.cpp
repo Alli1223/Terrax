@@ -101,8 +101,9 @@ void Chunk::computeLight() {
 
 Chunk::~Chunk() {
     if (!isServer) {
-        if (vao)      { glDeleteVertexArrays(1, &vao);      glDeleteBuffers(1, &vbo);      }
-        if (waterVao) { glDeleteVertexArrays(1, &waterVao); glDeleteBuffers(1, &waterVbo); }
+        if (vao)        { glDeleteVertexArrays(1, &vao);        glDeleteBuffers(1, &vbo);        }
+        if (waterVao)   { glDeleteVertexArrays(1, &waterVao);   glDeleteBuffers(1, &waterVbo);   }
+        if (foliageVao) { glDeleteVertexArrays(1, &foliageVao); glDeleteBuffers(1, &foliageVbo); }
     }
 }
 
@@ -272,10 +273,72 @@ void Chunk::buildMesh(World* world) {
         }
     }
 
+    // --- Foliage cross-mesh ---
+    std::vector<Vertex> fverts;
+    fverts.reserve(256);
+
+    auto pushFoliageQuad = [&](
+        float x0, float y0, float z0,
+        float x1, float y1, float z1,
+        float x2, float y2, float z2,
+        float x3, float y3, float z3,
+        float fu0, float fv0, float fu1, float fv1,
+        float skyL, float blkL)
+    {
+        Vertex q[4];
+        q[0] = {x0,y0,z0, 0,1,0, fu0, fv0, 0, skyL, blkL};
+        q[1] = {x1,y1,z1, 0,1,0, fu0, fv1, 0, skyL, blkL};
+        q[2] = {x2,y2,z2, 0,1,0, fu1, fv1, 0, skyL, blkL};
+        q[3] = {x3,y3,z3, 0,1,0, fu1, fv0, 0, skyL, blkL};
+        fverts.push_back(q[0]); fverts.push_back(q[1]); fverts.push_back(q[2]);
+        fverts.push_back(q[0]); fverts.push_back(q[2]); fverts.push_back(q[3]);
+    };
+
+    for (int z = 0; z < CHUNK_SIZE; z++) {
+        for (int x = 0; x < CHUNK_SIZE; x++) {
+            int topY = -1;
+            BlockType topBlock = BlockType::Air;
+            for (int y = CHUNK_HEIGHT - 1; y >= 0; y--) {
+                BlockType b = get(x, y, z);
+                if (b != BlockType::Air) { topY = y; topBlock = b; break; }
+            }
+            if (topY < 0 || topBlock != BlockType::Grass) continue;
+            int fy = topY + 1;
+            if (fy >= CHUNK_HEIGHT || get(x, fy, z) != BlockType::Air) continue;
+
+            int wx = pos.x * CHUNK_SIZE + x;
+            int wz = pos.z * CHUNK_SIZE + z;
+            uint32_t h = (uint32_t)(wx * 1619 + wz * 31337);
+            h ^= (h >> 16); h *= 0x45d9f3bu; h ^= (h >> 16);
+            uint32_t sel = h & 0xFF;
+
+            TileID tile;
+            if      (sel < 64)  tile = TileID::TallGrass;
+            else if (sel < 74)  tile = TileID::FlowerRed;
+            else if (sel < 84)  tile = TileID::FlowerYellow;
+            else if (sel < 92)  tile = TileID::FlowerBlue;
+            else continue;
+
+            float fu0, fv0, fu1, fv1;
+            tileUV(tile, fu0, fv0, fu1, fv1);
+
+            float skyL = getSkyLight (x, fy, z) / 15.0f;
+            float blkL = getBlockLight(x, fy, z) / 15.0f;
+
+            float fx = (float)wx, fz = (float)wz;
+            float fy0 = (float)fy, fy1 = fy0 + 1.0f;
+
+            // Two crossed quads (X shape)
+            pushFoliageQuad(fx,   fy0, fz,   fx,   fy1, fz,   fx+1, fy1, fz+1, fx+1, fy0, fz+1, fu0, fv0, fu1, fv1, skyL, blkL);
+            pushFoliageQuad(fx+1, fy0, fz,   fx+1, fy1, fz,   fx,   fy1, fz+1, fx,   fy0, fz+1, fu0, fv0, fu1, fv1, skyL, blkL);
+        }
+    }
+
     {
         std::lock_guard<std::mutex> lock(meshMutex);
-        meshData  = std::move(verts);
-        waterData = std::move(wverts);
+        meshData     = std::move(verts);
+        waterData    = std::move(wverts);
+        foliageData  = std::move(fverts);
     }
     neighborsAtMeshTime = (int)neighbors.size();
     state = ChunkState::MeshReady;
@@ -318,6 +381,17 @@ void Chunk::uploadMesh() {
     waterVertexCount = (int)waterData.size();
     waterData.clear();
 
+    // Foliage mesh
+    if (!foliageData.empty()) {
+        if (!foliageVao) { glGenVertexArrays(1, &foliageVao); glGenBuffers(1, &foliageVbo); }
+        glBindVertexArray(foliageVao);
+        glBindBuffer(GL_ARRAY_BUFFER, foliageVbo);
+        glBufferData(GL_ARRAY_BUFFER, foliageData.size() * sizeof(Vertex), foliageData.data(), GL_STATIC_DRAW);
+        setupVertexAttribs();
+        foliageVertexCount = (int)foliageData.size();
+        foliageData.clear();
+    }
+
     glBindVertexArray(0);
     state = ChunkState::Ready;
 }
@@ -333,6 +407,13 @@ void Chunk::drawWater() const {
     if (isServer || state != ChunkState::Ready || waterVertexCount == 0) return;
     glBindVertexArray(waterVao);
     glDrawArrays(GL_TRIANGLES, 0, waterVertexCount);
+    glBindVertexArray(0);
+}
+
+void Chunk::drawFoliage() const {
+    if (isServer || state != ChunkState::Ready || foliageVertexCount == 0) return;
+    glBindVertexArray(foliageVao);
+    glDrawArrays(GL_TRIANGLES, 0, foliageVertexCount);
     glBindVertexArray(0);
 }
 
@@ -1080,6 +1161,11 @@ void World::drawAll() const {
 void World::drawAllWater() const {
     std::lock_guard<std::mutex> lock(chunksMutex);
     for (auto& [k, c] : chunks) c->drawWater();
+}
+
+void World::drawAllFoliage() const {
+    std::lock_guard<std::mutex> lock(chunksMutex);
+    for (auto& [k, c] : chunks) c->drawFoliage();
 }
 
 BlockType World::getBlockInternal(int wx, int wy, int wz) const {

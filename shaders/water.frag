@@ -5,6 +5,7 @@ in float SkyLight;
 in float BlockLight;
 in vec3  WorldPos;
 in vec3  WaveNorm;
+in vec3  FaceNormal;
 
 out vec4 FragColor;
 
@@ -14,6 +15,10 @@ uniform vec3  skyAmbient;
 uniform vec3  camPos;
 uniform float time;
 uniform float timeOfDay;
+uniform vec3  u_sunDir;
+uniform vec3  u_lanternPos;
+uniform float u_lanternIntensity;
+uniform float u_lanternRadius;
 
 const float PI = 3.14159265359;
 
@@ -40,10 +45,21 @@ void main() {
     vec3  reflDir  = reflect(-sunDir, wNorm);
     float spec     = pow(max(dot(viewDir, reflDir), 0.0), 140.0) * sunFactor;
 
-    // Lighting (same model as chunk shader)
-    vec3 skyContrib   = SkyLight   * sunFactor * skyAmbient;
-    vec3 blockContrib = BlockLight * vec3(1.00, 0.76, 0.40);
-    vec3 light = max(skyContrib, blockContrib);
+    // Lighting matching chunk shader
+    float NdotL   = max(dot(wNorm, u_sunDir), 0.0);
+    float diffuse = smoothstep(0.05, 0.55, NdotL);
+    vec3 skyAmb      = SkyLight * sunFactor * skyAmbient * 0.22;
+    vec3 sunContrib  = diffuse  * sunFactor * skyAmbient * 0.95;
+    vec3 blockContrib = BlockLight * vec3(1.00, 0.76, 0.40) * 0.9;
+
+    float ldist = length(WorldPos - u_lanternPos);
+    float falloff = max(0.0, 1.0 - ldist / u_lanternRadius);
+    falloff = falloff * falloff;
+    vec3 lanternContrib = falloff * u_lanternIntensity * vec3(1.00, 0.76, 0.40);
+
+    vec3 light = skyAmb + sunContrib;
+    light = max(light, blockContrib);
+    light = max(light, lanternContrib);
     light = max(light, vec3(0.015, 0.014, 0.020));
 
     // Water colour: blend atlas blue-teal tile with deep-water colour
@@ -61,6 +77,7 @@ void main() {
     vec3  fogCol  = skyAmbient * max(sunFactor, 0.15) * 0.85;
     waterColor = mix(fogCol, waterColor, clamp(fog, 0.0, 1.0));
 
+    waterColor = waterColor / (waterColor + vec3(0.45));
     waterColor = pow(max(waterColor, vec3(0.0)), vec3(1.0 / 2.2));
 
     float alpha = 0.68 + fresnel * 0.22;

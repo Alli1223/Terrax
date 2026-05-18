@@ -61,6 +61,8 @@ float          gameTime = 0.3f; // start at morning
 bool           noclip = false;
 
 int keyFwd=0, keyBack=0, keyLeft=0, keyRight=0, keyJump=0;
+bool g_lanternHeld = false;
+float g_flickerTime = 0.0f;
 
 // --- Skybox ---
 GLuint skyVAO=0, skyVBO=0;
@@ -257,6 +259,7 @@ void key_callback(GLFWwindow* window, int key, int, int action, int) {
     if (key == GLFW_KEY_A) { if(action==GLFW_PRESS) keyLeft=1; else if(action==GLFW_RELEASE) keyLeft=0; }
     if (key == GLFW_KEY_D) { if(action==GLFW_PRESS) keyRight=1; else if(action==GLFW_RELEASE) keyRight=0; }
     if (key == GLFW_KEY_SPACE) { if(action==GLFW_PRESS) keyJump=1; else if(action==GLFW_RELEASE) keyJump=0; }
+    if (key == GLFW_KEY_F && action == GLFW_PRESS) g_lanternHeld = !g_lanternHeld;
 }
 
 static float smoothstep(float edge0, float edge1, float x) {
@@ -448,8 +451,29 @@ int main(int argc, char** argv) {
     Shader waterShader("shaders/water.vert", "shaders/water.frag");
     Shader skyShader("shaders/sky.vert", "shaders/sky.frag");
     Shader charShader("shaders/char.vert", "shaders/char.frag");
+    Shader shadowShader("shaders/shadow.vert", "shaders/shadow.frag");
     setupSkybox();
     GLuint atlasTexture = generateAtlas();
+
+    // --- Shadow map framebuffer (2048x2048 depth texture) ---
+    static constexpr int SHADOW_RES = 2048;
+    GLuint shadowFBO, shadowMapTex;
+    glGenFramebuffers(1, &shadowFBO);
+    glGenTextures(1, &shadowMapTex);
+    glBindTexture(GL_TEXTURE_2D, shadowMapTex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, SHADOW_RES, SHADOW_RES, 0,
+                 GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    float shadowBorder[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, shadowBorder);
+    glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, shadowMapTex, 0);
+    glDrawBuffer(GL_NONE);
+    glReadBuffer(GL_NONE);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     g_localPlayerRig = new BipedalRig();
     g_localPlayerRig->setupDefaultHuman(true);
@@ -747,6 +771,84 @@ int main(int argc, char** argv) {
                 glm::vec3 dayAmb(0.70f, 0.84f, 1.00f), dawnAmb(1.00f, 0.58f, 0.24f), nightAmb(0.18f, 0.22f, 0.50f);
                 glm::vec3 skyAmbient = glm::mix(nightAmb, glm::mix(dayAmb, dawnAmb, dawnDusk), dayness);
 
+                // --- Sun direction ---
+                float sunAngle = (gameTime - 0.25f) * 2.0f * 3.14159f;
+                glm::vec3 sunDir = glm::normalize(glm::vec3(
+                    cosf(sunAngle) * 0.6f, sinf(sunAngle), 0.35f));
+
+                // --- Lantern ---
+                g_flickerTime += deltaTime;
+                float flicker = 1.0f
+                    + 0.08f * sinf(g_flickerTime * 7.3f)
+                    + 0.05f * sinf(g_flickerTime * 11.7f + 0.5f)
+                    + 0.03f * sinf(g_flickerTime * 19.1f + 1.2f);
+                float lanternIntensity = (g_lanternHeld ? 1.2f : 0.55f) * flicker;
+                float lanternRadius    =  g_lanternHeld ? 14.0f : 6.0f;
+                glm::vec3 fwdVec  = glm::vec3(sinf(glm::radians(g_playerYaw)), 0.0f, cosf(glm::radians(g_playerYaw)));
+                glm::vec3 rightVec = glm::vec3(cosf(glm::radians(g_playerYaw)), 0.0f, -sinf(glm::radians(g_playerYaw)));
+                glm::vec3 lanternPos = g_lanternHeld
+                    ? camera.position + glm::vec3(0.0f, 1.35f, 0.0f) - rightVec * 0.28f + fwdVec * 0.15f
+                    : camera.position + glm::vec3(0.0f, 0.78f, 0.0f) - rightVec * 0.22f + fwdVec * 0.12f;
+
+                // --- Update all characters & build draw list (before shadow pass) ---
+                glm::mat4 playerM(1.0f);
+                if (g_localPlayerRig) {
+                    g_localPlayerRig->lanternHeld = g_lanternHeld;
+                    float velocity = glm::length(camera.velocity);
+                    g_localPlayerRig->update(deltaTime, std::min(velocity * 0.5f, 5.0f));
+                    playerM = glm::translate(glm::mat4(1.0f), camera.position);
+                    playerM = glm::rotate(playerM, glm::radians(g_playerYaw), glm::vec3(0, 1, 0));
+                    playerM = glm::scale(playerM, glm::vec3(0.06f));
+                }
+                struct CharEntry { glm::mat4 m; BipedalRig* rig; };
+                std::vector<CharEntry> remoteCharList;
+                for (auto& [id, p] : g_remotePlayers) {
+                    if (!p.rig) { p.rig = new BipedalRig(); p.rig->setupDefaultHuman(true); }
+                    float lerpFactor = 10.0f * deltaTime;
+                    glm::vec3 lastPos = p.position;
+                    p.position = glm::mix(p.position, p.targetPosition, std::min(1.0f, lerpFactor));
+                    p.pitch = glm::mix(p.pitch, p.targetPitch, std::min(1.0f, lerpFactor));
+                    p.yaw   = glm::mix(p.yaw,   p.targetYaw,   std::min(1.0f, lerpFactor));
+                    float velocity = glm::length(p.position - lastPos) / (deltaTime > 0 ? deltaTime : 1.0f);
+                    if (p.isAttacking) {
+                        p.attackAnim += deltaTime * 5.0f;
+                        if (p.attackAnim > 1.0f) { p.isAttacking = false; p.attackAnim = 0.0f; }
+                    }
+                    p.rig->isAttacking = p.isAttacking;
+                    p.rig->attackAnim = p.attackAnim;
+                    p.rig->update(deltaTime, std::min(velocity, 10.0f));
+                    glm::mat4 pm = glm::translate(glm::mat4(1.0f), p.position);
+                    pm = glm::rotate(pm, glm::radians(p.yaw), glm::vec3(0, 1, 0));
+                    pm = glm::scale(pm, glm::vec3(0.06f));
+                    remoteCharList.push_back({pm, p.rig});
+                }
+
+                // --- Shadow pass (depth-only from sun POV) ---
+                glm::vec3 shadowDir = glm::normalize(glm::vec3(sunDir.x, glm::max(sunDir.y, 0.25f), sunDir.z));
+                glm::vec3 lightEye  = camera.position + shadowDir * 70.0f;
+                glm::vec3 lightUp   = (fabsf(shadowDir.y) > 0.95f) ? glm::vec3(0,0,1) : glm::vec3(0,1,0);
+                glm::mat4 lightView = glm::lookAt(lightEye, camera.position, lightUp);
+                glm::mat4 lightProj = glm::ortho(-38.0f, 38.0f, -38.0f, 38.0f, 1.0f, 200.0f);
+                glm::mat4 lightSpaceMat = lightProj * lightView;
+
+                glViewport(0, 0, SHADOW_RES, SHADOW_RES);
+                glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
+                glClear(GL_DEPTH_BUFFER_BIT);
+                glCullFace(GL_FRONT);
+                shadowShader.use();
+                shadowShader.setMat4("lightSpaceMatrix", lightSpaceMat);
+                shadowShader.setMat4("model", glm::mat4(1.0f));
+                clientWorld.drawAll();
+                {
+                    GLuint sml = glGetUniformLocation(shadowShader.id, "model");
+                    if (g_localPlayerRig) g_localPlayerRig->draw(playerM, sml);
+                    for (auto& ce : remoteCharList) ce.rig->draw(ce.m, sml);
+                }
+                glCullFace(GL_BACK);
+                glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                glViewport(0, 0, fbW, fbH);
+
+                // --- Main render pass ---
                 glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
                 {
@@ -763,61 +865,60 @@ int main(int argc, char** argv) {
                 {
                     chunkShader.use();
                     glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, atlasTexture);
+                    glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, shadowMapTex);
                     chunkShader.setInt("atlas", 0);
+                    chunkShader.setInt("shadowMap", 1);
                     chunkShader.setMat4("model", glm::mat4(1.0f));
                     chunkShader.setMat4("view", view);
                     chunkShader.setMat4("projection", proj);
+                    chunkShader.setMat4("lightSpaceMatrix", lightSpaceMat);
                     chunkShader.setFloat("sunFactor", sunFactor);
                     chunkShader.setVec3("skyAmbient", skyAmbient);
                     chunkShader.setVec3("camPos", eyePos);
+                    chunkShader.setVec3("u_sunDir", sunDir);
+                    chunkShader.setVec3("u_lanternPos", lanternPos);
+                    chunkShader.setFloat("u_lanternIntensity", lanternIntensity);
+                    chunkShader.setFloat("u_lanternRadius", lanternRadius);
                     clientWorld.drawAll();
-                    
-                    // Render players using charShader
+
+                    // Render characters
                     charShader.use();
+                    glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, shadowMapTex);
+                    charShader.setInt("shadowMap", 1);
                     charShader.setMat4("view", view);
                     charShader.setMat4("projection", proj);
-                    charShader.setVec3("lightDir", glm::vec3(0.5f, 1.0f, 0.3f));
-                    charShader.setVec3("lightColor", glm::vec3(sunFactor));
-                    charShader.setVec3("skyAmbient", skyAmbient * 0.5f);
+                    charShader.setMat4("lightSpaceMatrix", lightSpaceMat);
+                    charShader.setFloat("sunFactor", sunFactor);
+                    charShader.setVec3("skyAmbient", skyAmbient);
+                    charShader.setVec3("u_sunDir", sunDir);
+                    charShader.setVec3("u_lanternPos", lanternPos);
+                    charShader.setFloat("u_lanternIntensity", lanternIntensity);
+                    charShader.setFloat("u_lanternRadius", lanternRadius);
                     GLuint modelLoc = glGetUniformLocation(charShader.id, "model");
-
-                    // Local Player
-                    if (g_localPlayerRig) {
-                        float velocity = glm::length(camera.velocity);
-                        g_localPlayerRig->update(deltaTime, std::min(velocity * 0.5f, 5.0f));
-                        glm::mat4 playerM = glm::translate(glm::mat4(1.0f), camera.position);
-                        playerM = glm::rotate(playerM, glm::radians(g_playerYaw), glm::vec3(0, 1, 0));
-                        playerM = glm::scale(playerM, glm::vec3(0.06f));
-                        g_localPlayerRig->draw(playerM, modelLoc);
-                    }
-                    
-                    // Remote Players
-                    for (auto& [id, p] : g_remotePlayers) {
-                        if (!p.rig) {
-                            p.rig = new BipedalRig();
-                            p.rig->setupDefaultHuman(true);
-                        }
-                        float lerpFactor = 10.0f * deltaTime;
-                        glm::vec3 lastPos = p.position;
-                        p.position = glm::mix(p.position, p.targetPosition, std::min(1.0f, lerpFactor));
-                        p.pitch = glm::mix(p.pitch, p.targetPitch, std::min(1.0f, lerpFactor));
-                        p.yaw = glm::mix(p.yaw, p.targetYaw, std::min(1.0f, lerpFactor));
-
-                        float velocity = glm::length(p.position - lastPos) / (deltaTime > 0 ? deltaTime : 1.0f);
-                        
-                        if (p.isAttacking) {
-                            p.attackAnim += deltaTime * 5.0f;
-                            if (p.attackAnim > 1.0f) { p.isAttacking = false; p.attackAnim = 0.0f; }
-                        }
-                        p.rig->isAttacking = p.isAttacking;
-                        p.rig->attackAnim = p.attackAnim;
-                        p.rig->update(deltaTime, std::min(velocity, 10.0f));
-
-                        glm::mat4 playerM = glm::translate(glm::mat4(1.0f), p.position);
-                        playerM = glm::rotate(playerM, glm::radians(p.yaw), glm::vec3(0, 1, 0));
-                        playerM = glm::scale(playerM, glm::vec3(0.06f));
-                        p.rig->draw(playerM, modelLoc);
-                    }
+                    if (g_localPlayerRig) g_localPlayerRig->draw(playerM, modelLoc);
+                    for (auto& ce : remoteCharList) ce.rig->draw(ce.m, modelLoc);
+                }
+                {
+                    // Foliage pass: alpha-cutout crossed quads, no culling
+                    glDisable(GL_CULL_FACE);
+                    chunkShader.use();
+                    glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, atlasTexture);
+                    glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, shadowMapTex);
+                    chunkShader.setInt("atlas", 0);
+                    chunkShader.setInt("shadowMap", 1);
+                    chunkShader.setMat4("model", glm::mat4(1.0f));
+                    chunkShader.setMat4("view", view);
+                    chunkShader.setMat4("projection", proj);
+                    chunkShader.setMat4("lightSpaceMatrix", lightSpaceMat);
+                    chunkShader.setFloat("sunFactor", sunFactor);
+                    chunkShader.setVec3("skyAmbient", skyAmbient);
+                    chunkShader.setVec3("camPos", eyePos);
+                    chunkShader.setVec3("u_sunDir", sunDir);
+                    chunkShader.setVec3("u_lanternPos", lanternPos);
+                    chunkShader.setFloat("u_lanternIntensity", lanternIntensity);
+                    chunkShader.setFloat("u_lanternRadius", lanternRadius);
+                    clientWorld.drawAllFoliage();
+                    glEnable(GL_CULL_FACE);
                 }
                 {
                     glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -833,6 +934,10 @@ int main(int argc, char** argv) {
                     waterShader.setVec3("camPos", eyePos);
                     waterShader.setFloat("time", currentFrame);
                     waterShader.setFloat("timeOfDay", gameTime);
+                    waterShader.setVec3("u_sunDir", sunDir);
+                    waterShader.setVec3("u_lanternPos", lanternPos);
+                    waterShader.setFloat("u_lanternIntensity", lanternIntensity);
+                    waterShader.setFloat("u_lanternRadius", lanternRadius);
                     clientWorld.drawAllWater();
                     glDepthMask(GL_TRUE); glDisable(GL_BLEND); glEnable(GL_CULL_FACE);
                 }

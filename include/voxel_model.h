@@ -92,9 +92,10 @@ public:
 
 class BipedalRig : public CharacterRig {
 public:
-    CharacterNode *torso, *head, *lArm, *rArm, *lLeg, *rLeg, *sword;
+    CharacterNode *torso, *head, *lArm, *rArm, *lLeg, *rLeg, *sword, *lantern;
     float animTime = 0.0f, attackAnim = 0.0f;
     bool isAttacking = false;
+    bool lanternHeld = false;
     int hairStyle = 0, earType = 0, armorType = 0, noseStyle = 0, eyebrowStyle = 0;
     Voxel hairColor = {60, 40, 20, 255}, eyeColor = {0, 0, 0, 255};
     BipedalRig();

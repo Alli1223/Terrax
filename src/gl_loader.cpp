@@ -42,6 +42,12 @@ PFN_glBindFramebuffer        glBindFramebuffer        = nullptr;
 PFN_glFramebufferTexture2D   glFramebufferTexture2D   = nullptr;
 PFN_glDrawBuffer             glDrawBuffer             = nullptr;
 PFN_glReadBuffer             glReadBuffer             = nullptr;
+PFN_glUniform4fv             glUniform4fv             = nullptr;
+PFN_glGenRenderbuffers       glGenRenderbuffers       = nullptr;
+PFN_glDeleteRenderbuffers    glDeleteRenderbuffers    = nullptr;
+PFN_glBindRenderbuffer       glBindRenderbuffer       = nullptr;
+PFN_glRenderbufferStorage    glRenderbufferStorage    = nullptr;
+PFN_glFramebufferRenderbuffer glFramebufferRenderbuffer = nullptr;
 
 #define LOAD(name) \
     name = (PFN_##name)glfwGetProcAddress(#name); \
@@ -90,5 +96,11 @@ bool gl_load() {
     LOAD(glFramebufferTexture2D)
     LOAD(glDrawBuffer)
     LOAD(glReadBuffer)
+    LOAD(glUniform4fv)
+    LOAD(glGenRenderbuffers)
+    LOAD(glDeleteRenderbuffers)
+    LOAD(glBindRenderbuffer)
+    LOAD(glRenderbufferStorage)
+    LOAD(glFramebufferRenderbuffer)
     return ok;
 }

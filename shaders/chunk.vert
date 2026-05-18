@@ -11,6 +11,7 @@ uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
 uniform mat4 lightSpaceMatrix;
+uniform vec4 u_clipPlane;   // (0,0,0,1) = no clip; (0,1,0,-waterY) = clip below water
 
 out vec2  TexCoord;
 out float SkyLight;
@@ -27,5 +28,7 @@ void main() {
     FragWorldPos      = worldPos.xyz;
     FragNormal        = aNormal;
     FragPosLightSpace = lightSpaceMatrix * worldPos;
-    gl_Position       = projection * view * worldPos;
+
+    gl_ClipDistance[0] = dot(worldPos.xyz, u_clipPlane.xyz) + u_clipPlane.w;
+    gl_Position        = projection * view * worldPos;
 }

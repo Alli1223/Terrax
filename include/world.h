@@ -124,6 +124,7 @@ public:
     BlockType getBlock(int wx, int wy, int wz) const;
     BlockType getBlockInternal(int wx, int wy, int wz) const;
     void setBlock(int wx, int wy, int wz, BlockType t);
+    void relightAt(int wx, int wy, int wz);
 
     // Returns true and sets hit info if ray hits a block
     bool raycast(const glm::vec3& origin, const glm::vec3& dir, float maxDist,

@@ -2,8 +2,10 @@
 // Minimal OpenGL 3.3 core loader using glfwGetProcAddress.
 // Works on X11 and Wayland (no GLEW/GLX required).
 
+#ifndef TERRAX_TESTING
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
+#endif
 #include <stddef.h>
 
 // --- GL base types ---
@@ -68,6 +70,11 @@ typedef unsigned char  GLubyte;
 #define GL_DEPTH_ATTACHMENT     0x8D00
 #define GL_FRAMEBUFFER          0x8D40
 #define GL_NONE                 0
+#define GL_COLOR_ATTACHMENT0    0x8CE0
+#define GL_RENDERBUFFER         0x8D41
+#define GL_RGB8                 0x8051
+#define GL_RGB                  0x1907
+#define GL_CLIP_DISTANCE0       0x3000
 
 // --- GL 1.x functions (direct symbols in libGL) ---
 extern "C" {
@@ -112,6 +119,7 @@ typedef GLint  (*PFN_glGetUniformLocation)(GLuint, const GLchar*);
 typedef void   (*PFN_glUniform1i)(GLint, GLint);
 typedef void   (*PFN_glUniform1f)(GLint, GLfloat);
 typedef void   (*PFN_glUniform3fv)(GLint, GLsizei, const GLfloat*);
+typedef void   (*PFN_glUniform4fv)(GLint, GLsizei, const GLfloat*);
 typedef void   (*PFN_glUniformMatrix4fv)(GLint, GLsizei, GLboolean, const GLfloat*);
 typedef void   (*PFN_glGenTextures)(GLsizei, GLuint*);
 typedef void   (*PFN_glDeleteTextures)(GLsizei, const GLuint*);
@@ -127,6 +135,11 @@ typedef void   (*PFN_glBindFramebuffer)(GLenum, GLuint);
 typedef void   (*PFN_glFramebufferTexture2D)(GLenum, GLenum, GLenum, GLuint, GLint);
 typedef void   (*PFN_glDrawBuffer)(GLenum);
 typedef void   (*PFN_glReadBuffer)(GLenum);
+typedef void   (*PFN_glGenRenderbuffers)(GLsizei, GLuint*);
+typedef void   (*PFN_glDeleteRenderbuffers)(GLsizei, const GLuint*);
+typedef void   (*PFN_glBindRenderbuffer)(GLenum, GLuint);
+typedef void   (*PFN_glRenderbufferStorage)(GLenum, GLenum, GLsizei, GLsizei);
+typedef void   (*PFN_glFramebufferRenderbuffer)(GLenum, GLenum, GLenum, GLuint);
 
 // --- Function pointer declarations ---
 extern PFN_glGenBuffers             glGenBuffers;
@@ -155,6 +168,7 @@ extern PFN_glGetUniformLocation     glGetUniformLocation;
 extern PFN_glUniform1i              glUniform1i;
 extern PFN_glUniform1f              glUniform1f;
 extern PFN_glUniform3fv             glUniform3fv;
+extern PFN_glUniform4fv             glUniform4fv;
 extern PFN_glUniformMatrix4fv       glUniformMatrix4fv;
 extern PFN_glGenTextures            glGenTextures;
 extern PFN_glDeleteTextures         glDeleteTextures;
@@ -170,6 +184,11 @@ extern PFN_glBindFramebuffer        glBindFramebuffer;
 extern PFN_glFramebufferTexture2D   glFramebufferTexture2D;
 extern PFN_glDrawBuffer             glDrawBuffer;
 extern PFN_glReadBuffer             glReadBuffer;
+extern PFN_glGenRenderbuffers       glGenRenderbuffers;
+extern PFN_glDeleteRenderbuffers    glDeleteRenderbuffers;
+extern PFN_glBindRenderbuffer       glBindRenderbuffer;
+extern PFN_glRenderbufferStorage    glRenderbufferStorage;
+extern PFN_glFramebufferRenderbuffer glFramebufferRenderbuffer;
 
 // Call once after glfwMakeContextCurrent
 bool gl_load();

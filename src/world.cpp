@@ -1213,6 +1213,43 @@ void World::setBlock(int wx, int wy, int wz, BlockType t) {
     if (lz == CHUNK_SIZE - 1) markNeighbor(cx, cz + 1);
 }
 
+void World::relightAt(int wx, int wy, int wz) {
+    (void)wy;
+    int cx = (wx < 0 && wx % CHUNK_SIZE != 0) ? wx / CHUNK_SIZE - 1 : wx / CHUNK_SIZE;
+    int cz = (wz < 0 && wz % CHUNK_SIZE != 0) ? wz / CHUNK_SIZE - 1 : wz / CHUNK_SIZE;
+
+    std::lock_guard<std::mutex> lock(chunksMutex);
+    auto relightChunk = [](Chunk* c) {
+        if (!c) return;
+        c->computeLight();
+        ChunkState s = c->state.load();
+        if (s == ChunkState::Ready || s == ChunkState::MeshReady)
+            c->state = ChunkState::Generated;
+    };
+
+    auto it = chunks.find({cx, cz});
+    if (it != chunks.end()) relightChunk(it->second.get());
+
+    int lx = wx - cx * CHUNK_SIZE;
+    int lz = wz - cz * CHUNK_SIZE;
+    if (lx == 0) {
+        auto n = chunks.find({cx - 1, cz});
+        if (n != chunks.end()) relightChunk(n->second.get());
+    }
+    if (lx == CHUNK_SIZE - 1) {
+        auto n = chunks.find({cx + 1, cz});
+        if (n != chunks.end()) relightChunk(n->second.get());
+    }
+    if (lz == 0) {
+        auto n = chunks.find({cx, cz - 1});
+        if (n != chunks.end()) relightChunk(n->second.get());
+    }
+    if (lz == CHUNK_SIZE - 1) {
+        auto n = chunks.find({cx, cz + 1});
+        if (n != chunks.end()) relightChunk(n->second.get());
+    }
+}
+
 bool World::raycast(const glm::vec3& origin, const glm::vec3& dir, float maxDist,
                     glm::ivec3& hitBlock, glm::ivec3& hitNormal) const {
     glm::vec3 pos = origin;

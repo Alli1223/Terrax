@@ -304,6 +304,7 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     charShader.setVec3("u_lanternPos",    lanternPos);
     charShader.setFloat("u_lanternIntensity", lanternIntensity);
     charShader.setFloat("u_lanternRadius",    lanternRadius);
+    charShader.setFloat("time",           currentTime);
     {
         GLuint ml = glGetUniformLocation(charShader.id, "model");
         if (ctx.playerRig) ctx.playerRig->draw(playerM, ml);
@@ -324,6 +325,7 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     chunkShader.setVec3("u_lanternPos", lanternPos);
     chunkShader.setFloat("u_lanternIntensity", lanternIntensity);
     chunkShader.setFloat("u_lanternRadius", lanternRadius);
+    chunkShader.setFloat("time", currentTime);
     chunkShader.setVec4("u_clipPlane", glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
     ctx.world.drawAllFoliage();
     glEnable(GL_CULL_FACE);

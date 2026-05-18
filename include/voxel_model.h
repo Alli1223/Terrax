@@ -99,12 +99,14 @@ public:
     bool isSwimming  = false;
     int hairStyle = 0, earType = 0, armorType = 0, noseStyle = 0, eyebrowStyle = 0, eyeType = 0;
     Voxel hairColor = {60, 40, 20, 255}, eyeColor = {0, 0, 0, 255};
+    Voxel skinColor = {210, 160, 130, 255};
     float heightScale = 1.0f;
     float weightScale = 1.0f;
     BipedalRig();
     void setupDefaultHuman(bool male);
     void update(float dt, float velocity) override;
     void applyCustomization();
+    void randomizeAppearance();
 };
 
 class QuadrupedRig : public CharacterRig {

@@ -12,6 +12,13 @@ static PerlinNoise gTempNoise(54321);
 static PerlinNoise gHumidNoise(98765);
 static PerlinNoise gRiverNoise(11111);
 
+void setWorldSeed(unsigned int seed) {
+    gNoise      = PerlinNoise(seed);
+    gTempNoise  = PerlinNoise(seed + 11111);
+    gHumidNoise = PerlinNoise(seed + 22222);
+    gRiverNoise = PerlinNoise(seed + 33333);
+}
+
 // ---- Chunk ----
 
 Chunk::Chunk(ChunkPos p, bool isServer) : pos(p), isServer(isServer) {

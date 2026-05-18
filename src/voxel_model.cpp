@@ -1,6 +1,7 @@
 #include "voxel_model.h"
 #include <iostream>
 #include <algorithm>
+#include <random>
 
 VoxelVolume::VoxelVolume(int x, int y, int z) : sizeX(x), sizeY(y), sizeZ(z) {
     voxels.resize(x * y * z, {0, 0, 0, 0});
@@ -112,7 +113,8 @@ BipedalRig::BipedalRig() {
 }
 
 void BipedalRig::setupDefaultHuman(bool male) {
-    Voxel skin  = male ? Voxel{210, 160, 130, 255} : Voxel{230, 180, 150, 255};
+    skinColor = male ? Voxel{210, 160, 130, 255} : Voxel{230, 180, 150, 255};
+    Voxel skin = skinColor;
     Voxel shirt = male ? Voxel{50, 100, 200, 255} : Voxel{200, 50, 100, 255};
     Voxel pants = {30, 30, 30, 255};
 
@@ -195,8 +197,10 @@ void BipedalRig::update(float dt, float velocity) {
 
 void BipedalRig::applyCustomization() {
     if (!head || !head->volume || !torso || !torso->volume) return;
-    Voxel skin     = {210, 160, 130, 255};
-    Voxel noseSkin = {190, 140, 110, 255};
+    Voxel skin     = skinColor;
+    Voxel noseSkin = {(uint8_t)(skinColor.r * 9 / 10),
+                      (uint8_t)(skinColor.g * 87 / 100),
+                      (uint8_t)(skinColor.b * 85 / 100), 255};
     Voxel hair     = hairColor;
     Voxel eye      = eyeColor;
     Voxel white    = {255, 255, 255, 255};
@@ -418,8 +422,49 @@ void BipedalRig::applyCustomization() {
     torso->scale.x = weightScale;
     torso->scale.z = weightScale;
 
+    // --- Update arm skin (y=0-4 is skin, y=5+ is shirt) ---
+    for (auto arm : {lArm, rArm}) {
+        if (!arm || !arm->volume) continue;
+        for(int x=1; x<5; x++) for(int y=0; y<5; y++) for(int z=1; z<5; z++)
+            arm->volume->setVoxel(x, y, z, skinColor);
+        arm->volume->updateMesh();
+    }
+
     head->volume->updateMesh();
     torso->volume->updateMesh();
+}
+
+void BipedalRig::randomizeAppearance() {
+    static std::mt19937 rng(std::random_device{}());
+    auto pick = [&](int n) -> int { return std::uniform_int_distribution<int>(0, n - 1)(rng); };
+
+    static const Voxel skinPalette[] = {
+        {255, 224, 196, 255}, {240, 200, 168, 255}, {220, 175, 140, 255},
+        {195, 148, 110, 255}, {165, 118,  76, 255}, {135,  90,  52, 255},
+        {100,  62,  32, 255}, { 72,  42,  20, 255},
+    };
+    static const Voxel hairPalette[] = {
+        { 15,  12,   8, 255}, { 55,  32,  12, 255}, { 90,  55,  22, 255},
+        {140,  90,  40, 255}, {160,  65,  25, 255}, {185, 150,  70, 255},
+        {215, 190, 115, 255}, {240, 225, 180, 255}, {185,  55,  25, 255},
+        {160, 155, 150, 255},
+    };
+    static const Voxel eyePalette[] = {
+        { 65,  38,  15, 255}, { 90,  65,  22, 255}, { 55, 110,  50, 255},
+        { 42,  82, 145, 255}, { 85, 110, 130, 255}, { 25,  18,  10, 255},
+    };
+
+    skinColor    = skinPalette[pick(8)];
+    hairColor    = hairPalette[pick(10)];
+    eyeColor     = eyePalette[pick(6)];
+    hairStyle    = pick(12);
+    earType      = pick(5);
+    noseStyle    = pick(5);
+    eyebrowStyle = pick(3);
+    eyeType      = pick(2) == 0 ? 0 : 1;
+    armorType    = 0;
+
+    applyCustomization();
 }
 
 QuadrupedRig::QuadrupedRig() {

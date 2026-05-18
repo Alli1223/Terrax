@@ -49,6 +49,64 @@ TEST_CASE(BipedalRig_WeightScaleDefault) {
     CHECK_EQ(rig.weightScale, 1.0f);
 }
 
+TEST_CASE(BipedalRig_SkinColorSetByGender) {
+    BipedalRig male, female;
+    male.setupDefaultHuman(true);
+    female.setupDefaultHuman(false);
+    CHECK_EQ((int)male.skinColor.r,   210);
+    CHECK_EQ((int)female.skinColor.r, 230);
+    CHECK_NE((int)male.skinColor.r, (int)female.skinColor.r);
+}
+
+TEST_CASE(SkinColor_AppliedToHeadSphere) {
+    BipedalRig rig;
+    rig.setupDefaultHuman(true);
+    rig.skinColor = {100, 200, 150, 255};
+    rig.applyCustomization();
+    // Centre of head sphere should be the custom skin colour
+    Voxel v = rig.head->volume->getVoxel(12, 6, 12);
+    CHECK_EQ((int)v.r, 100);
+    CHECK_EQ((int)v.g, 200);
+    CHECK_EQ((int)v.b, 150);
+}
+
+TEST_CASE(SkinColor_AppliedToArms) {
+    BipedalRig rig;
+    rig.setupDefaultHuman(true);
+    rig.skinColor = {100, 200, 150, 255};
+    rig.applyCustomization();
+    // y=2 on arm is skin area (y=0-4 is skin, y=5+ is shirt)
+    Voxel v = rig.lArm->volume->getVoxel(2, 2, 2);
+    CHECK_EQ((int)v.r, 100);
+    CHECK_EQ((int)v.g, 200);
+    CHECK_EQ((int)v.b, 150);
+}
+
+TEST_CASE(RandomizeAppearance_ValidRanges) {
+    BipedalRig rig;
+    rig.setupDefaultHuman(true);
+    rig.randomizeAppearance();
+    CHECK(rig.hairStyle    >= 0 && rig.hairStyle    <= 11);
+    CHECK(rig.earType      >= 0 && rig.earType      <= 4);
+    CHECK(rig.noseStyle    >= 0 && rig.noseStyle    <= 4);
+    CHECK(rig.eyebrowStyle >= 0 && rig.eyebrowStyle <= 4);
+    CHECK(rig.eyeType      >= 0 && rig.eyeType      <= 1);
+    CHECK((int)rig.skinColor.a == 255);
+    CHECK((int)rig.hairColor.a == 255);
+    CHECK((int)rig.eyeColor.a  == 255);
+}
+
+TEST_CASE(RandomizeAppearance_ProducesDifferentResults) {
+    // Run twice and check at least one field differs (probability of all matching is negligible)
+    BipedalRig a, b;
+    a.setupDefaultHuman(true); a.randomizeAppearance();
+    b.setupDefaultHuman(true); b.randomizeAppearance();
+    bool anyDiff = (a.hairStyle != b.hairStyle || a.earType != b.earType ||
+                    a.noseStyle != b.noseStyle ||
+                    a.skinColor.r != b.skinColor.r || a.hairColor.r != b.hairColor.r);
+    CHECK(anyDiff);
+}
+
 TEST_CASE(BipedalRig_HeadVolumeCreated) {
     BipedalRig rig;
     rig.setupDefaultHuman(true);

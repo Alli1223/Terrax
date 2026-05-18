@@ -24,6 +24,7 @@
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
+#include <random>
 
 // --- Enums ---
 enum class GameState {
@@ -690,8 +691,35 @@ int main(int argc, char** argv) {
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, reflDepthRBO);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
+    {
+        std::mt19937 rng(std::random_device{}());
+        unsigned int worldSeed = rng();
+        setWorldSeed(worldSeed);
+    }
+
+    {
+        static const char* firstNames[] = {
+            "Alder","Bryn","Cael","Dara","Edwyn","Faye","Gorn","Hana",
+            "Idris","Juno","Kael","Lira","Morn","Nyla","Oswin","Pira",
+            "Quen","Riva","Soren","Tara","Ulan","Vera","Wren","Xara",
+            "Yael","Zora","Bael","Cira","Dwyn","Elva",
+        };
+        static const char* lastNames[] = {
+            "Ashvale","Blackwood","Crestfall","Dawnmere","Emberveil",
+            "Frostholm","Greyveil","Harrow","Ironfeld","Jademoor",
+            "Kindrel","Lochfall","Mistwood","Nighthollow","Oakhaven",
+            "Pinecroft","Quickfen","Ravenmoor","Stoneholt","Thornwick",
+            "Umbravel","Voidmarch","Westmere","Xandrel","Yarrowfen","Zephyrholt",
+        };
+        std::mt19937 rng(std::random_device{}());
+        const char* fn = firstNames[std::uniform_int_distribution<int>(0, 29)(rng)];
+        const char* ln = lastNames[std::uniform_int_distribution<int>(0, 25)(rng)];
+        snprintf(g_playerName, MAX_PLAYER_NAME + 1, "%s %s", fn, ln);
+    }
+
     g_localPlayerRig = new BipedalRig();
     g_localPlayerRig->setupDefaultHuman(true);
+    g_localPlayerRig->randomizeAppearance();
 
     noclip = true;
     camera.position = glm::vec3(8.5f, 42.0f, 8.5f);
@@ -793,6 +821,11 @@ int main(int argc, char** argv) {
             }
 
             if (ImGui::CollapsingHeader("Face Features", ImGuiTreeNodeFlags_DefaultOpen)) {
+                float sCol[3] = {g_localPlayerRig->skinColor.r/255.0f, g_localPlayerRig->skinColor.g/255.0f, g_localPlayerRig->skinColor.b/255.0f};
+                if (ImGui::ColorEdit3("Skin Color", sCol)) {
+                    g_localPlayerRig->skinColor = {(uint8_t)(sCol[0]*255), (uint8_t)(sCol[1]*255), (uint8_t)(sCol[2]*255), 255};
+                    g_localPlayerRig->applyCustomization();
+                }
                 if (ImGui::Combo("Hair Style", &g_localPlayerRig->hairStyle, "Bald\0Crew Cut\0Messy Short\0Mohawk\0Spiky\0Side Swept\0Bob\0Long Straight\0Wavy Long\0Bun\0Pigtails\0Braided\0")) {
                     g_localPlayerRig->applyCustomization();
                 }

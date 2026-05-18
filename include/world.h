@@ -140,3 +140,5 @@ private:
 
     void workerThread();
 };
+
+void setWorldSeed(unsigned int seed);

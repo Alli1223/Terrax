@@ -19,9 +19,24 @@ uniform vec3  camPos;
 uniform float time;
 uniform float timeOfDay;
 uniform vec3  u_sunDir;
-uniform vec3  u_lanternPos;
-uniform float u_lanternIntensity;
-uniform float u_lanternRadius;
+#define MAX_LANTERNS 16
+uniform int   u_lanternCount;
+uniform vec3  u_lanternPos[MAX_LANTERNS];
+uniform float u_lanternIntensity[MAX_LANTERNS];
+uniform float u_lanternRadius[MAX_LANTERNS];
+
+const vec3 LANTERN_COLOR = vec3(1.00, 0.76, 0.40);
+
+vec3 calcLanternLight(vec3 worldPos) {
+    vec3 contrib = vec3(0.0);
+    for (int i = 0; i < u_lanternCount; i++) {
+        float ldist   = length(worldPos - u_lanternPos[i]);
+        float falloff = max(0.0, 1.0 - ldist / u_lanternRadius[i]);
+        falloff *= falloff;
+        contrib = max(contrib, falloff * u_lanternIntensity[i] * LANTERN_COLOR);
+    }
+    return contrib;
+}
 
 // ── Value noise / fBm (foam) ──────────────────────────────────────────────────
 float hash2(vec2 p) {
@@ -122,10 +137,7 @@ void main() {
     vec3  skyAmb  = SkyLight * sunFactor * skyAmbient * 0.22;
     vec3  sun     = diffuse  * sunFactor * skyAmbient * 0.95 * cloudAtten;
 
-    float ldist  = length(WorldPos - u_lanternPos);
-    float lfall  = max(0.0, 1.0 - ldist / u_lanternRadius);
-    lfall       *= lfall;
-    vec3 lantern = lfall * u_lanternIntensity * vec3(1.00, 0.76, 0.40);
+    vec3 lantern = calcLanternLight(WorldPos);
 
     vec3 light = skyAmb + sun;
     light = max(light, lantern);

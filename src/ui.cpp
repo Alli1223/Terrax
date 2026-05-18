@@ -5,6 +5,7 @@
 #include "renderer.h"
 #include "game_session.h"
 #include "gameplay.h"
+#include "graphics_settings.h"
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
@@ -107,10 +108,99 @@ void initImGui(GLFWwindow* window) {
 // Menu UIs
 // ---------------------------------------------------------------------------
 
-void renderMenuUI(AppContext& ctx, GLFWwindow* window) {
+static void applyRenderDistanceSetting(AppContext& ctx) {
+    ctx.settings.renderDistance = clampRenderDistance(ctx.settings.renderDistance);
+    ctx.world.renderDistance    = ctx.settings.renderDistance;
+}
+
+static void syncRendererFramebuffers(GLFWwindow* window, Renderer* renderer) {
+    if (!window || !renderer) return;
+    int fbW = 0, fbH = 0;
+    glfwGetFramebufferSize(window, &fbW, &fbH);
+    if (fbW > 0 && fbH > 0)
+        renderer->resizeFramebuffers(fbW, fbH);
+}
+
+static void applyGraphicsSettingsAndSync(GLFWwindow* window, AppContext& ctx, Renderer* renderer) {
+    applyGraphicsSettings(window, ctx);
+    syncRendererFramebuffers(window, renderer);
+}
+
+static void renderSettingsUI(AppContext& ctx, GLFWwindow* window, Renderer* renderer) {
+    int winW = 0, winH = 0;
+    glfwGetWindowSize(window, &winW, &winH);
+    if (winW <= 0) winW = WINDOW_WIDTH;
+    if (winH <= 0) winH = WINDOW_HEIGHT;
+
+    ImGui::SetNextWindowPos(ImVec2(winW / 2 - 200, winH / 2 - 240));
+    ImGui::SetNextWindowSize(ImVec2(400, 480));
+    ImGui::Begin("Settings", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove);
+
+    ImGui::Text("SETTINGS");
+    ImGui::Separator();
+
+    ImGui::Text("World");
+    if (ImGui::SliderInt("Chunk render distance", &ctx.settings.renderDistance,
+                         MIN_RENDER_DISTANCE, MAX_RENDER_DISTANCE)) {
+        applyRenderDistanceSetting(ctx);
+    }
+    ImGui::TextWrapped(
+        "Chunk radius around you. Host / singleplayer uses this when you start a session.");
+
+    ImGui::Spacing();
+    ImGui::Text("Graphics");
+    bool gfxChanged = false;
+
+    if (ImGui::Checkbox("Fullscreen", &ctx.settings.fullscreen))
+        gfxChanged = true;
+
+    if (ImGui::Checkbox("V-Sync", &ctx.settings.vsync))
+        gfxChanged = true;
+
+    bool msaa = ctx.settings.msaa;
+    if (ImGui::Checkbox("Anti-aliasing (MSAA)", &msaa)) {
+        ctx.settings.msaa = msaa;
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Requires restarting the game to take effect.");
+    }
+
+    ImGui::BeginDisabled(ctx.settings.fullscreen);
+    int resIdx = graphicsSettingsResolutionIndex(ctx.settings);
+    const char* resLabels[8];
+    int resCount = graphicsSettingsResolutionCount();
+    for (int i = 0; i < resCount && i < 8; i++)
+        resLabels[i] = graphicsSettingsResolutionLabel(i);
+    if (ImGui::Combo("Resolution", &resIdx, resLabels, resCount)) {
+        graphicsSettingsApplyResolutionPreset(ctx.settings, resIdx);
+        gfxChanged = true;
+    }
+    ImGui::EndDisabled();
+    if (ctx.settings.fullscreen)
+        ImGui::TextDisabled("Resolution uses your desktop display mode in fullscreen.");
+
+    if (ImGui::SliderFloat("Field of view", &ctx.settings.fov, 50.0f, 110.0f, "%.0f"))
+        ctx.camera.fov = ctx.settings.fov;
+
+    if (gfxChanged)
+        applyGraphicsSettingsAndSync(window, ctx, renderer);
+
+    ImGui::Spacing();
+    if (ImGui::Button("Back", ImVec2(-1, 36)))
+        ctx.state = GameState::MainMenu;
+
+    ImGui::End();
+}
+
+void renderMenuUI(AppContext& ctx, GLFWwindow* window, Renderer* renderer) {
+    if (ctx.state == GameState::SettingsMenu) {
+        renderSettingsUI(ctx, window, renderer);
+        return;
+    }
     if (ctx.state == GameState::MainMenu) {
         ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH / 2 - 160, WINDOW_HEIGHT / 2 - 180));
-        ImGui::SetNextWindowSize(ImVec2(320, 360));
+        ImGui::SetNextWindowSize(ImVec2(320, 400));
         ImGui::Begin("Main Menu", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove);
 
         ImGui::Text("TERRAX");
@@ -120,19 +210,21 @@ void renderMenuUI(AppContext& ctx, GLFWwindow* window) {
 
         if (ImGui::Button("Singleplayer", ImVec2(-1, 36))) {
             disconnectFromGame(ctx);
+            applyRenderDistanceSetting(ctx);
             ctx.sessionMode  = SessionMode::Singleplayer;
             ctx.connectHost  = "127.0.0.1";
             ctx.connectPort  = DEFAULT_SERVER_PORT;
-            startEmbeddedServer(ctx.connectPort);
+            startEmbeddedServer(ctx.connectPort, ctx.settings.renderDistance);
             ctx.weOwnServer  = true;
             ctx.state        = GameState::Playing;
         }
         if (ImGui::Button("Host Game", ImVec2(-1, 36))) {
             disconnectFromGame(ctx);
+            applyRenderDistanceSetting(ctx);
             ctx.sessionMode  = SessionMode::Host;
             ctx.connectHost  = "127.0.0.1";
             ctx.connectPort  = DEFAULT_SERVER_PORT;
-            startEmbeddedServer(ctx.connectPort);
+            startEmbeddedServer(ctx.connectPort, ctx.settings.renderDistance);
             ctx.weOwnServer  = true;
             ctx.state        = GameState::Playing;
         }
@@ -141,6 +233,9 @@ void renderMenuUI(AppContext& ctx, GLFWwindow* window) {
         }
         if (ImGui::Button("Character Editor", ImVec2(-1, 36))) {
             ctx.state = GameState::CharacterEditor;
+        }
+        if (ImGui::Button("Settings", ImVec2(-1, 36))) {
+            ctx.state = GameState::SettingsMenu;
         }
         if (ImGui::Button("Exit", ImVec2(-1, 36))) {
             disconnectFromGame(ctx);
@@ -163,6 +258,7 @@ void renderMenuUI(AppContext& ctx, GLFWwindow* window) {
 
         if (ImGui::Button("Connect", ImVec2(-1, 36))) {
             disconnectFromGame(ctx);
+            applyRenderDistanceSetting(ctx);
             ctx.sessionMode = SessionMode::Join;
             ctx.connectHost = hostBuf;
             ctx.connectPort = (unsigned short)port;

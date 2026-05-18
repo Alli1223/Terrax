@@ -1,4 +1,5 @@
 #include "network.h"
+#include "game_session.h"
 #include <GLFW/glfw3.h>
 #include <cstring>
 #include <cmath>
@@ -6,6 +7,16 @@
 #include <algorithm>
 
 NetworkServer* g_server = nullptr;
+
+static void ensureRemoteRig(BipedalRig*& rig) {
+    if (!rig) {
+        rig = new BipedalRig();
+        rig->setupDefaultHuman(true);
+        return;
+    }
+    if (!rig->torso || !rig->torso->volume)
+        rig->setupDefaultHuman(true);
+}
 
 // --- Connection ---
 
@@ -187,7 +198,10 @@ void NetworkServer::doAccept() {
             
             HandshakePacket hp { conn->id };
             conn->send(PacketType::Handshake, &hp, sizeof(hp));
-            
+
+            DayTimePacket dt { getServerGameTime() };
+            conn->send(PacketType::DayTime, &dt, sizeof(dt));
+
             {
                 std::lock_guard<std::mutex> lock(modelsMutex);
                 for (auto& [id, model] : playerModels) {
@@ -196,7 +210,20 @@ void NetworkServer::doAccept() {
                 }
             }
             sendExistingPlayersTo(conn);
-            
+
+            {
+                std::lock_guard<std::mutex> lock(udpClientsMutex);
+                for (auto& uc : udp_clients) {
+                    if (uc.id == conn->id) continue;
+                    PlayerPosPacket pp {};
+                    pp.id = uc.id;
+                    pp.x = uc.lastPos.x;
+                    pp.y = uc.lastPos.y;
+                    pp.z = uc.lastPos.z;
+                    conn->send(PacketType::PlayerPos, &pp, sizeof(pp));
+                }
+            }
+
             conn->start(
                 [this](std::shared_ptr<Connection> c, PacketType type, std::vector<uint8_t> data) {
                     std::lock_guard<std::mutex> lock(queueMutex);
@@ -576,8 +603,9 @@ void NetworkClient::update(World& world, std::unordered_map<uint32_t, RemotePlay
                 rp.id = p->id;
                 if (rp.name.empty()) rp.name = "Player" + std::to_string(p->id);
                 rp.targetPosition = glm::vec3(p->x, p->y, p->z);
-                rp.targetPitch = p->pitch;
-                rp.targetYaw = p->yaw;
+                rp.targetPitch    = p->pitch;
+                rp.targetYaw      = p->yaw;
+                rp.lanternHeld    = p->lanternHeld != 0;
                 
                 if (rp.lastUpdate == 0) {
                     rp.position = rp.targetPosition;
@@ -591,7 +619,7 @@ void NetworkClient::update(World& world, std::unordered_map<uint32_t, RemotePlay
                 PlayerModelHeader* h = (PlayerModelHeader*)msg.data.data();
                 auto& rp = players[h->clientID];
                 rp.id = h->clientID;
-                if (!rp.rig) rp.rig = new BipedalRig();
+                ensureRemoteRig(rp.rig);
                 rp.rig->hairStyle = h->hairStyle;
                 rp.rig->hairColor = h->hairColor;
                 rp.rig->eyeColor = h->eyeColor;
@@ -635,6 +663,13 @@ void NetworkClient::update(World& world, std::unordered_map<uint32_t, RemotePlay
                     senderName = pit->second.name;
                 if (cp->senderID == clientID) senderName = "You";
                 pushChat(cp->senderID, senderName, cp->text);
+            }
+        } else if (msg.type == PacketType::DayTime) {
+            if (msg.data.size() == sizeof(DayTimePacket)) {
+                DayTimePacket* p = (DayTimePacket*)msg.data.data();
+                serverGameTime = p->gameTime;
+                hasServerGameTime = true;
+                dayTimeUpdated = true;
             }
         }
     }

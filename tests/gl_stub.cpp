@@ -30,6 +30,7 @@ static void stub_glDeleteProgram(GLuint) {}
 static GLint stub_glGetUniformLocation(GLuint,const GLchar*) { return 0; }
 static void stub_glUniform1i(GLint,GLint) {}
 static void stub_glUniform1f(GLint,GLfloat) {}
+static void stub_glUniform1fv(GLint,GLsizei,const GLfloat*) {}
 static void stub_glUniform3fv(GLint,GLsizei,const GLfloat*) {}
 static void stub_glUniform4fv(GLint,GLsizei,const GLfloat*) {}
 static void stub_glUniformMatrix4fv(GLint,GLsizei,GLboolean,const GLfloat*) {}
@@ -79,6 +80,7 @@ PFN_glDeleteProgram          glDeleteProgram           = stub_glDeleteProgram;
 PFN_glGetUniformLocation     glGetUniformLocation      = stub_glGetUniformLocation;
 PFN_glUniform1i              glUniform1i               = stub_glUniform1i;
 PFN_glUniform1f              glUniform1f               = stub_glUniform1f;
+PFN_glUniform1fv             glUniform1fv              = stub_glUniform1fv;
 PFN_glUniform3fv             glUniform3fv              = stub_glUniform3fv;
 PFN_glUniform4fv             glUniform4fv              = stub_glUniform4fv;
 PFN_glUniformMatrix4fv       glUniformMatrix4fv        = stub_glUniformMatrix4fv;

@@ -7,6 +7,7 @@
 #include "gameplay.h"
 #include "ui.h"
 #include "game_session.h"
+#include "graphics_settings.h"
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
@@ -19,28 +20,30 @@ int main(int argc, char** argv) {
         if (std::string(argv[i]) == "--server") { runDedicatedServer(); return 0; }
 
     if (!glfwInit()) { std::cerr << "GLFW init failed\n"; return 1; }
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    glfwWindowHint(GLFW_SAMPLES, 4);
-    GLFWwindow* window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Terrax", nullptr, nullptr);
+
+    GameSettings settings;
+    GLFWwindow* window = createGameWindow(settings);
     if (!window) { std::cerr << "Window creation failed\n"; glfwTerminate(); return 1; }
-    glfwMakeContextCurrent(window);
-    glfwSwapInterval(0);
     if (!gl_load()) { std::cerr << "Failed to load OpenGL functions\n"; return 1; }
+
+    AppContext ctx;
+    ctx.settings = settings;
+    applyGraphicsSettings(window, ctx);
 
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);
-    glEnable(GL_MULTISAMPLE);
-
-    AppContext ctx;
     setupInputCallbacks(window, ctx);
     initImGui(window);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
+    int initW = 0, initH = 0;
+    glfwGetFramebufferSize(window, &initW, &initH);
+    if (initW <= 0) initW = ctx.settings.windowWidth;
+    if (initH <= 0) initH = ctx.settings.windowHeight;
+
     Renderer renderer;
-    if (!renderer.init(WINDOW_WIDTH, WINDOW_HEIGHT)) {
+    if (!renderer.init(initW, initH)) {
         std::cerr << "Renderer init failed\n";
         return 1;
     }
@@ -58,11 +61,12 @@ int main(int argc, char** argv) {
 
         switch (ctx.state) {
         case GameState::MainMenu:
+        case GameState::SettingsMenu:
         case GameState::JoinMenu:
             glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
             glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-            renderMenuUI(ctx, window);
+            renderMenuUI(ctx, window, &renderer);
             break;
 
         case GameState::CharacterEditor:

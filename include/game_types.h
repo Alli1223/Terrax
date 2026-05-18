@@ -1,6 +1,6 @@
 #pragma once
 
-enum class GameState   { MainMenu, JoinMenu, CharacterEditor, Playing, Paused };
+enum class GameState   { MainMenu, SettingsMenu, JoinMenu, CharacterEditor, Playing, Paused };
 enum class SessionMode { None, Host, Join, Singleplayer };
 enum class EditorTool  { Paint, Add, Erase };
 
@@ -11,3 +11,4 @@ static constexpr float REACH             = 5.0f;
 static constexpr float PLAYER_HEIGHT     = 1.8f;
 static constexpr float PLAYER_WIDTH      = 0.4f;
 static constexpr float WATER_LEVEL_Y     = 29.0f;
+static constexpr int   MAX_LANTERNS      = 16;

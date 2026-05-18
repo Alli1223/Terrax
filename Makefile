@@ -10,7 +10,7 @@ IMGUI_OBJS := $(IMGUI_SRCS:$(IMGUI_DIR)/%.cpp=build/imgui/%.o)
 SRCS := src/main.cpp src/shader.cpp src/camera.cpp src/world.cpp src/gl_loader.cpp \
         src/atlas.cpp src/network.cpp src/voxel_model.cpp src/game_session.cpp \
         src/app_context.cpp src/physics.cpp src/input.cpp src/renderer.cpp \
-        src/gameplay.cpp src/ui.cpp
+        src/gameplay.cpp src/ui.cpp src/graphics_settings.cpp
 OBJS := $(SRCS:src/%.cpp=build/%.o)
 
 DEPS := $(OBJS:.o=.d) $(IMGUI_OBJS:.o=.d)

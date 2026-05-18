@@ -34,6 +34,7 @@ enum class PacketType : uint8_t {
     PlayerHealth = 8,
     Chat = 9,
     PlayerJoin = 10,
+    DayTime = 11,
 };
 
 #pragma pack(push, 1)
@@ -71,6 +72,7 @@ struct PlayerPosPacket {
     uint32_t id;
     float x, y, z;
     float pitch, yaw;
+    uint8_t lanternHeld;
 };
 
 struct BlockUpdatePacket {
@@ -94,6 +96,10 @@ struct PlayerJoinPacket {
 struct ChatPacket {
     uint32_t senderID;
     char text[MAX_CHAT_TEXT + 1];
+};
+
+struct DayTimePacket {
+    float gameTime;
 };
 #pragma pack(pop)
 
@@ -142,6 +148,7 @@ struct RemotePlayer {
     float health = 100.0f;
     bool isAttacking = false;
     float attackAnim = 0.0f;
+    bool lanternHeld = false;
 };
 
 class NetworkServer {
@@ -216,6 +223,9 @@ public:
     
     uint32_t clientID = 0;
     bool connected = false;
+    float serverGameTime = 0.3f;
+    bool hasServerGameTime = false;
+    bool dayTimeUpdated = false;
     std::vector<ChatMessage> chatLog;
     static constexpr size_t MAX_CHAT_LOG = 100;
 

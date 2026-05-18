@@ -26,6 +26,7 @@ PFN_glDeleteProgram          glDeleteProgram          = nullptr;
 PFN_glGetUniformLocation     glGetUniformLocation     = nullptr;
 PFN_glUniform1i              glUniform1i              = nullptr;
 PFN_glUniform1f              glUniform1f              = nullptr;
+PFN_glUniform1fv             glUniform1fv             = nullptr;
 PFN_glUniform3fv             glUniform3fv             = nullptr;
 PFN_glUniformMatrix4fv       glUniformMatrix4fv       = nullptr;
 PFN_glGenTextures            glGenTextures            = nullptr;
@@ -80,6 +81,7 @@ bool gl_load() {
     LOAD(glGetUniformLocation)
     LOAD(glUniform1i)
     LOAD(glUniform1f)
+    LOAD(glUniform1fv)
     LOAD(glUniform3fv)
     LOAD(glUniformMatrix4fv)
     LOAD(glGenTextures)

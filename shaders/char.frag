@@ -11,10 +11,25 @@ uniform vec3  u_sunDir;
 uniform float sunFactor;
 uniform vec3  skyAmbient;
 uniform sampler2D shadowMap;
-uniform vec3  u_lanternPos;
-uniform float u_lanternIntensity;
-uniform float u_lanternRadius;
+#define MAX_LANTERNS 16
+uniform int   u_lanternCount;
+uniform vec3  u_lanternPos[MAX_LANTERNS];
+uniform float u_lanternIntensity[MAX_LANTERNS];
+uniform float u_lanternRadius[MAX_LANTERNS];
 uniform float time;
+
+const vec3 LANTERN_COLOR = vec3(1.00, 0.76, 0.40);
+
+vec3 calcLanternLight(vec3 worldPos) {
+    vec3 contrib = vec3(0.0);
+    for (int i = 0; i < u_lanternCount; i++) {
+        float ldist   = length(worldPos - u_lanternPos[i]);
+        float falloff = max(0.0, 1.0 - ldist / u_lanternRadius[i]);
+        falloff *= falloff;
+        contrib = max(contrib, falloff * u_lanternIntensity[i] * LANTERN_COLOR);
+    }
+    return contrib;
+}
 
 // ── Cloud shadow (identical formula to chunk/water shaders) ───────────────────
 float cHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -68,10 +83,7 @@ void main() {
     vec3 skyAmb     = sunFactor * skyAmbient * 0.28;
     vec3 sunContrib = diffuse * (1.0 - shadow * 0.82) * sunFactor * skyAmbient * 0.95;
 
-    float ldist   = length(FragPos - u_lanternPos);
-    float falloff = max(0.0, 1.0 - ldist / u_lanternRadius);
-    falloff *= falloff;
-    vec3 lanternContrib = falloff * u_lanternIntensity * vec3(1.00, 0.76, 0.40);
+    vec3 lanternContrib = calcLanternLight(FragPos);
 
     vec3 light = skyAmb + sunContrib;
     light = max(light, lanternContrib);

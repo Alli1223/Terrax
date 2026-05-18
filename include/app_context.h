@@ -1,5 +1,6 @@
 #pragma once
 #include "game_types.h"
+#include "game_settings.h"
 #include "game_session.h"
 #include "camera.h"
 #include "world.h"
@@ -40,6 +41,9 @@ struct AppContext {
     // --- Lantern ---
     bool  lanternHeld = false;
     float flickerTime = 0.0f;
+
+    // --- Settings ---
+    GameSettings settings;
 
     // --- World ---
     World world;

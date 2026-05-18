@@ -7,7 +7,7 @@ class  Renderer;
 void initImGui(GLFWwindow* window);
 
 // Renders main menu or join menu depending on ctx.state.
-void renderMenuUI(AppContext& ctx, GLFWwindow* window);
+void renderMenuUI(AppContext& ctx, GLFWwindow* window, Renderer* renderer);
 
 // Renders the character editor ImGui panel + handles mouse input for voxel editing / rotation.
 // Also calls renderer.renderEditorCharacter for the 3D viewport.

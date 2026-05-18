@@ -12,6 +12,7 @@ public:
     ~Renderer() = default;
 
     bool init(int width, int height);
+    void resizeFramebuffers(int width, int height);
 
     // Renders the full play-state 3D scene (shadow, reflection, terrain, characters, water).
     void renderWorld(AppContext& ctx, GLFWwindow* window, float currentTime);

@@ -87,10 +87,16 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
         ctx.joinNameSent = true;
     }
 
-    if (ctx.weOwnServer && g_serverDayTimeSync.load())
+    if (ctx.weOwnServer && g_serverDayTimeSync.load()) {
         ctx.gameTime = getServerGameTime();
-    else if (!ctx.weOwnServer)
-        ctx.gameTime = fmodf(ctx.gameTime + ctx.deltaTime / DAY_CYCLE_SECONDS, 1.0f);
+    } else if (ctx.client && ctx.client->hasServerGameTime) {
+        if (ctx.client->dayTimeUpdated) {
+            ctx.gameTime = ctx.client->serverGameTime;
+            ctx.client->dayTimeUpdated = false;
+        } else {
+            ctx.gameTime = fmodf(ctx.gameTime + ctx.deltaTime / DAY_CYCLE_SECONDS, 1.0f);
+        }
+    }
 
     if (!ctx.spawnedOnGround) {
         std::lock_guard<std::mutex> lock(ctx.world.chunksMutex);
@@ -135,9 +141,14 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
     if (ctx.client->clientID != 0 && gameplayActive) {
         ctx.posSendTimer += ctx.deltaTime;
         if (ctx.posSendTimer >= 0.05f) {
-            PlayerPosPacket p { ctx.client->clientID,
-                ctx.camera.position.x, ctx.camera.position.y, ctx.camera.position.z,
-                ctx.camera.pitch, ctx.playerYaw };
+            PlayerPosPacket p {};
+            p.id          = ctx.client->clientID;
+            p.x           = ctx.camera.position.x;
+            p.y           = ctx.camera.position.y;
+            p.z           = ctx.camera.position.z;
+            p.pitch       = ctx.camera.pitch;
+            p.yaw         = ctx.playerYaw;
+            p.lanternHeld = ctx.lanternHeld ? 1 : 0;
             ctx.client->sendUDP(&p, sizeof(p));
             ctx.posSendTimer = 0.0f;
         }

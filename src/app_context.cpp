@@ -7,6 +7,7 @@ AppContext::AppContext()
     : camera(glm::vec3(8.5f, 42.0f, 8.5f))
     , world(false)
 {
+    world.renderDistance = settings.renderDistance;
     {
         std::mt19937 rng(std::random_device{}());
         setWorldSeed(rng());

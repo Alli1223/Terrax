@@ -14,4 +14,5 @@ public:
     void setVec3(const char* name, const glm::vec3& v) const { glUniform3fv(glGetUniformLocation(id, name), 1, &v[0]); }
     void setVec4(const char* name, const glm::vec4& v) const { glUniform4fv(glGetUniformLocation(id, name), 1, &v[0]); }
     void setMat4(const char* name, const glm::mat4& m) const { glUniformMatrix4fv(glGetUniformLocation(id, name), 1, GL_FALSE, &m[0][0]); }
+    void setLanternLights(int count, const glm::vec3* pos, const float* intensity, const float* radius) const;
 };

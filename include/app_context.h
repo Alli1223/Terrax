@@ -9,6 +9,8 @@
 #include <glm/glm.hpp>
 #include <string>
 #include <unordered_map>
+#include <vector>
+#include <future>
 
 struct AppContext {
     // --- State ---
@@ -76,6 +78,19 @@ struct AppContext {
     bool  headUnderwater = false;
     float breathTime     = 30.0f;
     float posSendTimer   = 0.0f;
+
+    // --- World Map ---
+    bool   showMap         = false;
+    GLuint mapTex          = 0;
+    float  mapZoom         = 1.0f;   // half-extent = 256 / zoom world blocks
+    float  mapRotDeg       = 0.0f;
+    float  mapPanX         = 0.0f;   // world-space pan relative to player
+    float  mapPanZ         = 0.0f;
+    float  mapBuiltCX      = 0.0f;   // player position when texture was last built
+    float  mapBuiltCZ      = 0.0f;
+    bool   mapNeedsRebuild = true;
+    bool   mapBuilding     = false;
+    std::future<std::vector<uint8_t>> mapFuture;
 
     AppContext();
     ~AppContext();

@@ -15,7 +15,7 @@ static void framebuffer_size_callback(GLFWwindow*, int w, int h) {
 static void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
     AppContext& ctx = *static_cast<AppContext*>(glfwGetWindowUserPointer(window));
     if (ImGui::GetIO().WantCaptureMouse) return;
-    if (ctx.state == GameState::Paused || ctx.chatOpen) return;
+    if (ctx.state == GameState::Paused || ctx.chatOpen || ctx.showMap) return;
     if (ctx.state != GameState::Playing && ctx.state != GameState::CharacterEditor) return;
     if (ctx.firstMouse) { ctx.lastMouseX = xpos; ctx.lastMouseY = ypos; ctx.firstMouse = false; }
     float xoff = (float)(xpos - ctx.lastMouseX);
@@ -29,7 +29,7 @@ static void mouse_button_callback(GLFWwindow* window, int button, int action, in
     AppContext& ctx = *static_cast<AppContext*>(glfwGetWindowUserPointer(window));
     if (ImGui::GetIO().WantCaptureMouse) return;
     if (ctx.state != GameState::Playing || ctx.paused || ctx.chatOpen) return;
-    if (action != GLFW_PRESS || !ctx.client) return;
+    if (action != GLFW_PRESS || !ctx.client || ctx.showMap) return;
     glm::ivec3 hitBlock, hitNormal;
     if (ctx.world.raycast(ctx.camera.position + glm::vec3(0.0f, 1.6f, 0.0f),
                           ctx.camera.front, REACH, hitBlock, hitNormal)) {
@@ -60,6 +60,12 @@ static void key_callback(GLFWwindow* window, int key, int, int action, int) {
     if (ctx.state == GameState::Playing || ctx.state == GameState::Paused) {
         if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
             if (ctx.chatOpen) { ctx.chatOpen = false; return; }
+            if (ctx.showMap) {
+                ctx.showMap = false;
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+                ctx.firstMouse = true;
+                return;
+            }
             ctx.paused = !ctx.paused;
             ctx.state  = ctx.paused ? GameState::Paused : GameState::Playing;
             glfwSetInputMode(window, GLFW_CURSOR,
@@ -87,6 +93,18 @@ static void key_callback(GLFWwindow* window, int key, int, int action, int) {
     if (ImGui::GetIO().WantCaptureKeyboard && ctx.state != GameState::JoinMenu) return;
 
     if (ctx.state == GameState::Playing && !ctx.paused && !ctx.chatOpen) {
+        if (key == GLFW_KEY_M && action == GLFW_PRESS) {
+            ctx.showMap = !ctx.showMap;
+            if (ctx.showMap) {
+                ctx.mapBuiltCX     = ctx.camera.position.x;
+                ctx.mapBuiltCZ     = ctx.camera.position.z;
+                ctx.mapNeedsRebuild = true;
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+            } else {
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+                ctx.firstMouse = true;
+            }
+        }
         if (key == GLFW_KEY_N && action == GLFW_PRESS) ctx.noclip = !ctx.noclip;
         if (key == GLFW_KEY_W)     { if(action==GLFW_PRESS) ctx.keyFwd=1;   else if(action==GLFW_RELEASE) ctx.keyFwd=0; }
         if (key == GLFW_KEY_S)     { if(action==GLFW_PRESS) ctx.keyBack=1;  else if(action==GLFW_RELEASE) ctx.keyBack=0; }

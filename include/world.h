@@ -85,6 +85,12 @@ public:
     std::mutex meshMutex;
     int neighborsAtMeshTime = 0;
 
+    // Surface cache: top-solid Y and block type per column, filled after generation.
+    // Used by the world map renderer; avoids re-scanning under lock.
+    bool surfaceReady = false;
+    std::array<int16_t, CHUNK_SIZE * CHUNK_SIZE> surfaceY{};
+    std::array<uint8_t, CHUNK_SIZE * CHUNK_SIZE> surfaceBT{};
+
     Chunk(ChunkPos p, bool isServer);
     ~Chunk();
 
@@ -130,6 +136,11 @@ public:
     // Returns true and sets hit info if ray hits a block
     bool raycast(const glm::vec3& origin, const glm::vec3& dir, float maxDist,
                  glm::ivec3& hitBlock, glm::ivec3& hitNormal) const;
+
+    // Fill an RGBA pixel buffer (texSize×texSize) with a top-down terrain map.
+    // (cx, cz) is the world-space centre; worldRadius is the half-extent covered.
+    // Safe to call from a background thread.
+    void fillMapPixels(uint8_t* rgba, int texSize, float cx, float cz, float worldRadius) const;
 
 private:
     std::queue<Chunk*> generationQueue;

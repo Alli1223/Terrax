@@ -1037,8 +1037,119 @@ static void generateChunk(Chunk* c) {
         }
     }
 
+    // Cache surface for world map (reads topSolid which is still valid post water-fill)
+    for (int x = 0; x < CHUNK_SIZE; x++) {
+        for (int z = 0; z < CHUNK_SIZE; z++) {
+            int idx = z * CHUNK_SIZE + x;
+            int ts = topSolid[x][z];
+            if (ts >= 0 && ts < SEA_LEVEL) ts = SEA_LEVEL; // water column surface = sea level
+            c->surfaceY[idx]  = (int16_t)ts;
+            c->surfaceBT[idx] = (ts >= 0) ? (uint8_t)c->get(x, ts, z) : (uint8_t)BlockType::Air;
+        }
+    }
+    c->surfaceReady = true;
+
     c->computeLight();
     c->state = ChunkState::Generated;
+}
+
+// ---- World map helpers ----
+
+static void blockToMapRGB(BlockType bt, int y, uint8_t& r, uint8_t& g, uint8_t& b) {
+    int ri, gi, bi;
+    switch (bt) {
+        case BlockType::Water:     ri=22;  gi=90;  bi=200; break;
+        case BlockType::Ice:       ri=178; gi=210; bi=240; break;
+        case BlockType::Grass:     ri=67;  gi=178; bi=35;  break;
+        case BlockType::Dirt:      ri=130; gi=88;  bi=50;  break;
+        case BlockType::Sand:      ri=220; gi=198; bi=115; break;
+        case BlockType::Gravel:    ri=138; gi=136; bi=130; break;
+        case BlockType::Snow:      ri=238; gi=242; bi=255; break;
+        case BlockType::Stone:     ri=118; gi=118; bi=125; break;
+        case BlockType::Sandstone: ri=198; gi=168; bi=88;  break;
+        case BlockType::Leaves:    ri=38;  gi=128; bi=22;  break;
+        case BlockType::Wood:      ri=165; gi=110; bi=52;  break;
+        case BlockType::Cactus:    ri=30;  gi=108; bi=22;  break;
+        case BlockType::Glowstone: ri=255; gi=200; bi=50;  break;
+        default:                   ri=100; gi=100; bi=100; break;
+    }
+    if (bt != BlockType::Water) {
+        float shade = std::clamp((y - SEA_LEVEL) / 80.0f, -0.25f, 0.35f);
+        ri = std::clamp((int)(ri * (1.0f + shade)), 0, 255);
+        gi = std::clamp((int)(gi * (1.0f + shade)), 0, 255);
+        bi = std::clamp((int)(bi * (1.0f + shade)), 0, 255);
+    }
+    r = (uint8_t)ri; g = (uint8_t)gi; b = (uint8_t)bi;
+}
+
+static void biomeToMapRGB(Biome bm, float surfH, uint8_t& r, uint8_t& g, uint8_t& b) {
+    if (surfH < (float)(SEA_LEVEL - 1)) { r = 18; g = 65; b = 175; return; }
+    int ri, gi, bi;
+    switch (bm) {
+        case Biome::Plains:    ri=75;  gi=155; bi=38;  break;
+        case Biome::Forest:    ri=28;  gi=105; bi=18;  break;
+        case Biome::Desert:    ri=205; gi=185; bi=108; break;
+        case Biome::Mountains: ri=135; gi=135; bi=142; break;
+        case Biome::Tundra:    ri=195; gi=210; bi=225; break;
+        case Biome::Savanna:   ri=155; gi=165; bi=55;  break;
+        case Biome::Jungle:    ri=18;  gi=125; bi=12;  break;
+        default:               ri=100; gi=100; bi=100; break;
+    }
+    float shade = std::clamp((surfH - (float)SEA_LEVEL) / 100.0f, -0.25f, 0.35f);
+    r = (uint8_t)std::clamp((int)(ri * (1.0f + shade)), 0, 255);
+    g = (uint8_t)std::clamp((int)(gi * (1.0f + shade)), 0, 255);
+    b = (uint8_t)std::clamp((int)(bi * (1.0f + shade)), 0, 255);
+}
+
+void World::fillMapPixels(uint8_t* rgba, int texSize, float cx, float cz, float worldRadius) const {
+    // Snapshot surface data for all ready chunks in one short critical section
+    struct ColData { int16_t y; uint8_t bt; };
+    std::unordered_map<ChunkPos, std::vector<ColData>, ChunkPosHash> snap;
+    {
+        std::lock_guard<std::mutex> lock(chunksMutex);
+        for (auto& [pos, chunk] : chunks) {
+            if (!chunk->surfaceReady) continue;
+            auto& cols = snap[pos];
+            cols.resize(CHUNK_SIZE * CHUNK_SIZE);
+            for (int i = 0; i < CHUNK_SIZE * CHUNK_SIZE; i++) {
+                cols[i].y  = chunk->surfaceY[i];
+                cols[i].bt = chunk->surfaceBT[i];
+            }
+        }
+    }
+
+    float bpp = (worldRadius * 2.0f) / (float)texSize;
+
+    for (int py = 0; py < texSize; py++) {
+        for (int px = 0; px < texSize; px++) {
+            float wx = cx + (px - texSize * 0.5f) * bpp;
+            float wz = cz + (py - texSize * 0.5f) * bpp;
+            int   iwx = (int)floorf(wx), iwz = (int)floorf(wz);
+            int   chx = (iwx < 0 && iwx % CHUNK_SIZE != 0) ? iwx / CHUNK_SIZE - 1 : iwx / CHUNK_SIZE;
+            int   chz = (iwz < 0 && iwz % CHUNK_SIZE != 0) ? iwz / CHUNK_SIZE - 1 : iwz / CHUNK_SIZE;
+            int   lx  = iwx - chx * CHUNK_SIZE;
+            int   lz  = iwz - chz * CHUNK_SIZE;
+
+            int byteIdx = (py * texSize + px) * 4;
+            uint8_t r, g, b;
+
+            auto it = snap.find({chx, chz});
+            if (it != snap.end()) {
+                const auto& col = it->second[lz * CHUNK_SIZE + lx];
+                blockToMapRGB((BlockType)col.bt, (int)col.y, r, g, b);
+            } else {
+                auto info = computeColumn(wx, wz);
+                biomeToMapRGB(info.biome, info.surfH, r, g, b);
+                // Darken unexplored areas (fog-of-war)
+                r = r * 55 / 100; g = g * 55 / 100; b = b * 55 / 100;
+            }
+
+            rgba[byteIdx + 0] = r;
+            rgba[byteIdx + 1] = g;
+            rgba[byteIdx + 2] = b;
+            rgba[byteIdx + 3] = 255;
+        }
+    }
 }
 
 // ---- World ----

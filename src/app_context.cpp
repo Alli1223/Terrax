@@ -43,5 +43,6 @@ AppContext::AppContext()
 }
 
 AppContext::~AppContext() {
+    if (mapBuilding && mapFuture.valid()) mapFuture.wait();
     delete playerRig;
 }

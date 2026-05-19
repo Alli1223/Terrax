@@ -36,7 +36,7 @@ struct AppContext {
     bool   firstMouse = true;
 
     // --- Movement keys ---
-    int keyFwd = 0, keyBack = 0, keyLeft = 0, keyRight = 0, keyJump = 0;
+    int keyFwd = 0, keyBack = 0, keyLeft = 0, keyRight = 0, keyJump = 0, keySprint = 0;
 
     // --- Lantern ---
     bool  lanternHeld = false;

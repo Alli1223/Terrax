@@ -40,7 +40,7 @@ enum class ChunkState {
 };
 
 static constexpr int CHUNK_SIZE = 16;
-static constexpr int CHUNK_HEIGHT = 64;
+static constexpr int CHUNK_HEIGHT = 256;
 
 struct Vertex {
     float x, y, z;       // world position

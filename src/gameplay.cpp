@@ -191,7 +191,8 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
 
         if (ctx.noclip) {
             if (ctx.keyJump) moveDir.y += 1.0f;
-            ctx.camera.position += moveDir * 15.0f * ctx.deltaTime;
+            float noclipSpeed = ctx.keySprint ? 45.0f : 15.0f;
+            ctx.camera.position += moveDir * noclipSpeed * ctx.deltaTime;
             ctx.camera.velocity  = glm::vec3(0.0f);
         } else if (inWater) {
             ctx.camera.velocity.x = moveDir.x * 5.0f;
@@ -206,8 +207,9 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
             ctx.camera.position  = resolveCollision(ctx.camera.position, ctx.camera, hw, ph, ctx.world);
             ctx.camera.onGround  = false;
         } else {
-            ctx.camera.velocity.x = moveDir.x * 10.0f;
-            ctx.camera.velocity.z = moveDir.z * 10.0f;
+            float walkSpeed = ctx.keySprint ? 20.0f : 10.0f;
+            ctx.camera.velocity.x = moveDir.x * walkSpeed;
+            ctx.camera.velocity.z = moveDir.z * walkSpeed;
             if (ctx.keyJump && ctx.camera.onGround) ctx.camera.velocity.y = 8.0f;
             ctx.camera.applyGravity(ctx.deltaTime);
             ctx.camera.position = resolveCollision(ctx.camera.position, ctx.camera, hw, ph, ctx.world);

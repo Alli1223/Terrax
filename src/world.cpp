@@ -11,12 +11,14 @@ static PerlinNoise gNoise(12345);
 static PerlinNoise gTempNoise(54321);
 static PerlinNoise gHumidNoise(98765);
 static PerlinNoise gRiverNoise(11111);
+static PerlinNoise gContinentalNoise(77777);
 
 void setWorldSeed(unsigned int seed) {
-    gNoise      = PerlinNoise(seed);
-    gTempNoise  = PerlinNoise(seed + 11111);
-    gHumidNoise = PerlinNoise(seed + 22222);
-    gRiverNoise = PerlinNoise(seed + 33333);
+    gNoise             = PerlinNoise(seed);
+    gTempNoise         = PerlinNoise(seed + 11111);
+    gHumidNoise        = PerlinNoise(seed + 22222);
+    gRiverNoise        = PerlinNoise(seed + 33333);
+    gContinentalNoise  = PerlinNoise(seed + 44444);
 }
 
 // ---- Chunk ----
@@ -450,7 +452,7 @@ void Chunk::drawFoliage() const {
 
 // ---- Biome system ----
 
-static constexpr int SEA_LEVEL = 28;
+static constexpr int SEA_LEVEL = 64;
 
 enum class Biome : uint8_t { Plains=0, Forest=1, Desert=2, Mountains=3, Tundra=4, Savanna=5, Jungle=6 };
 static constexpr int NUM_BIOMES = 7;
@@ -465,133 +467,186 @@ struct BiomeDef {
     BlockType subSurfaceBlock;
 };
 
+// Amplitudes here are LOCAL DETAIL added on top of the macro elevation base.
+// The macro noise (~±160 blocks) already provides the large mountain ranges.
 static const BiomeDef BIOMES[NUM_BIOMES] = {
-  // temp   humid  freq     amp   oct pers   surf                   sub
-    {0.50f, 0.40f, 0.008f, 10.0f, 4, 0.50f, BlockType::Grass,      BlockType::Dirt      }, // Plains
-    {0.50f, 0.80f, 0.010f, 16.0f, 5, 0.55f, BlockType::Grass,      BlockType::Dirt      }, // Forest
-    {0.90f, 0.10f, 0.009f,  8.0f, 3, 0.40f, BlockType::Sand,       BlockType::Sandstone }, // Desert
-    {0.10f, 0.50f, 0.013f, 32.0f, 6, 0.60f, BlockType::Snow,       BlockType::Stone     }, // Mountains
-    {0.10f, 0.20f, 0.007f, 10.0f, 4, 0.50f, BlockType::Snow,       BlockType::Stone     }, // Tundra
-    {0.75f, 0.25f, 0.007f,  9.0f, 3, 0.45f, BlockType::Grass,      BlockType::Dirt      }, // Savanna
-    {0.85f, 0.90f, 0.011f, 20.0f, 5, 0.55f, BlockType::Grass,      BlockType::Dirt      }, // Jungle
+  // temp   humid  freq     amp    oct pers   surf                   sub
+    {0.50f, 0.40f, 0.006f,  3.0f,  3, 0.35f, BlockType::Grass,      BlockType::Dirt      }, // Plains    — nearly flat
+    {0.50f, 0.80f, 0.009f, 12.0f,  5, 0.55f, BlockType::Grass,      BlockType::Dirt      }, // Forest    — rolling hills
+    {0.90f, 0.10f, 0.007f,  6.0f,  3, 0.40f, BlockType::Sand,       BlockType::Sandstone }, // Desert    — flat with dunes
+    {0.10f, 0.50f, 0.014f, 25.0f,  8, 0.68f, BlockType::Snow,       BlockType::Stone     }, // Mountains — very jagged detail
+    {0.10f, 0.20f, 0.012f, 22.0f,  7, 0.65f, BlockType::Snow,       BlockType::Stone     }, // Tundra    — rugged snow
+    {0.75f, 0.25f, 0.006f,  5.0f,  3, 0.40f, BlockType::Grass,      BlockType::Dirt      }, // Savanna   — gentle
+    {0.85f, 0.90f, 0.010f, 16.0f,  6, 0.60f, BlockType::Grass,      BlockType::Dirt      }, // Jungle    — hilly
 };
 
-// ---- Decorator helpers (defined before generateChunk) ----
+// ---- Column height/biome helper (used by both Pass 0 and the cross-chunk decorator pass) ----
 
-// Large varied broadleaf tree: base 2–6 wide, tall trunk, structural branches, wide crown canopy.
-// n drives placement; n2 drives per-tree shape so every tree looks different.
-static void tryPlaceTree(Chunk* c, int x, int z, int top,
+struct ColumnInfo { float surfH; Biome biome; };
+
+static ColumnInfo computeColumn(float wx, float wz) {
+    float macroRaw = gContinentalNoise.octave(wx * 0.00035f, wz * 0.00035f, 5, 0.55f, 2.0f);
+    float macroH   = (float)SEA_LEVEL + macroRaw * 160.0f;
+
+    float temp  = gTempNoise .octave(wx * 0.0010f,          wz * 0.0010f,          2, 0.5f, 2.0f) * 0.5f + 0.5f;
+    float humid = gHumidNoise.octave(wx * 0.0010f + 100.0f, wz * 0.0010f + 100.0f, 2, 0.5f, 2.0f) * 0.5f + 0.5f;
+
+    float weights[NUM_BIOMES], wTotal = 0.0f;
+    int   domIdx = 0;
+    for (int i = 0; i < NUM_BIOMES; i++) {
+        float dt = temp - BIOMES[i].idealTemp, dh = humid - BIOMES[i].idealHumid;
+        weights[i] = expf(-10.0f * (dt*dt + dh*dh));
+        wTotal += weights[i];
+        if (weights[i] > weights[domIdx]) domIdx = i;
+    }
+    float elevNorm = std::clamp((macroH - (float)SEA_LEVEL) / 140.0f, -1.0f, 1.0f);
+    if (elevNorm > 0.25f) {
+        float snowBias = std::min((elevNorm - 0.25f) / 0.75f, 1.0f);
+        float snowMult = 1.0f + snowBias * 40.0f;
+        weights[(int)Biome::Mountains] *= snowMult;
+        weights[(int)Biome::Tundra]    *= snowMult;
+        float suppress = std::max(0.0f, 1.0f - snowBias * 3.0f);
+        for (int i = 0; i < NUM_BIOMES; i++)
+            if (i != (int)Biome::Mountains && i != (int)Biome::Tundra) weights[i] *= suppress;
+        wTotal = 0.0f; domIdx = 0;
+        for (int i = 0; i < NUM_BIOMES; i++) { wTotal += weights[i]; if (weights[i] > weights[domIdx]) domIdx = i; }
+    }
+    float blendH = macroH;
+    for (int i = 0; i < NUM_BIOMES; i++) {
+        float w = weights[i] / wTotal;
+        if (w < 0.005f) continue;
+        float h = gNoise.octave(wx * BIOMES[i].freq, wz * BIOMES[i].freq, BIOMES[i].octaves, BIOMES[i].persistence, 2.0f);
+        blendH += w * h * BIOMES[i].amplitude;
+    }
+    float ridgeN = std::abs(gRiverNoise.octave(wx * 0.006f + 777.0f, wz * 0.006f + 777.0f, 3, 0.5f, 2.0f));
+    if (ridgeN < 0.13f && blendH > (float)(SEA_LEVEL + 1)) {
+        float depth = (0.13f - ridgeN) / 0.13f;
+        blendH -= depth * depth * 30.0f;
+        blendH = std::max(blendH, (float)(SEA_LEVEL - 3));
+    }
+    float riverN = gRiverNoise.octave(wx * 0.005f, wz * 0.005f, 2, 0.5f, 2.0f);
+    if (std::abs(riverN) < 0.045f && blendH > SEA_LEVEL - 6 && blendH < SEA_LEVEL + 50) {
+        float riverDepth = (0.045f - std::abs(riverN)) / 0.045f;
+        blendH = std::min(blendH, (float)(SEA_LEVEL - 1) - riverDepth * 4.0f);
+    }
+    return { blendH, (Biome)domIdx };
+}
+
+// ---- Decorator helpers ----
+// All functions take WORLD coordinates (wx, wz) for the anchor position.
+// c->set() silently ignores coordinates outside the chunk, so structures that
+// straddle a chunk seam are written correctly when the neighbour also processes
+// the same anchor.
+
+static void tryPlaceTree(Chunk* c, int wx, int wz, int top,
                          float n, float n2, float thresh) {
     if (n < thresh) return;
     float t = std::clamp((n  - thresh) / (1.0f - thresh), 0.0f, 1.0f);
     float s = std::clamp(n2 * 0.5f + 0.5f, 0.0f, 1.0f);
 
-    // Deterministic per-tree RNG seeded by world position
-    const int wx = c->pos.x * CHUNK_SIZE + x;
-    const int wz = c->pos.z * CHUNK_SIZE + z;
     auto rng = [wx, wz](int salt) -> uint32_t {
         uint32_t v = (uint32_t)(wx * 1619 + wz * 31337 + salt * 6271);
         v ^= (v >> 16); v *= 0x45d9f3bu; return v ^ (v >> 16);
     };
 
-    // Base diameter 2–6, driven by both noise channels
-    int baseDiam = 2 + (int)((t * 0.5f + s * 0.5f) * 4.99f); // 2, 3, 4, 5, or 6
-    int flareR   = (baseDiam + 1) / 2;      // root-flare half-width: 1, 1, 2, 2, 3
-    int trunkR   = baseDiam / 4;             // trunk column radius:   0, 0, 1, 1, 1
-    int margin   = flareR + 1;
-    if (x < margin || x >= CHUNK_SIZE - margin || z < margin || z >= CHUNK_SIZE - margin) return;
+    // Huge size range: tiny saplings up to towering giants
+    int trunkH = 8 + (int)(t * 55.0f + s * 27.0f);  // 8–90
+    trunkH = std::min(trunkH, CHUNK_HEIGHT - top - 5);
+    if (trunkH < 5) return;
 
-    int trunkH   = 14 + (int)(t * 10.0f + s * 6.0f); // 14–30
+    int trunkR = (trunkH >= 60) ? 2 : (trunkH >= 25) ? 1 : 0;
+    int flareR = trunkR + 1;
+
+    // Chunk-local base (may be outside [0, CHUNK_SIZE) — c->set() handles that)
+    int lx = wx - c->pos.x * CHUNK_SIZE;
+    int lz = wz - c->pos.z * CHUNK_SIZE;
     int trunkTop = top + trunkH;
 
-    // Root flare: 3 tapering layers
-    for (int ty = top + 1; ty <= top + 3 && ty < CHUNK_HEIGHT; ty++) {
+    // Root flare
+    for (int ty = top + 1; ty <= top + 2 && ty < CHUNK_HEIGHT; ty++) {
         int r = std::max(flareR - (ty - top - 1), trunkR);
         for (int dx = -r; dx <= r; dx++)
         for (int dz = -r; dz <= r; dz++) {
             if (std::abs(dx) == r && std::abs(dz) == r && r > 0) continue;
-            int bx = x + dx, bz = z + dz;
-            if (bx >= 0 && bx < CHUNK_SIZE && bz >= 0 && bz < CHUNK_SIZE)
-                c->set(bx, ty, bz, BlockType::Wood);
+            c->set(lx + dx, ty, lz + dz, BlockType::Wood);
         }
     }
-    // Main trunk above flare
-    for (int ty = top + 4; ty <= trunkTop && ty < CHUNK_HEIGHT; ty++)
+    // Main trunk
+    for (int ty = top + 3; ty <= trunkTop && ty < CHUNK_HEIGHT; ty++)
     for (int dx = -trunkR; dx <= trunkR; dx++)
-    for (int dz = -trunkR; dz <= trunkR; dz++) {
-        int bx = x + dx, bz = z + dz;
-        if (bx >= 0 && bx < CHUNK_SIZE && bz >= 0 && bz < CHUNK_SIZE)
-            c->set(bx, ty, bz, BlockType::Wood);
-    }
+    for (int dz = -trunkR; dz <= trunkR; dz++)
+        c->set(lx + dx, ty, lz + dz, BlockType::Wood);
 
-    // Structural branches: arms radiating from 1/3 to 9/10 of trunk height
+    // Branches from upper 35% — primary visual feature
     static const int8_t DIRS8[8][2] = {
         {1,0},{-1,0},{0,1},{0,-1},{1,1},{1,-1},{-1,1},{-1,-1}
     };
-    const int branchStart = top + trunkH / 3;
-    const int branchEnd   = top + (trunkH * 9) / 10;
-    const int numBranches = 4 + (int)(t * 6.0f); // 4–10
+    const int branchStart  = top + (trunkH * 65) / 100;
+    const int branchEnd    = top + (trunkH * 95) / 100;
+    const int numBranches  = 10 + (int)(t * 8.0f + s * 6.0f);      // 10–24
+    const int maxBlen      = 5 + (int)(trunkH * 0.15f);             // scales with height
 
     for (int bi = 0; bi < numBranches; bi++) {
-        const int ty   = branchStart + (int)((rng(bi)       & 0xFF) / 255.0f * (branchEnd - branchStart));
-        const int dir  = (rng(bi + 100) >> 8) & 7;
-        const int blen = 3 + (int)((rng(bi + 200) & 7)     / 7.0f * 4.0f); // 3–7
-        const int rise = 1 + (int)((rng(bi + 300) & 3)     / 3.0f * 2.0f); // 1–3
-        const int ddx  = DIRS8[dir][0], ddz = DIRS8[dir][1];
+        int ty   = branchStart + (int)((rng(bi) & 0xFF) / 255.0f * (branchEnd - branchStart));
+        int dir  = (rng(bi + 100) >> 8) & 7;
+        int blen = std::max(4, 3 + (int)((rng(bi + 200) & 0xF) / 15.0f * maxBlen));
+        int rise = 1 + (int)((rng(bi + 300) & 0x7) / 7.0f * 5.0f);
+        int ddx  = DIRS8[dir][0], ddz = DIRS8[dir][1];
 
-        // Branch wood arm
         for (int i = 1; i <= blen; i++) {
-            int bx = x + ddx * i, by = ty + (rise * i) / blen, bz = z + ddz * i;
-            if (bx < 0 || bx >= CHUNK_SIZE || bz < 0 || bz >= CHUNK_SIZE || by >= CHUNK_HEIGHT) break;
+            int bx = lx + ddx*i, by = ty + (rise*i + blen/2)/blen, bz = lz + ddz*i;
+            if (by >= CHUNK_HEIGHT) break;
             c->set(bx, by, bz, BlockType::Wood);
         }
-        // Leaf cluster at tip: oblate ellipsoid r=2 horiz, r=2 vert
-        const int tipX = x + ddx * blen, tipY = ty + rise, tipZ = z + ddz * blen;
-        for (int lx = -2; lx <= 2; lx++)
-        for (int lz = -2; lz <= 2; lz++)
-        for (int ly = -1; ly <= 2; ly++) {
-            if ((float)(lx*lx + lz*lz) / 4.0f + (float)(ly*ly) / 4.0f > 1.0f) continue;
-            int bx = tipX + lx, by = tipY + ly, bz = tipZ + lz;
-            if (bx >= 0 && bx < CHUNK_SIZE && bz >= 0 && bz < CHUNK_SIZE && by > 0 && by < CHUNK_HEIGHT)
-                if (c->get(bx, by, bz) == BlockType::Air)
-                    c->set(bx, by, bz, BlockType::Leaves);
+        int tipX = lx + ddx*blen, tipY = ty + rise, tipZ = lz + ddz*blen;
+        int leafR = 3 + (int)((rng(bi + 400) & 3) / 3.0f * 2.0f);  // 3–5
+        int leafH = 2 + (int)((rng(bi + 500) & 1));                   // 2–3
+        for (int llx = -leafR; llx <= leafR; llx++)
+        for (int llz = -leafR; llz <= leafR; llz++)
+        for (int ly = -leafH; ly <= leafH + 1; ly++) {
+            float ex = (float)(llx*llx + llz*llz) / (float)(leafR * leafR);
+            float ey = (float)(ly * ly) / (float)((leafH + 1) * (leafH + 1));
+            if (ex + ey > 1.0f) continue;
+            int bx = tipX + llx, by = tipY + ly, bz = tipZ + llz;
+            if (by > 0 && by < CHUNK_HEIGHT && c->get(bx, by, bz) == BlockType::Air)
+                c->set(bx, by, bz, BlockType::Leaves);
         }
     }
 
-    // Crown canopy: wide oblate ellipsoid
-    const int cR = 5 + (int)(t * 3.0f);  // horizontal radius 5–8
-    const int cH = 3 + (int)(s * 3.0f);  // vertical half-axis 3–6
-    for (int lx = -cR; lx <= cR; lx++)
-    for (int lz = -cR; lz <= cR; lz++)
-    for (int ly = -(cH + 1); ly <= cH; ly++) {
-        if ((float)(lx*lx + lz*lz) / (float)(cR*cR) + (float)(ly*ly) / (float)(cH*cH) > 1.0f) continue;
-        int bx = x + lx, by = trunkTop + ly, bz = z + lz;
-        if (bx >= 0 && bx < CHUNK_SIZE && bz >= 0 && bz < CHUNK_SIZE && by > 0 && by < CHUNK_HEIGHT)
-            if (c->get(bx, by, bz) == BlockType::Air)
-                c->set(bx, by, bz, BlockType::Leaves);
+    // Small tuft at the very top
+    for (int llx = -2; llx <= 2; llx++)
+    for (int llz = -2; llz <= 2; llz++)
+    for (int ly = 0; ly <= 2; ly++) {
+        if (std::abs(llx) == 2 && std::abs(llz) == 2) continue;
+        int bx = lx + llx, by = trunkTop + ly, bz = lz + llz;
+        if (by > 0 && by < CHUNK_HEIGHT && c->get(bx, by, bz) == BlockType::Air)
+            c->set(bx, by, bz, BlockType::Leaves);
     }
 }
 
-// Tall conifer: single-block trunk, broad conical canopy, whorl branches.
-static void tryPlacePineTree(Chunk* c, int x, int z, int top,
+// Tall conifer — world coords
+static void tryPlacePineTree(Chunk* c, int wx, int wz, int top,
                               float n, float n2, float thresh) {
-    if (n < thresh || x < 4 || x >= CHUNK_SIZE - 4 || z < 4 || z >= CHUNK_SIZE - 4) return;
-    float t = std::clamp((n  - thresh) / (1.0f - thresh), 0.0f, 1.0f);
+    if (n < thresh) return;
+    float t = std::clamp((n - thresh) / (1.0f - thresh), 0.0f, 1.0f);
     float s = std::clamp(n2 * 0.5f + 0.5f, 0.0f, 1.0f);
 
-    const int wx = c->pos.x * CHUNK_SIZE + x;
-    const int wz = c->pos.z * CHUNK_SIZE + z;
     auto rng = [wx, wz](int salt) -> uint32_t {
         uint32_t v = (uint32_t)(wx * 1619 + wz * 31337 + salt * 6271);
         v ^= (v >> 16); v *= 0x45d9f3bu; return v ^ (v >> 16);
     };
 
-    int trunkH   = 14 + (int)(t * 8.0f); // 14–22
-    for (int ty = top + 1; ty <= top + trunkH && ty < CHUNK_HEIGHT; ty++)
-        c->set(x, ty, z, BlockType::Wood);
+    int trunkH = 16 + (int)(t * 40.0f + s * 20.0f);  // 16–76
+    trunkH = std::min(trunkH, CHUNK_HEIGHT - top - 5);
+    if (trunkH < 8) return;
 
-    // Conical canopy: cone starts 1/4 up the trunk, tip 1 block above crown
-    int maxR     = 4 + (int)(t * 2.0f + s); // bottom-ring radius 4–7
+    int lx = wx - c->pos.x * CHUNK_SIZE;
+    int lz = wz - c->pos.z * CHUNK_SIZE;
+
+    for (int ty = top + 1; ty <= top + trunkH && ty < CHUNK_HEIGHT; ty++)
+        c->set(lx, ty, lz, BlockType::Wood);
+
+    int maxR = 5 + (int)(t * 3.0f + s);
     int coneApex = top + trunkH + 1;
     int coneBase = top + trunkH / 4;
     int coneH    = coneApex - coneBase;
@@ -602,222 +657,194 @@ static void tryPlacePineTree(Chunk* c, int x, int z, int top,
         for (int dx = -r; dx <= r; dx++)
         for (int dz = -r; dz <= r; dz++) {
             if (std::abs(dx) == r && std::abs(dz) == r && r > 1) continue;
-            int bx = x + dx, bz = z + dz;
-            if (bx >= 0 && bx < CHUNK_SIZE && bz >= 0 && bz < CHUNK_SIZE)
-                if (c->get(bx, ty, bz) == BlockType::Air)
-                    c->set(bx, ty, bz, BlockType::Leaves);
+            if (c->get(lx + dx, ty, lz + dz) == BlockType::Air)
+                c->set(lx + dx, ty, lz + dz, BlockType::Leaves);
         }
     }
 
-    // Whorl branches: two opposing arms at each tier inside the cone
     static const int8_t CARD[4][2] = {{1,0},{-1,0},{0,1},{0,-1}};
-    int tierStep = 3 + (int)(s); // 3 or 4 blocks between tiers
-
+    int tierStep = 3 + (int)s;
     for (int ty = coneBase + 1; ty < coneApex - 1; ty += tierStep) {
         float progress = (float)(coneApex - ty) / (float)coneH;
         int rHere = (int)(progress * maxR);
         if (rHere < 2) continue;
-
-        int blen = std::min(rHere - 1, 2 + (int)(t * 2.0f)); // stays inside cone
-        int d0   = (int)(rng(ty) & 3);
-        int d1   = (d0 + 2) & 3; // opposite cardinal direction
-
+        int blen = std::min(rHere - 1, 2 + (int)(t * 2.0f));
+        int d0 = (int)(rng(ty) & 3), d1 = (d0 + 2) & 3;
         for (int d : {d0, d1}) {
             for (int i = 1; i <= blen; i++) {
-                int bx = x + CARD[d][0] * i;
-                int bz = z + CARD[d][1] * i;
-                int by = ty - (i * 2 >= blen ? 1 : 0); // slight droop on outer half
-                if (bx < 0 || bx >= CHUNK_SIZE || bz < 0 || bz >= CHUNK_SIZE) break;
+                int bx = lx + CARD[d][0]*i, bz = lz + CARD[d][1]*i;
+                int by = ty - (i*2 >= blen ? 1 : 0);
+                if (by < 0 || by >= CHUNK_HEIGHT) break;
                 c->set(bx, by, bz, BlockType::Wood);
             }
         }
     }
 }
 
-static void tryPlaceBush(Chunk* c, int x, int z, int top, float n, float thresh) {
+static void tryPlaceBush(Chunk* c, int wx, int wz, int top, float n, float thresh) {
     if (n < thresh) return;
+    int lx = wx - c->pos.x * CHUNK_SIZE, lz = wz - c->pos.z * CHUNK_SIZE;
     int height = (n > thresh + 0.06f) ? 2 : 1;
     for (int h = 1; h <= height; h++) {
-        int by = top + h;
-        if (by >= CHUNK_HEIGHT) break;
+        int by = top + h; if (by >= CHUNK_HEIGHT) break;
         int rad = (h == 1) ? 1 : 0;
-        for (int lx=-rad; lx<=rad; lx++) for (int lz=-rad; lz<=rad; lz++) {
-            int bx=x+lx, bz=z+lz;
-            if (bx>=0&&bx<CHUNK_SIZE&&bz>=0&&bz<CHUNK_SIZE)
-                if (c->get(bx,by,bz)==BlockType::Air)
-                    c->set(bx,by,bz,BlockType::Leaves);
-        }
+        for (int dx = -rad; dx <= rad; dx++) for (int dz = -rad; dz <= rad; dz++)
+            if (c->get(lx+dx, by, lz+dz) == BlockType::Air)
+                c->set(lx+dx, by, lz+dz, BlockType::Leaves);
     }
 }
 
-static void tryPlaceCactus(Chunk* c, int x, int z, int top, float n, float thresh) {
+static void tryPlaceCactus(Chunk* c, int wx, int wz, int top, float n, float thresh) {
     if (n < thresh) return;
+    int lx = wx - c->pos.x * CHUNK_SIZE, lz = wz - c->pos.z * CHUNK_SIZE;
     int height = std::clamp(1 + (int)((n - thresh) * 12.0f), 1, 3);
     for (int ty = top+1; ty <= top+height && ty < CHUNK_HEIGHT; ty++)
-        c->set(x, ty, z, BlockType::Cactus);
+        c->set(lx, ty, lz, BlockType::Cactus);
 }
 
-static void tryPlaceRockFormation(Chunk* c, int x, int z, int top, float n, float thresh) {
-    if (n < thresh || x < 1 || x >= CHUNK_SIZE-1 || z < 1 || z >= CHUNK_SIZE-1) return;
+static void tryPlaceRockFormation(Chunk* c, int wx, int wz, int top, float n, float thresh) {
+    if (n < thresh) return;
+    int lx = wx - c->pos.x * CHUNK_SIZE, lz = wz - c->pos.z * CHUNK_SIZE;
     int height = std::clamp(2 + (int)((n - thresh) * 22.0f), 2, 5);
     for (int ty = top+1; ty <= top+height && ty < CHUNK_HEIGHT; ty++)
-        c->set(x, ty, z, BlockType::Stone);
-    // Scatter base rocks
-    for (int lx=-1; lx<=1; lx++) for (int lz=-1; lz<=1; lz++) {
-        if (lx==0&&lz==0) continue;
-        int bx=x+lx, bz=z+lz;
-        if (bx>=0&&bx<CHUNK_SIZE&&bz>=0&&bz<CHUNK_SIZE&&top+1<CHUNK_HEIGHT)
-            if (c->get(bx,top+1,bz)==BlockType::Air)
-                c->set(bx,top+1,bz,BlockType::Stone);
+        c->set(lx, ty, lz, BlockType::Stone);
+    for (int dx = -1; dx <= 1; dx++) for (int dz = -1; dz <= 1; dz++) {
+        if (dx==0 && dz==0) continue;
+        if (top+1 < CHUNK_HEIGHT && c->get(lx+dx, top+1, lz+dz) == BlockType::Air)
+            c->set(lx+dx, top+1, lz+dz, BlockType::Stone);
     }
 }
 
-static void tryPlaceStoneSpire(Chunk* c, int x, int z, int top, float n, float thresh) {
-    if (n < thresh || top < SEA_LEVEL + 12) return; // only on high peaks
+static void tryPlaceStoneSpire(Chunk* c, int wx, int wz, int top, float n, float thresh) {
+    if (n < thresh || top < SEA_LEVEL + 80) return;
+    int lx = wx - c->pos.x * CHUNK_SIZE, lz = wz - c->pos.z * CHUNK_SIZE;
     int height = std::clamp(3 + (int)((n - thresh) * 35.0f), 3, 9);
     for (int ty = top+1; ty <= top+height && ty < CHUNK_HEIGHT; ty++)
-        c->set(x, ty, z, BlockType::Stone);
+        c->set(lx, ty, lz, BlockType::Stone);
 }
 
-static void tryPlaceBoulder(Chunk* c, int x, int z, int top, float n, float thresh) {
-    if (n < thresh || x < 1 || x >= CHUNK_SIZE-1 || z < 1 || z >= CHUNK_SIZE-1) return;
-    int rad    = (n > thresh + 0.04f) ? 1 : 0;
-    int height = (n > thresh + 0.07f) ? 2 : 1;
+static void tryPlaceBoulder(Chunk* c, int wx, int wz, int top, float n, float thresh) {
+    if (n < thresh) return;
+    int lx = wx - c->pos.x * CHUNK_SIZE, lz = wz - c->pos.z * CHUNK_SIZE;
+    int rad = (n > thresh + 0.04f) ? 1 : 0, height = (n > thresh + 0.07f) ? 2 : 1;
     for (int h = 1; h <= height; h++) {
-        int by = top + h;
-        if (by >= CHUNK_HEIGHT) break;
+        int by = top + h; if (by >= CHUNK_HEIGHT) break;
         int r = (h == 1) ? rad : 0;
-        for (int lx=-r; lx<=r; lx++) for (int lz=-r; lz<=r; lz++) {
-            int bx=x+lx, bz=z+lz;
-            if (bx>=0&&bx<CHUNK_SIZE&&bz>=0&&bz<CHUNK_SIZE)
-                if (c->get(bx,by,bz)==BlockType::Air)
-                    c->set(bx,by,bz,BlockType::Stone);
-        }
+        for (int dx = -r; dx <= r; dx++) for (int dz = -r; dz <= r; dz++)
+            if (c->get(lx+dx, by, lz+dz) == BlockType::Air)
+                c->set(lx+dx, by, lz+dz, BlockType::Stone);
     }
 }
 
-// Savanna: tall trunk, wide flat circular canopy (acacia-style).
-static void tryPlaceAcaciaTree(Chunk* c, int x, int z, int top,
+// Savanna acacia — world coords
+static void tryPlaceAcaciaTree(Chunk* c, int wx, int wz, int top,
                                 float n, float n2, float thresh) {
-    if (n < thresh || x < 4 || x >= CHUNK_SIZE - 4 || z < 4 || z >= CHUNK_SIZE - 4) return;
-    float t = std::clamp((n  - thresh) / (1.0f - thresh), 0.0f, 1.0f);
+    if (n < thresh) return;
+    float t = std::clamp((n - thresh) / (1.0f - thresh), 0.0f, 1.0f);
     float s = std::clamp(n2 * 0.5f + 0.5f, 0.0f, 1.0f);
+    int lx = wx - c->pos.x * CHUNK_SIZE, lz = wz - c->pos.z * CHUNK_SIZE;
 
-    int trunkH = 6 + (int)(t * 8.0f + s * 4.0f); // 6–18
+    int trunkH = 6 + (int)(t * 8.0f + s * 4.0f);
+    trunkH = std::min(trunkH, CHUNK_HEIGHT - top - 5);
     for (int ty = top + 1; ty <= top + trunkH && ty < CHUNK_HEIGHT; ty++)
-        c->set(x, ty, z, BlockType::Wood);
+        c->set(lx, ty, lz, BlockType::Wood);
 
-    // Three-layer circular disc canopy — each layer narrower toward the top
-    int canopyR = 3 + (int)(t * 2.0f + s); // 3–6
+    int canopyR = 3 + (int)(t * 2.0f + s);
     for (int pass = 0; pass < 3; pass++) {
         int ly = top + trunkH + 1 + pass;
         int r  = (pass == 0) ? canopyR : (pass == 1) ? canopyR - 1 : canopyR / 2;
         if (ly >= CHUNK_HEIGHT || r <= 0) break;
         for (int dx = -r; dx <= r; dx++)
         for (int dz = -r; dz <= r; dz++) {
-            if (dx * dx + dz * dz > r * r) continue;
-            int bx = x + dx, bz = z + dz;
-            if (bx >= 0 && bx < CHUNK_SIZE && bz >= 0 && bz < CHUNK_SIZE)
-                if (c->get(bx, ly, bz) == BlockType::Air)
-                    c->set(bx, ly, bz, BlockType::Leaves);
+            if (dx*dx + dz*dz > r*r) continue;
+            if (c->get(lx+dx, ly, lz+dz) == BlockType::Air)
+                c->set(lx+dx, ly, lz+dz, BlockType::Leaves);
         }
     }
 }
 
-// Jungle: very tall tree, thick trunk option, high branches with leaf clusters, large canopy.
-static void tryPlaceJungleTree(Chunk* c, int x, int z, int top,
+// Jungle tree — world coords, very tall
+static void tryPlaceJungleTree(Chunk* c, int wx, int wz, int top,
                                 float n, float n2, float thresh) {
     if (n < thresh) return;
-    float t = std::clamp((n  - thresh) / (1.0f - thresh), 0.0f, 1.0f);
+    float t = std::clamp((n - thresh) / (1.0f - thresh), 0.0f, 1.0f);
     float s = std::clamp(n2 * 0.5f + 0.5f, 0.0f, 1.0f);
 
-    const int wx = c->pos.x * CHUNK_SIZE + x;
-    const int wz = c->pos.z * CHUNK_SIZE + z;
     auto rng = [wx, wz](int salt) -> uint32_t {
         uint32_t v = (uint32_t)(wx * 1619 + wz * 31337 + salt * 6271);
         v ^= (v >> 16); v *= 0x45d9f3bu; return v ^ (v >> 16);
     };
 
     int trunkR = (t > 0.3f) ? 1 : 0;
-    int margin = trunkR + 4;
-    if (x < margin || x >= CHUNK_SIZE - margin || z < margin || z >= CHUNK_SIZE - margin) return;
+    int trunkH = 18 + (int)(t * 50.0f + s * 25.0f);  // 18–93
+    trunkH = std::min(trunkH, CHUNK_HEIGHT - top - 5);
+    if (trunkH < 10) return;
 
-    int trunkH = 16 + (int)(t * 12.0f + s * 6.0f); // 16–34
+    int lx = wx - c->pos.x * CHUNK_SIZE, lz = wz - c->pos.z * CHUNK_SIZE;
 
     for (int ty = top + 1; ty <= top + trunkH && ty < CHUNK_HEIGHT; ty++)
     for (int dx = -trunkR; dx <= trunkR; dx++)
-    for (int dz = -trunkR; dz <= trunkR; dz++) {
-        int bx = x + dx, bz = z + dz;
-        if (bx >= 0 && bx < CHUNK_SIZE && bz >= 0 && bz < CHUNK_SIZE)
-            c->set(bx, ty, bz, BlockType::Wood);
-    }
+    for (int dz = -trunkR; dz <= trunkR; dz++)
+        c->set(lx+dx, ty, lz+dz, BlockType::Wood);
 
-    // High branches from upper half of trunk
     static const int8_t DIRS8[8][2] = {
         {1,0},{-1,0},{0,1},{0,-1},{1,1},{1,-1},{-1,1},{-1,-1}
     };
-    const int branchStart = top + trunkH / 2;
-    const int branchEnd   = top + (trunkH * 9) / 10;
-    const int numBranches = 3 + (int)(t * 4.0f); // 3–7
+    const int branchStart = top + trunkH / 2, branchEnd = top + (trunkH * 9) / 10;
+    const int numBranches = 3 + (int)(t * 4.0f);
+    const int maxBlen = 4 + (int)(trunkH * 0.12f);
 
     for (int bi = 0; bi < numBranches; bi++) {
-        const int ty   = branchStart + (int)((rng(bi)       & 0xFF) / 255.0f * (branchEnd - branchStart));
-        const int dir  = (rng(bi + 100) >> 8) & 7;
-        const int blen = 4 + (int)((rng(bi + 200) & 7)     / 7.0f * 4.0f); // 4–8
-        const int rise = 1 + (int)((rng(bi + 300) & 3)     / 3.0f * 3.0f); // 1–4
-        const int ddx  = DIRS8[dir][0], ddz = DIRS8[dir][1];
+        int ty   = branchStart + (int)((rng(bi) & 0xFF) / 255.0f * (branchEnd - branchStart));
+        int dir  = (rng(bi+100) >> 8) & 7;
+        int blen = std::max(4, 3 + (int)((rng(bi+200) & 7) / 7.0f * maxBlen));
+        int rise = 1 + (int)((rng(bi+300) & 3) / 3.0f * 3.0f);
+        int ddx  = DIRS8[dir][0], ddz = DIRS8[dir][1];
 
         for (int i = 1; i <= blen; i++) {
-            int bx = x + ddx * i, by = ty + (rise * i) / blen, bz = z + ddz * i;
-            if (bx < 0 || bx >= CHUNK_SIZE || bz < 0 || bz >= CHUNK_SIZE || by >= CHUNK_HEIGHT) break;
+            int bx = lx + ddx*i, by = ty + (rise*i)/blen, bz = lz + ddz*i;
+            if (by >= CHUNK_HEIGHT) break;
             c->set(bx, by, bz, BlockType::Wood);
         }
-        // Large leaf cluster at tip: r=3 horiz, r=2 vert
-        const int tipX = x + ddx * blen, tipY = ty + rise, tipZ = z + ddz * blen;
-        for (int lx = -3; lx <= 3; lx++)
-        for (int lz = -3; lz <= 3; lz++)
+        int tipX = lx + ddx*blen, tipY = ty + rise, tipZ = lz + ddz*blen;
+        for (int llx = -3; llx <= 3; llx++)
+        for (int llz = -3; llz <= 3; llz++)
         for (int ly = -1; ly <= 3; ly++) {
-            if ((float)(lx*lx + lz*lz) / 9.0f + (float)(ly*ly) / 4.0f > 1.0f) continue;
-            int bx = tipX + lx, by = tipY + ly, bz = tipZ + lz;
-            if (bx >= 0 && bx < CHUNK_SIZE && bz >= 0 && bz < CHUNK_SIZE && by > 0 && by < CHUNK_HEIGHT)
-                if (c->get(bx, by, bz) == BlockType::Air)
-                    c->set(bx, by, bz, BlockType::Leaves);
+            if ((float)(llx*llx + llz*llz)/9.0f + (float)(ly*ly)/4.0f > 1.0f) continue;
+            int bx = tipX+llx, by = tipY+ly, bz = tipZ+llz;
+            if (by > 0 && by < CHUNK_HEIGHT && c->get(bx, by, bz) == BlockType::Air)
+                c->set(bx, by, bz, BlockType::Leaves);
         }
     }
 
-    // Main spherical canopy
-    const int cR   = 5 + (int)(t * 3.0f + s); // 5–9
-    const int cH   = cR - 1;
-    const int cCtr = top + trunkH;
-    for (int lx = -cR; lx <= cR; lx++)
-    for (int lz = -cR; lz <= cR; lz++)
-    for (int ly = -(cH + 1); ly <= cH; ly++) {
-        if ((float)(lx*lx + lz*lz) / (float)(cR*cR) + (float)(ly*ly) / (float)(cH*cH) > 1.0f) continue;
-        int bx = x + lx, by = cCtr + ly, bz = z + lz;
-        if (bx >= 0 && bx < CHUNK_SIZE && bz >= 0 && bz < CHUNK_SIZE && by > 0 && by < CHUNK_HEIGHT)
-            if (c->get(bx, by, bz) == BlockType::Air)
-                c->set(bx, by, bz, BlockType::Leaves);
+    const int cR = 5 + (int)(t * 3.0f + s), cH = cR - 1, cCtr = top + trunkH;
+    for (int llx = -cR; llx <= cR; llx++)
+    for (int llz = -cR; llz <= cR; llz++)
+    for (int ly = -(cH+1); ly <= cH; ly++) {
+        if ((float)(llx*llx + llz*llz)/(float)(cR*cR) + (float)(ly*ly)/(float)(cH*cH) > 1.0f) continue;
+        int bx = lx+llx, by = cCtr+ly, bz = lz+llz;
+        if (by > 0 && by < CHUNK_HEIGHT && c->get(bx, by, bz) == BlockType::Air)
+            c->set(bx, by, bz, BlockType::Leaves);
     }
 }
 
-// Jungle: ground-level dense bush clusters
-static void tryPlaceJungleBush(Chunk* c, int x, int z, int top, float n, float thresh) {
+static void tryPlaceJungleBush(Chunk* c, int wx, int wz, int top, float n, float thresh) {
     if (n < thresh) return;
-    for (int lx = -1; lx <= 1; lx++) for (int lz = -1; lz <= 1; lz++) for (int ly = 1; ly <= 2; ly++) {
-        if (ly == 2 && (abs(lx) == 1 || abs(lz) == 1)) continue;
-        int bx = x+lx, by = top+ly, bz = z+lz;
-        if (bx >= 0 && bx < CHUNK_SIZE && bz >= 0 && bz < CHUNK_SIZE && by < CHUNK_HEIGHT)
-            if (c->get(bx, by, bz) == BlockType::Air)
-                c->set(bx, by, bz, BlockType::Leaves);
+    int lx = wx - c->pos.x * CHUNK_SIZE, lz = wz - c->pos.z * CHUNK_SIZE;
+    for (int dx = -1; dx <= 1; dx++) for (int dz = -1; dz <= 1; dz++) for (int ly = 1; ly <= 2; ly++) {
+        if (ly == 2 && (std::abs(dx) == 1 || std::abs(dz) == 1)) continue;
+        int by = top + ly;
+        if (by < CHUNK_HEIGHT && c->get(lx+dx, by, lz+dz) == BlockType::Air)
+            c->set(lx+dx, by, lz+dz, BlockType::Leaves);
     }
 }
 
-// Tundra: ice spike column
-static void tryPlaceIceSpike(Chunk* c, int x, int z, int top, float n, float thresh) {
+static void tryPlaceIceSpike(Chunk* c, int wx, int wz, int top, float n, float thresh) {
     if (n < thresh) return;
+    int lx = wx - c->pos.x * CHUNK_SIZE, lz = wz - c->pos.z * CHUNK_SIZE;
     int height = std::clamp(3 + (int)((n - thresh) * 32.0f), 3, 9);
     for (int ty = top+1; ty <= top+height && ty < CHUNK_HEIGHT; ty++)
-        c->set(x, ty, z, BlockType::Ice);
+        c->set(lx, ty, lz, BlockType::Ice);
 }
 
 // ---- Generation ----
@@ -830,46 +857,12 @@ static void generateChunk(Chunk* c) {
     float surfH_f[CHUNK_SIZE][CHUNK_SIZE];
     Biome dominant[CHUNK_SIZE][CHUNK_SIZE];
 
-    for (int x = 0; x < CHUNK_SIZE; x++) {
+    for (int x = 0; x < CHUNK_SIZE; x++)
         for (int z = 0; z < CHUNK_SIZE; z++) {
-            float wx = (float)(ox + x);
-            float wz = (float)(oz + z);
-
-            // Low-frequency biome noise mapped to [0, 1]
-            float temp  = gTempNoise .octave(wx * 0.003f,          wz * 0.003f,          2, 0.5f, 2.0f) * 0.5f + 0.5f;
-            float humid = gHumidNoise.octave(wx * 0.003f + 100.0f, wz * 0.003f + 100.0f, 2, 0.5f, 2.0f) * 0.5f + 0.5f;
-
-            float weights[NUM_BIOMES], wTotal = 0.0f;
-            int   domIdx = 0;
-            for (int i = 0; i < NUM_BIOMES; i++) {
-                float dt = temp  - BIOMES[i].idealTemp;
-                float dh = humid - BIOMES[i].idealHumid;
-                weights[i] = expf(-7.0f * (dt*dt + dh*dh));
-                wTotal += weights[i];
-                if (weights[i] > weights[domIdx]) domIdx = i;
-            }
-
-            // Blend surface height from each biome's own noise sample
-            float blendH = 0.0f;
-            for (int i = 0; i < NUM_BIOMES; i++) {
-                float w = weights[i] / wTotal;
-                if (w < 0.005f) continue;
-                float h = gNoise.octave(wx * BIOMES[i].freq, wz * BIOMES[i].freq,
-                                        BIOMES[i].octaves, BIOMES[i].persistence, 2.0f);
-                blendH += w * ((float)SEA_LEVEL + h * BIOMES[i].amplitude);
-            }
-
-            // River carving: zero-crossings of low-freq noise form meandering rivers.
-            // Only carve near sea level so mountain ravines are unaffected.
-            float riverN = gRiverNoise.octave(wx * 0.005f, wz * 0.005f, 2, 0.5f, 2.0f);
-            if (std::abs(riverN) < 0.028f && blendH > SEA_LEVEL - 6 && blendH < SEA_LEVEL + 12) {
-                blendH = (float)(SEA_LEVEL - 2);
-            }
-
-            surfH_f[x][z] = blendH;
-            dominant[x][z] = (Biome)domIdx;
+            auto info = computeColumn((float)(ox + x), (float)(oz + z));
+            surfH_f[x][z]  = info.surfH;
+            dominant[x][z] = info.biome;
         }
-    }
 
     // Pass 1: 3D density field → Stone/Gravel/Air, with cave carving
     for (int x = 0; x < CHUNK_SIZE; x++) {
@@ -892,12 +885,12 @@ static void generateChunk(Chunk* c) {
                 }
 
                 BlockType bt = BlockType::Stone;
-                if (y < 12) {
+                if (y < 30) {
                     float grv = gNoise.octave(wx * 5.0f + 200.0f, (float)y * 0.2f, wz * 5.0f + 200.0f, 2);
                     if (grv > 0.30f) bt = BlockType::Gravel;
                 }
                 // Rare glowstone veins deep underground
-                if (y > 4 && y < 24) {
+                if (y > 4 && y < 50) {
                     float gn = gNoise.noise(wx * 0.11f + 333.0f, y * 0.11f + 333.0f, wz * 0.11f + 333.0f);
                     if (gn > 0.44f) bt = BlockType::Glowstone;
                 }
@@ -943,60 +936,88 @@ static void generateChunk(Chunk* c) {
                 if (c->get(x,y,z) != BlockType::Air) { topSolid[x][z] = y; break; }
         }
 
-    // Pass 3: biome-specific decorators, per column (skip underwater columns)
-    for (int x = 0; x < CHUNK_SIZE; x++) {
-        for (int z = 0; z < CHUNK_SIZE; z++) {
-            int top = topSolid[x][z];
-            if (top < 0 || top < SEA_LEVEL) continue; // don't decorate below water line
-            BlockType topBlock = c->get(x, top, z);
+    // Pass 3: decorators over a padded region.
+    // Large trees can extend 20+ blocks from their anchor in XZ, so each chunk
+    // must also process anchor positions from neighbouring chunks to fill in the
+    // parts of those trees that land inside this chunk.  c->set() ignores writes
+    // that are out of this chunk's bounds, so only the correct voxels are written.
+    static constexpr int DECO_PAD = 24; // worst-case XZ reach of any structure
+    for (int rx = -DECO_PAD; rx < CHUNK_SIZE + DECO_PAD; rx++) {
+        for (int rz = -DECO_PAD; rz < CHUNK_SIZE + DECO_PAD; rz++) {
+            int wwx = ox + rx, wwz = oz + rz;
 
-            // Three independent noise values with different spatial offsets
-            float n1 = gNoise.noise((ox+x)*0.090f,          (oz+z)*0.090f);
-            float n2 = gNoise.noise((ox+x)*0.110f + 500.0f, (oz+z)*0.110f + 500.0f);
-            float n3 = gNoise.noise((ox+x)*0.070f + 1000.0f,(oz+z)*0.070f + 1000.0f);
+            int        top;
+            Biome      biome;
+            BlockType  topBlock;
 
-            switch (dominant[x][z]) {
+            bool interior = (rx >= 0 && rx < CHUNK_SIZE && rz >= 0 && rz < CHUNK_SIZE);
+            if (interior) {
+                top = topSolid[rx][rz];
+                if (top < 0 || top < SEA_LEVEL) continue;
+                biome    = dominant[rx][rz];
+                topBlock = c->get(rx, top, rz);
+            } else {
+                // Cheap early-out: skip if tree noise is below the lowest threshold.
+                // This avoids calling computeColumn for the majority of exterior positions.
+                float earlyN = gNoise.noise(wwx * 0.090f, wwz * 0.090f);
+                if (earlyN < 0.48f) continue; // lowest tree threshold is 0.50
+
+                auto info = computeColumn((float)wwx, (float)wwz);
+                top = (int)info.surfH;
+                if (top < SEA_LEVEL) continue;
+                biome    = info.biome;
+                topBlock = (top >= SEA_LEVEL) ? BIOMES[(int)biome].surfaceBlock
+                                              : BlockType::Sand;
+            }
+
+            float n1 = gNoise.noise(wwx * 0.090f,           wwz * 0.090f);
+            float n2 = gNoise.noise(wwx * 0.110f + 500.0f,  wwz * 0.110f + 500.0f);
+            float n3 = gNoise.noise(wwx * 0.070f + 1000.0f, wwz * 0.070f + 1000.0f);
+
+            switch (biome) {
                 case Biome::Plains:
                     if (topBlock == BlockType::Grass) {
-                        tryPlaceTree(c, x, z, top, n1, n2, 0.75f);
-                        tryPlaceBush(c, x, z, top, n3, 0.72f);
+                        tryPlaceTree(c, wwx, wwz, top, n1, n2, 0.75f);
+                        tryPlaceBush(c, wwx, wwz, top, n3, 0.72f);
                     }
                     break;
                 case Biome::Forest:
                     if (topBlock == BlockType::Grass) {
-                        tryPlaceTree(c, x, z, top, n1, n2, 0.50f);
-                        tryPlaceBush(c, x, z, top, n3, 0.65f);
+                        tryPlaceTree(c, wwx, wwz, top, n1, n2, 0.50f);
+                        tryPlaceBush(c, wwx, wwz, top, n3, 0.65f);
                     }
                     break;
                 case Biome::Desert:
-                    if (topBlock == BlockType::Sand) {
-                        tryPlaceCactus       (c, x, z, top, n1, 0.80f);
-                        tryPlaceRockFormation(c, x, z, top, n3, 0.88f);
+                    if (interior && topBlock == BlockType::Sand) {
+                        tryPlaceCactus       (c, wwx, wwz, top, n1, 0.80f);
+                        tryPlaceRockFormation(c, wwx, wwz, top, n3, 0.88f);
                     }
                     break;
                 case Biome::Mountains:
                     if (topBlock == BlockType::Snow || topBlock == BlockType::Stone) {
-                        tryPlacePineTree  (c, x, z, top, n1, n2, 0.75f);
-                        tryPlaceStoneSpire(c, x, z, top, n3, 0.87f);
+                        tryPlacePineTree  (c, wwx, wwz, top, n1, n2, 0.75f);
+                        if (interior) tryPlaceStoneSpire(c, wwx, wwz, top, n3, 0.87f);
                     }
                     break;
                 case Biome::Tundra:
                     if (topBlock == BlockType::Snow || topBlock == BlockType::Stone) {
-                        tryPlacePineTree(c, x, z, top, n1, n2, 0.80f);
-                        tryPlaceBoulder (c, x, z, top, n3, 0.76f);
-                        tryPlaceIceSpike(c, x, z, top, n3, 0.91f);
+                        tryPlacePineTree(c, wwx, wwz, top, n1, n2, 0.80f);
+                        if (interior) {
+                            tryPlaceBoulder (c, wwx, wwz, top, n3, 0.76f);
+                            tryPlaceIceSpike(c, wwx, wwz, top, n3, 0.91f);
+                        }
                     }
                     break;
                 case Biome::Savanna:
                     if (topBlock == BlockType::Grass) {
-                        tryPlaceAcaciaTree   (c, x, z, top, n1, n2, 0.82f);
-                        tryPlaceRockFormation(c, x, z, top, n3, 0.86f);
+                        tryPlaceAcaciaTree   (c, wwx, wwz, top, n1, n2, 0.82f);
+                        if (interior) tryPlaceRockFormation(c, wwx, wwz, top, n3, 0.86f);
                     }
                     break;
                 case Biome::Jungle:
                     if (topBlock == BlockType::Grass) {
-                        tryPlaceJungleTree(c, x, z, top, n1, n2, 0.58f);
-                        tryPlaceJungleBush(c, x, z, top, n3, 0.50f);
+                        tryPlaceJungleTree(c, wwx, wwz, top, n1, n2, 0.58f);
+                        tryPlaceJungleBush(c, wwx, wwz, top, n3, 0.50f);
                     }
                     break;
             }

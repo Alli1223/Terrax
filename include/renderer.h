@@ -39,6 +39,7 @@ private:
     GLuint atlasTexture = 0;
     GLuint shadowFBO = 0, shadowMapTex = 0;
     GLuint reflFBO = 0, reflColorTex = 0, reflDepthRBO = 0;
+    GLuint particleVao = 0, particleVbo = 0;
 
     void setupSkybox();
     void renderSkybox(const glm::mat4& view, const glm::mat4& proj, float gameTime, float time);

@@ -86,6 +86,27 @@ bool Renderer::init(int width, int height) {
     setupSkybox();
     atlasTexture = generateAtlas();
 
+    // Particle geometry buffer (dynamic, re-uploaded each frame)
+    glGenVertexArrays(1, &particleVao);
+    glGenBuffers(1, &particleVbo);
+    glBindVertexArray(particleVao);
+    glBindBuffer(GL_ARRAY_BUFFER, particleVbo);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, x));
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, nx));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, u));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, materialID));
+    glEnableVertexAttribArray(3);
+    glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, skyLight));
+    glEnableVertexAttribArray(4);
+    glVertexAttribPointer(5, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, blockLight));
+    glEnableVertexAttribArray(5);
+    glVertexAttribPointer(6, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, shoreDistance));
+    glEnableVertexAttribArray(6);
+    glBindVertexArray(0);
+
     // Shadow map framebuffer
     glGenFramebuffers(1, &shadowFBO);
     glGenTextures(1, &shadowMapTex);
@@ -364,6 +385,60 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     chunkShader.setFloat("time", currentTime);
     chunkShader.setVec4("u_clipPlane", glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
     ctx.world.drawAllFoliage();
+
+    // Leaf particles — tiny coloured cubes, no culling (already disabled)
+    if (!ctx.leafParticles.empty()) {
+        static std::vector<Vertex> pv;
+        pv.clear();
+        pv.reserve(ctx.leafParticles.size() * 36);
+
+        for (const auto& lp : ctx.leafParticles) {
+            TileID tile;
+            switch ((BlockType)lp.leafBT) {
+                case BlockType::LeavesOrange: tile = TileID::LeavesOrange; break;
+                case BlockType::LeavesRed:    tile = TileID::LeavesRed;    break;
+                case BlockType::LeavesPink:   tile = TileID::LeavesPink;   break;
+                default:                       tile = TileID::Leaves;        break;
+            }
+            float u0, v0, u1, v1;
+            tileUV(tile, u0, v0, u1, v1);
+            const float H  = 0.1f;
+            const float sl = 0.85f;
+            const glm::vec3& p = lp.pos;
+
+            auto pv6 = [&](float dx, float dy, float dz,
+                           float nx, float ny, float nz, float u, float v) {
+                pv.push_back({p.x+dx*H, p.y+dy*H, p.z+dz*H,
+                              nx, ny, nz, u, v, 0.f, sl, 0.f, 0.f});
+            };
+            // +Y
+            pv6(-1,1,-1, 0,1,0,u0,v0); pv6(-1,1,1, 0,1,0,u0,v1); pv6(1,1,1, 0,1,0,u1,v1);
+            pv6(-1,1,-1, 0,1,0,u0,v0); pv6(1,1,1, 0,1,0,u1,v1);  pv6(1,1,-1, 0,1,0,u1,v0);
+            // -Y
+            pv6(-1,-1,1, 0,-1,0,u0,v0); pv6(-1,-1,-1, 0,-1,0,u0,v1); pv6(1,-1,-1, 0,-1,0,u1,v1);
+            pv6(-1,-1,1, 0,-1,0,u0,v0); pv6(1,-1,-1, 0,-1,0,u1,v1);  pv6(1,-1,1, 0,-1,0,u1,v0);
+            // +X
+            pv6(1,-1,-1, 1,0,0,u0,v0); pv6(1,1,-1, 1,0,0,u0,v1); pv6(1,1,1, 1,0,0,u1,v1);
+            pv6(1,-1,-1, 1,0,0,u0,v0); pv6(1,1,1, 1,0,0,u1,v1);  pv6(1,-1,1, 1,0,0,u1,v0);
+            // -X
+            pv6(-1,-1,1, -1,0,0,u0,v0); pv6(-1,1,1, -1,0,0,u0,v1); pv6(-1,1,-1, -1,0,0,u1,v1);
+            pv6(-1,-1,1, -1,0,0,u0,v0); pv6(-1,1,-1, -1,0,0,u1,v1); pv6(-1,-1,-1, -1,0,0,u1,v0);
+            // +Z
+            pv6(1,-1,1, 0,0,1,u0,v0); pv6(1,1,1, 0,0,1,u0,v1); pv6(-1,1,1, 0,0,1,u1,v1);
+            pv6(1,-1,1, 0,0,1,u0,v0); pv6(-1,1,1, 0,0,1,u1,v1); pv6(-1,-1,1, 0,0,1,u1,v0);
+            // -Z
+            pv6(-1,-1,-1, 0,0,-1,u0,v0); pv6(-1,1,-1, 0,0,-1,u0,v1); pv6(1,1,-1, 0,0,-1,u1,v1);
+            pv6(-1,-1,-1, 0,0,-1,u0,v0); pv6(1,1,-1, 0,0,-1,u1,v1);  pv6(1,-1,-1, 0,0,-1,u1,v0);
+        }
+
+        glBindVertexArray(particleVao);
+        glBindBuffer(GL_ARRAY_BUFFER, particleVbo);
+        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(pv.size() * sizeof(Vertex)),
+                     pv.data(), GL_DYNAMIC_DRAW);
+        glDrawArrays(GL_TRIANGLES, 0, (GLsizei)pv.size());
+        glBindVertexArray(0);
+    }
+
     glEnable(GL_CULL_FACE);
 
     // Water

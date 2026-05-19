@@ -128,6 +128,10 @@ void Chunk::set(int x, int y, int z, BlockType t) {
 }
 
 static bool isOpaque(BlockType b) { return b != BlockType::Air && b != BlockType::Water; }
+static bool isAnyLeaves(BlockType b) {
+    return b == BlockType::Leaves || b == BlockType::LeavesOrange ||
+           b == BlockType::LeavesRed || b == BlockType::LeavesPink;
+}
 
 static TileID getTile(BlockType bt, int face) {
     switch (bt) {
@@ -139,7 +143,10 @@ static TileID getTile(BlockType bt, int face) {
         case BlockType::Stone:  return TileID::Stone;
         case BlockType::Wood:
             return (face == 2 || face == 3) ? TileID::WoodTop : TileID::WoodSide;
-        case BlockType::Leaves: return TileID::Leaves;
+        case BlockType::Leaves:       return TileID::Leaves;
+        case BlockType::LeavesOrange: return TileID::LeavesOrange;
+        case BlockType::LeavesRed:    return TileID::LeavesRed;
+        case BlockType::LeavesPink:   return TileID::LeavesPink;
         case BlockType::Sand:   return TileID::Sand;
         case BlockType::Gravel: return TileID::Gravel;
         case BlockType::Snow:   return TileID::Snow;
@@ -539,7 +546,7 @@ static ColumnInfo computeColumn(float wx, float wz) {
 // the same anchor.
 
 static void tryPlaceTree(Chunk* c, int wx, int wz, int top,
-                         float n, float n2, float thresh) {
+                         float n, float n2, float thresh, BlockType leafType) {
     if (n < thresh) return;
     float t = std::clamp((n  - thresh) / (1.0f - thresh), 0.0f, 1.0f);
     float s = std::clamp(n2 * 0.5f + 0.5f, 0.0f, 1.0f);
@@ -608,8 +615,11 @@ static void tryPlaceTree(Chunk* c, int wx, int wz, int top,
             float ey = (float)(ly * ly) / (float)((leafH + 1) * (leafH + 1));
             if (ex + ey > 1.0f) continue;
             int bx = tipX + llx, by = tipY + ly, bz = tipZ + llz;
-            if (by > 0 && by < CHUNK_HEIGHT && c->get(bx, by, bz) == BlockType::Air)
-                c->set(bx, by, bz, BlockType::Leaves);
+            if (by > 0 && by < CHUNK_HEIGHT) {
+                BlockType eb = c->get(bx, by, bz);
+                if (eb == BlockType::Air || isAnyLeaves(eb))
+                    c->set(bx, by, bz, leafType);
+            }
         }
     }
 
@@ -619,8 +629,11 @@ static void tryPlaceTree(Chunk* c, int wx, int wz, int top,
     for (int ly = 0; ly <= 2; ly++) {
         if (std::abs(llx) == 2 && std::abs(llz) == 2) continue;
         int bx = lx + llx, by = trunkTop + ly, bz = lz + llz;
-        if (by > 0 && by < CHUNK_HEIGHT && c->get(bx, by, bz) == BlockType::Air)
-            c->set(bx, by, bz, BlockType::Leaves);
+        if (by > 0 && by < CHUNK_HEIGHT) {
+            BlockType eb = c->get(bx, by, bz);
+            if (eb == BlockType::Air || isAnyLeaves(eb))
+                c->set(bx, by, bz, leafType);
+        }
     }
 }
 
@@ -681,16 +694,19 @@ static void tryPlacePineTree(Chunk* c, int wx, int wz, int top,
     }
 }
 
-static void tryPlaceBush(Chunk* c, int wx, int wz, int top, float n, float thresh) {
+static void tryPlaceBush(Chunk* c, int wx, int wz, int top, float n, float thresh,
+                         BlockType leafType) {
     if (n < thresh) return;
     int lx = wx - c->pos.x * CHUNK_SIZE, lz = wz - c->pos.z * CHUNK_SIZE;
     int height = (n > thresh + 0.06f) ? 2 : 1;
     for (int h = 1; h <= height; h++) {
         int by = top + h; if (by >= CHUNK_HEIGHT) break;
         int rad = (h == 1) ? 1 : 0;
-        for (int dx = -rad; dx <= rad; dx++) for (int dz = -rad; dz <= rad; dz++)
-            if (c->get(lx+dx, by, lz+dz) == BlockType::Air)
-                c->set(lx+dx, by, lz+dz, BlockType::Leaves);
+        for (int dx = -rad; dx <= rad; dx++) for (int dz = -rad; dz <= rad; dz++) {
+            BlockType eb = c->get(lx+dx, by, lz+dz);
+            if (eb == BlockType::Air || isAnyLeaves(eb))
+                c->set(lx+dx, by, lz+dz, leafType);
+        }
     }
 }
 
@@ -906,7 +922,7 @@ static void generateChunk(Chunk* c) {
             int depthFromAir = 0;
             for (int y = CHUNK_HEIGHT - 1; y >= 0; y--) {
                 BlockType bt = c->get(x, y, z);
-                if (bt == BlockType::Air || bt == BlockType::Leaves) {
+                if (bt == BlockType::Air || isAnyLeaves(bt)) {
                     depthFromAir = 0;
                     continue;
                 }
@@ -977,16 +993,23 @@ static void generateChunk(Chunk* c) {
             switch (biome) {
                 case Biome::Plains:
                     if (topBlock == BlockType::Grass) {
-                        tryPlaceTree(c, wwx, wwz, top, n1, n2, 0.75f);
-                        tryPlaceBush(c, wwx, wwz, top, n3, 0.72f);
+                        tryPlaceTree(c, wwx, wwz, top, n1, n2, 0.75f, BlockType::Leaves);
+                        tryPlaceBush(c, wwx, wwz, top, n3, 0.72f, BlockType::Leaves);
                     }
                     break;
-                case Biome::Forest:
+                case Biome::Forest: {
                     if (topBlock == BlockType::Grass) {
-                        tryPlaceTree(c, wwx, wwz, top, n1, n2, 0.50f);
-                        tryPlaceBush(c, wwx, wwz, top, n3, 0.65f);
+                        // Smooth noise zones → each region of forest is one colour
+                        float ln = gNoise.noise(wwx * 0.020f + 777.7f, wwz * 0.020f + 777.7f);
+                        BlockType ltype = (ln >  0.50f) ? BlockType::LeavesPink   :
+                                          (ln >  0.08f) ? BlockType::LeavesOrange :
+                                          (ln > -0.35f) ? BlockType::Leaves       :
+                                                          BlockType::LeavesRed;
+                        tryPlaceTree(c, wwx, wwz, top, n1, n2, 0.50f, ltype);
+                        tryPlaceBush(c, wwx, wwz, top, n3, 0.65f, ltype);
                     }
                     break;
+                }
                 case Biome::Desert:
                     if (interior && topBlock == BlockType::Sand) {
                         tryPlaceCactus       (c, wwx, wwz, top, n1, 0.80f);
@@ -1067,7 +1090,10 @@ static void blockToMapRGB(BlockType bt, int y, uint8_t& r, uint8_t& g, uint8_t& 
         case BlockType::Snow:      ri=238; gi=242; bi=255; break;
         case BlockType::Stone:     ri=118; gi=118; bi=125; break;
         case BlockType::Sandstone: ri=198; gi=168; bi=88;  break;
-        case BlockType::Leaves:    ri=38;  gi=128; bi=22;  break;
+        case BlockType::Leaves:       ri=38;  gi=128; bi=22;  break;
+        case BlockType::LeavesOrange: ri=220; gi=105; bi=22;  break;
+        case BlockType::LeavesRed:    ri=175; gi=35;  bi=18;  break;
+        case BlockType::LeavesPink:   ri=255; gi=165; bi=200; break;
         case BlockType::Wood:      ri=165; gi=110; bi=52;  break;
         case BlockType::Cactus:    ri=30;  gi=108; bi=22;  break;
         case BlockType::Glowstone: ri=255; gi=200; bi=50;  break;

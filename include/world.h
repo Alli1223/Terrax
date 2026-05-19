@@ -26,8 +26,11 @@ enum class BlockType : uint8_t {
     Cactus    = 9,
     Sandstone = 10,
     Ice       = 11,
-    Glowstone = 12,
-    Water     = 13,
+    Glowstone    = 12,
+    Water        = 13,
+    LeavesOrange = 14,
+    LeavesRed    = 15,
+    LeavesPink   = 16,
 };
 
 enum class ChunkState {

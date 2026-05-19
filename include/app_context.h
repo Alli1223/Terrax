@@ -12,6 +12,12 @@
 #include <vector>
 #include <future>
 
+struct LeafParticle {
+    glm::vec3 pos, vel;
+    float     life = 0.0f, maxLife = 1.0f;
+    uint8_t   leafBT = 0;
+};
+
 struct AppContext {
     // --- State ---
     GameState   state       = GameState::MainMenu;
@@ -91,6 +97,10 @@ struct AppContext {
     bool   mapNeedsRebuild = true;
     bool   mapBuilding     = false;
     std::future<std::vector<uint8_t>> mapFuture;
+
+    // --- Leaf particles ---
+    std::vector<LeafParticle> leafParticles;
+    float leafSpawnTimer = 0.0f;
 
     AppContext();
     ~AppContext();

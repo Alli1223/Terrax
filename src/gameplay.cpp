@@ -10,6 +10,7 @@
 #include <iostream>
 #include <cmath>
 #include <mutex>
+#include <random>
 
 static void cleanupRemotePlayers(AppContext& ctx) {
     for (auto& [id, p] : ctx.remotePlayers) {
@@ -38,6 +39,60 @@ void disconnectFromGame(AppContext& ctx) {
     ctx.showPlayerList    = false;
     ctx.spawnedOnGround   = false;
     ctx.keyFwd = ctx.keyBack = ctx.keyLeft = ctx.keyRight = ctx.keyJump = 0;
+}
+
+static void updateLeafParticles(AppContext& ctx) {
+    static constexpr float LEAF_LIFE  = 5.5f;
+    static constexpr int   MAX_LEAF   = 200;
+    static std::mt19937 sRng(std::random_device{}());
+
+    // Update existing particles
+    for (int i = (int)ctx.leafParticles.size() - 1; i >= 0; i--) {
+        LeafParticle& p = ctx.leafParticles[i];
+        p.life -= ctx.deltaTime;
+        if (p.life <= 0.0f) {
+            ctx.leafParticles[i] = ctx.leafParticles.back();
+            ctx.leafParticles.pop_back();
+            continue;
+        }
+        p.vel.y -= 2.2f * ctx.deltaTime;
+        p.vel.y  = std::max(p.vel.y, -2.5f);
+        float t  = p.maxLife - p.life;
+        p.vel.x  = sinf(t * 2.1f + p.pos.x * 0.4f) * 0.5f;
+        p.vel.z  = cosf(t * 1.7f + p.pos.z * 0.4f) * 0.5f;
+        p.pos   += p.vel * ctx.deltaTime;
+    }
+
+    // Spawn new particles
+    ctx.leafSpawnTimer -= ctx.deltaTime;
+    if (ctx.leafSpawnTimer > 0.0f || (int)ctx.leafParticles.size() >= MAX_LEAF) return;
+
+    std::uniform_real_distribution<float> randF(0.0f, 1.0f);
+    ctx.leafSpawnTimer = 0.08f + randF(sRng) * 0.12f;
+
+    std::uniform_int_distribution<int> rdx(-22, 22), rdz(-22, 22);
+    int spawnCount = 1 + (int)(randF(sRng) * 2.0f);
+    for (int s = 0; s < spawnCount && (int)ctx.leafParticles.size() < MAX_LEAF; s++) {
+        int wx = (int)ctx.camera.position.x + rdx(sRng);
+        int wz = (int)ctx.camera.position.z + rdz(sRng);
+        int startY = std::min((int)ctx.camera.position.y + 45, CHUNK_HEIGHT - 2);
+        for (int wy = startY; wy >= (int)ctx.camera.position.y - 5; wy--) {
+            BlockType bt = ctx.world.getBlock(wx, wy, wz);
+            if (bt == BlockType::Leaves || bt == BlockType::LeavesOrange ||
+                bt == BlockType::LeavesRed || bt == BlockType::LeavesPink) {
+                if (ctx.world.getBlock(wx, wy + 1, wz) == BlockType::Air) {
+                    LeafParticle lp;
+                    lp.pos    = glm::vec3((float)wx + randF(sRng), (float)(wy + 1), (float)wz + randF(sRng));
+                    lp.vel    = glm::vec3(0.0f, -0.05f, 0.0f);
+                    lp.maxLife = LEAF_LIFE * (0.6f + 0.4f * randF(sRng));
+                    lp.life   = lp.maxLife;
+                    lp.leafBT = (uint8_t)bt;
+                    ctx.leafParticles.push_back(lp);
+                    break;
+                }
+            }
+        }
+    }
 }
 
 void updateGameplay(AppContext& ctx, GLFWwindow* window) {
@@ -219,4 +274,7 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
     int pcx = (int)floorf(ctx.camera.position.x / (float)CHUNK_SIZE);
     int pcz = (int)floorf(ctx.camera.position.z / (float)CHUNK_SIZE);
     ctx.world.update(pcx, pcz);
+
+    if (ctx.state == GameState::Playing && !ctx.paused)
+        updateLeafParticles(ctx);
 }

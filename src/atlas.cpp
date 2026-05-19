@@ -120,6 +120,10 @@ GLuint generateAtlas() {
     genFlower      (data, 1, 4, 220, 48, 20);   // FlowerRed
     genFlower      (data, 2, 4, 240, 200, 20);  // FlowerYellow
     genFlower      (data, 3, 4, 75,  85, 230);  // FlowerBlue
+    // Leaf colour variants (row 5)
+    fillSolid(data, 0, 5, 220, 105,  22);  // LeavesOrange — autumn orange
+    fillSolid(data, 1, 5, 175,  35,  18);  // LeavesRed    — deep autumn red
+    fillSolid(data, 2, 5, 255, 165, 200);  // LeavesPink   — spring blossom pink
 
     GLuint tex;
     glGenTextures(1, &tex);

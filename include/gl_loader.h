@@ -1,12 +1,16 @@
 #pragma once
-// Minimal OpenGL 3.3 core loader using glfwGetProcAddress.
-// Works on X11 and Wayland (no GLEW/GLX required).
 
 #ifndef TERRAX_TESTING
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 #endif
 #include <stddef.h>
+
+#ifdef _WIN32
+  #define GL_APIENTRY __stdcall
+#else
+  #define GL_APIENTRY
+#endif
 
 // --- GL base types ---
 typedef unsigned int   GLenum;
@@ -76,71 +80,71 @@ typedef unsigned char  GLubyte;
 #define GL_RGB                  0x1907
 #define GL_CLIP_DISTANCE0       0x3000
 
-// --- GL 1.x functions (direct symbols in libGL) ---
+// --- GL 1.x functions (direct symbols in libGL / opengl32.lib) ---
 extern "C" {
-void glEnable(GLenum cap);
-void glDisable(GLenum cap);
-void glClear(GLbitfield mask);
-void glClearColor(GLfloat r, GLfloat g, GLfloat b, GLfloat a);
-void glViewport(GLint x, GLint y, GLsizei w, GLsizei h);
-void glDepthMask(GLboolean flag);
-void glCullFace(GLenum mode);
-void glDrawArrays(GLenum mode, GLint first, GLsizei count);
-void glBlendFunc(GLenum sfactor, GLenum dfactor);
-void glLineWidth(GLfloat width);
-void glPolygonMode(GLenum face, GLenum mode);
-void glScissor(GLint x, GLint y, GLsizei w, GLsizei h);
+void GL_APIENTRY glEnable(GLenum cap);
+void GL_APIENTRY glDisable(GLenum cap);
+void GL_APIENTRY glClear(GLbitfield mask);
+void GL_APIENTRY glClearColor(GLfloat r, GLfloat g, GLfloat b, GLfloat a);
+void GL_APIENTRY glViewport(GLint x, GLint y, GLsizei w, GLsizei h);
+void GL_APIENTRY glDepthMask(GLboolean flag);
+void GL_APIENTRY glCullFace(GLenum mode);
+void GL_APIENTRY glDrawArrays(GLenum mode, GLint first, GLsizei count);
+void GL_APIENTRY glBlendFunc(GLenum sfactor, GLenum dfactor);
+void GL_APIENTRY glLineWidth(GLfloat width);
+void GL_APIENTRY glPolygonMode(GLenum face, GLenum mode);
+void GL_APIENTRY glScissor(GLint x, GLint y, GLsizei w, GLsizei h);
 }
 
 // --- GL 1.5+ function pointer typedefs (loaded at runtime) ---
-typedef void   (*PFN_glGenBuffers)(GLsizei, GLuint*);
-typedef void   (*PFN_glBindBuffer)(GLenum, GLuint);
-typedef void   (*PFN_glBufferData)(GLenum, GLsizeiptr, const void*, GLenum);
-typedef void   (*PFN_glDeleteBuffers)(GLsizei, const GLuint*);
-typedef void   (*PFN_glGenVertexArrays)(GLsizei, GLuint*);
-typedef void   (*PFN_glBindVertexArray)(GLuint);
-typedef void   (*PFN_glDeleteVertexArrays)(GLsizei, const GLuint*);
-typedef void   (*PFN_glVertexAttribPointer)(GLuint, GLint, GLenum, GLboolean, GLsizei, const void*);
-typedef void   (*PFN_glEnableVertexAttribArray)(GLuint);
-typedef GLuint (*PFN_glCreateShader)(GLenum);
-typedef void   (*PFN_glShaderSource)(GLuint, GLsizei, const GLchar* const*, const GLint*);
-typedef void   (*PFN_glCompileShader)(GLuint);
-typedef void   (*PFN_glGetShaderiv)(GLuint, GLenum, GLint*);
-typedef void   (*PFN_glGetShaderInfoLog)(GLuint, GLsizei, GLsizei*, GLchar*);
-typedef void   (*PFN_glDeleteShader)(GLuint);
-typedef GLuint (*PFN_glCreateProgram)(void);
-typedef void   (*PFN_glAttachShader)(GLuint, GLuint);
-typedef void   (*PFN_glLinkProgram)(GLuint);
-typedef void   (*PFN_glGetProgramiv)(GLuint, GLenum, GLint*);
-typedef void   (*PFN_glGetProgramInfoLog)(GLuint, GLsizei, GLsizei*, GLchar*);
-typedef void   (*PFN_glUseProgram)(GLuint);
-typedef void   (*PFN_glDeleteProgram)(GLuint);
-typedef GLint  (*PFN_glGetUniformLocation)(GLuint, const GLchar*);
-typedef void   (*PFN_glUniform1i)(GLint, GLint);
-typedef void   (*PFN_glUniform1f)(GLint, GLfloat);
-typedef void   (*PFN_glUniform1fv)(GLint, GLsizei, const GLfloat*);
-typedef void   (*PFN_glUniform3fv)(GLint, GLsizei, const GLfloat*);
-typedef void   (*PFN_glUniform4fv)(GLint, GLsizei, const GLfloat*);
-typedef void   (*PFN_glUniformMatrix4fv)(GLint, GLsizei, GLboolean, const GLfloat*);
-typedef void   (*PFN_glGenTextures)(GLsizei, GLuint*);
-typedef void   (*PFN_glDeleteTextures)(GLsizei, const GLuint*);
-typedef void   (*PFN_glBindTexture)(GLenum, GLuint);
-typedef void   (*PFN_glTexImage2D)(GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, const void*);
-typedef void   (*PFN_glTexParameteri)(GLenum, GLenum, GLint);
-typedef void   (*PFN_glTexParameterfv)(GLenum, GLenum, const GLfloat*);
-typedef void   (*PFN_glActiveTexture)(GLenum);
-typedef void   (*PFN_glGenerateMipmap)(GLenum);
-typedef void   (*PFN_glGenFramebuffers)(GLsizei, GLuint*);
-typedef void   (*PFN_glDeleteFramebuffers)(GLsizei, const GLuint*);
-typedef void   (*PFN_glBindFramebuffer)(GLenum, GLuint);
-typedef void   (*PFN_glFramebufferTexture2D)(GLenum, GLenum, GLenum, GLuint, GLint);
-typedef void   (*PFN_glDrawBuffer)(GLenum);
-typedef void   (*PFN_glReadBuffer)(GLenum);
-typedef void   (*PFN_glGenRenderbuffers)(GLsizei, GLuint*);
-typedef void   (*PFN_glDeleteRenderbuffers)(GLsizei, const GLuint*);
-typedef void   (*PFN_glBindRenderbuffer)(GLenum, GLuint);
-typedef void   (*PFN_glRenderbufferStorage)(GLenum, GLenum, GLsizei, GLsizei);
-typedef void   (*PFN_glFramebufferRenderbuffer)(GLenum, GLenum, GLenum, GLuint);
+typedef void   (GL_APIENTRY *PFN_glGenBuffers)(GLsizei, GLuint*);
+typedef void   (GL_APIENTRY *PFN_glBindBuffer)(GLenum, GLuint);
+typedef void   (GL_APIENTRY *PFN_glBufferData)(GLenum, GLsizeiptr, const void*, GLenum);
+typedef void   (GL_APIENTRY *PFN_glDeleteBuffers)(GLsizei, const GLuint*);
+typedef void   (GL_APIENTRY *PFN_glGenVertexArrays)(GLsizei, GLuint*);
+typedef void   (GL_APIENTRY *PFN_glBindVertexArray)(GLuint);
+typedef void   (GL_APIENTRY *PFN_glDeleteVertexArrays)(GLsizei, const GLuint*);
+typedef void   (GL_APIENTRY *PFN_glVertexAttribPointer)(GLuint, GLint, GLenum, GLboolean, GLsizei, const void*);
+typedef void   (GL_APIENTRY *PFN_glEnableVertexAttribArray)(GLuint);
+typedef GLuint (GL_APIENTRY *PFN_glCreateShader)(GLenum);
+typedef void   (GL_APIENTRY *PFN_glShaderSource)(GLuint, GLsizei, const GLchar* const*, const GLint*);
+typedef void   (GL_APIENTRY *PFN_glCompileShader)(GLuint);
+typedef void   (GL_APIENTRY *PFN_glGetShaderiv)(GLuint, GLenum, GLint*);
+typedef void   (GL_APIENTRY *PFN_glGetShaderInfoLog)(GLuint, GLsizei, GLsizei*, GLchar*);
+typedef void   (GL_APIENTRY *PFN_glDeleteShader)(GLuint);
+typedef GLuint (GL_APIENTRY *PFN_glCreateProgram)(void);
+typedef void   (GL_APIENTRY *PFN_glAttachShader)(GLuint, GLuint);
+typedef void   (GL_APIENTRY *PFN_glLinkProgram)(GLuint);
+typedef void   (GL_APIENTRY *PFN_glGetProgramiv)(GLuint, GLenum, GLint*);
+typedef void   (GL_APIENTRY *PFN_glGetProgramInfoLog)(GLuint, GLsizei, GLsizei*, GLchar*);
+typedef void   (GL_APIENTRY *PFN_glUseProgram)(GLuint);
+typedef void   (GL_APIENTRY *PFN_glDeleteProgram)(GLuint);
+typedef GLint  (GL_APIENTRY *PFN_glGetUniformLocation)(GLuint, const GLchar*);
+typedef void   (GL_APIENTRY *PFN_glUniform1i)(GLint, GLint);
+typedef void   (GL_APIENTRY *PFN_glUniform1f)(GLint, GLfloat);
+typedef void   (GL_APIENTRY *PFN_glUniform1fv)(GLint, GLsizei, const GLfloat*);
+typedef void   (GL_APIENTRY *PFN_glUniform3fv)(GLint, GLsizei, const GLfloat*);
+typedef void   (GL_APIENTRY *PFN_glUniform4fv)(GLint, GLsizei, const GLfloat*);
+typedef void   (GL_APIENTRY *PFN_glUniformMatrix4fv)(GLint, GLsizei, GLboolean, const GLfloat*);
+typedef void   (GL_APIENTRY *PFN_glGenTextures)(GLsizei, GLuint*);
+typedef void   (GL_APIENTRY *PFN_glDeleteTextures)(GLsizei, const GLuint*);
+typedef void   (GL_APIENTRY *PFN_glBindTexture)(GLenum, GLuint);
+typedef void   (GL_APIENTRY *PFN_glTexImage2D)(GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, const void*);
+typedef void   (GL_APIENTRY *PFN_glTexParameteri)(GLenum, GLenum, GLint);
+typedef void   (GL_APIENTRY *PFN_glTexParameterfv)(GLenum, GLenum, const GLfloat*);
+typedef void   (GL_APIENTRY *PFN_glActiveTexture)(GLenum);
+typedef void   (GL_APIENTRY *PFN_glGenerateMipmap)(GLenum);
+typedef void   (GL_APIENTRY *PFN_glGenFramebuffers)(GLsizei, GLuint*);
+typedef void   (GL_APIENTRY *PFN_glDeleteFramebuffers)(GLsizei, const GLuint*);
+typedef void   (GL_APIENTRY *PFN_glBindFramebuffer)(GLenum, GLuint);
+typedef void   (GL_APIENTRY *PFN_glFramebufferTexture2D)(GLenum, GLenum, GLenum, GLuint, GLint);
+typedef void   (GL_APIENTRY *PFN_glDrawBuffer)(GLenum);
+typedef void   (GL_APIENTRY *PFN_glReadBuffer)(GLenum);
+typedef void   (GL_APIENTRY *PFN_glGenRenderbuffers)(GLsizei, GLuint*);
+typedef void   (GL_APIENTRY *PFN_glDeleteRenderbuffers)(GLsizei, const GLuint*);
+typedef void   (GL_APIENTRY *PFN_glBindRenderbuffer)(GLenum, GLuint);
+typedef void   (GL_APIENTRY *PFN_glRenderbufferStorage)(GLenum, GLenum, GLsizei, GLsizei);
+typedef void   (GL_APIENTRY *PFN_glFramebufferRenderbuffer)(GLenum, GLenum, GLenum, GLuint);
 
 // --- Function pointer declarations ---
 extern PFN_glGenBuffers             glGenBuffers;

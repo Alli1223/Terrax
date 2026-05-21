@@ -1,4 +1,5 @@
 #include "world.h"
+#include "town.h"
 #include "noise.h"
 #include <cstring>
 #include <cmath>
@@ -12,14 +13,18 @@ static PerlinNoise gTempNoise(54321);
 static PerlinNoise gHumidNoise(98765);
 static PerlinNoise gRiverNoise(11111);
 static PerlinNoise gContinentalNoise(77777);
+static unsigned int g_worldSeed = 12345;
 
 void setWorldSeed(unsigned int seed) {
+    g_worldSeed        = seed;
     gNoise             = PerlinNoise(seed);
     gTempNoise         = PerlinNoise(seed + 11111);
     gHumidNoise        = PerlinNoise(seed + 22222);
     gRiverNoise        = PerlinNoise(seed + 33333);
     gContinentalNoise  = PerlinNoise(seed + 44444);
 }
+
+unsigned int worldSeed() { return g_worldSeed; }
 
 // ---- Chunk ----
 
@@ -577,6 +582,13 @@ static ColumnInfo computeColumn(float wx, float wz) {
     return { blendH, (Biome)domIdx };
 }
 
+// Terrain oracle exposed for the town planner — surface height + biome at any
+// world XZ, with no chunk generation.
+SurfaceSample sampleSurface(int wx, int wz) {
+    ColumnInfo ci = computeColumn((float)wx, (float)wz);
+    return { (int)ci.surfH, (int)ci.biome };
+}
+
 // ---- Decorator helpers ----
 // All functions take WORLD coordinates (wx, wz) for the anchor position.
 // c->set() silently ignores coordinates outside the chunk, so structures that
@@ -1109,6 +1121,9 @@ static void generateChunk(Chunk* c) {
         }
     }
     c->surfaceReady = true;
+
+    // Pass 5: stamp procedural town / village features that fall in this chunk.
+    stampTownChunk(c);
 
     c->computeLight();
     c->state = ChunkState::Generated;

@@ -36,6 +36,7 @@ struct AppContext {
     char playerName[MAX_PLAYER_NAME + 1] = {};
     float playerYaw        = 0.0f;
     bool spawnedOnGround   = false;
+    int  spawnX = 8, spawnZ = 8;   // world column the player spawns at
     float playerHealth     = 1.0f;
 
     // --- Camera / mouse ---

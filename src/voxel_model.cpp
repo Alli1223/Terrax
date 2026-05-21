@@ -534,8 +534,14 @@ void HouseModel::set(int x, int y, int z, BlockType t) {
     blocks[((size_t)z * HOUSE_VY + y) * HOUSE_VX + x] = t;
 }
 
-void HouseModel::rebuild() {
-    std::fill(blocks.begin(), blocks.end(), BlockType::Air);
+void generateHouseGrid(int templateType, int roofType, int material,
+                       std::vector<BlockType>& blocks) {
+    blocks.assign((size_t)HOUSE_VX * HOUSE_VY * HOUSE_VZ, BlockType::Air);
+    auto set = [&](int x, int y, int z, BlockType t) {
+        if (x < 0 || x >= HOUSE_VX || y < 0 || y >= HOUSE_VY ||
+            z < 0 || z >= HOUSE_VZ) return;
+        blocks[((size_t)z * HOUSE_VY + y) * HOUSE_VX + x] = t;
+    };
 
     // Material -> painted wall / roof colours (indices into PAINT_PALETTE).
     auto paint = [](int i) { return (BlockType)((int)BlockType::PaintFirst + i); };
@@ -708,7 +714,10 @@ void HouseModel::rebuild() {
         const int cx = x1 - 3, cz = z1 - 3;
         box(cx, cx + 1, wallH, roofTopY + 2, cz, cz + 1, chimneyB);
     }
+}
 
+void HouseModel::rebuild() {
+    generateHouseGrid(templateType, roofType, material, blocks);
     refreshMesh();
 }
 

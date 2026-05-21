@@ -165,3 +165,12 @@ private:
 };
 
 void setWorldSeed(unsigned int seed);
+
+// --- Terrain oracle ----------------------------------------------------------
+// Surface height + biome at any world XZ, as a pure function of the world seed
+// (no chunk generation required). Used by the procedural town planner.
+static constexpr int WORLD_SEA_LEVEL = 64;
+
+struct SurfaceSample { int height; int biome; };
+SurfaceSample sampleSurface(int wx, int wz);
+unsigned int  worldSeed();

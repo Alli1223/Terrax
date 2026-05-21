@@ -95,6 +95,7 @@
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\renderer.cpp" />
     <ClCompile Include="src\world.cpp" />
+    <ClCompile Include="src\town.cpp" />
     <ClCompile Include="src\network.cpp" />
     <ClCompile Include="src\ui.cpp" />
     <ClCompile Include="src\voxel_model.cpp" />
@@ -135,6 +136,7 @@
     <ClInclude Include="include\renderer.h" />
     <ClInclude Include="include\shader.h" />
     <ClInclude Include="include\ui.h" />
+    <ClInclude Include="include\town.h" />
     <ClInclude Include="include\voxel_model.h" />
     <ClInclude Include="include\world.h" />
     <ClInclude Include="src\noise.h" />

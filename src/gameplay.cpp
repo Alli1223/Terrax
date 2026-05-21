@@ -5,6 +5,7 @@
 #include "physics.h"
 #include "network.h"
 #include "game_session.h"
+#include "town.h"
 #include <algorithm>
 #include <vector>
 #include <iostream>
@@ -132,6 +133,33 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
         ctx.joinNameSent      = false;
         ctx.noclip            = true;
         ctx.firstMouse        = true;
+
+        // Spawn in the town nearest the world origin. Only host / singleplayer
+        // run in-process with the server, so only there is the town plan (which
+        // is seed-derived) guaranteed to match the server's world.
+        ctx.spawnX = 8;
+        ctx.spawnZ = 8;
+        if (ctx.weOwnServer) {
+            const TownPlan& plan = getTownPlan();
+            const Town* best = nullptr;
+            long long bestD = -1;
+            for (const Town& t : plan.towns) {
+                long long d = (long long)t.center.x * t.center.x
+                            + (long long)t.center.y * t.center.y;
+                if (bestD < 0 || d < bestD) { bestD = d; best = &t; }
+            }
+            if (best) {
+                ctx.spawnX = best->center.x + 12;   // beside the town centre
+                ctx.spawnZ = best->center.y;
+                ctx.camera.position = glm::vec3((float)ctx.spawnX + 0.5f,
+                                                (float)best->baseY + 50.0f,
+                                                (float)ctx.spawnZ + 0.5f);
+                ctx.camera.yaw = 180.0f;            // face back toward the centre
+                ctx.camera.updateVectors();
+                std::cout << "[Spawn] Nearest town to origin at ("
+                          << best->center.x << ", " << best->center.y << ")\n";
+            }
+        }
     }
 
     if (ctx.client && !ctx.client->connected) {
@@ -171,15 +199,23 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
     }
 
     if (!ctx.spawnedOnGround) {
+        auto chunkCoord = [](int w) {
+            return (w < 0 && w % CHUNK_SIZE != 0) ? w / CHUNK_SIZE - 1 : w / CHUNK_SIZE;
+        };
+        int scx = chunkCoord(ctx.spawnX), scz = chunkCoord(ctx.spawnZ);
+        int lx  = ctx.spawnX - scx * CHUNK_SIZE, lz = ctx.spawnZ - scz * CHUNK_SIZE;
         std::lock_guard<std::mutex> lock(ctx.world.chunksMutex);
-        auto it = ctx.world.chunks.find({0, 0});
+        auto it = ctx.world.chunks.find({scx, scz});
         if (it != ctx.world.chunks.end() && it->second->state != ChunkState::Empty) {
             for (int y = CHUNK_HEIGHT - 1; y >= 0; y--) {
-                if (it->second->get(8, y, 8) != BlockType::Air) {
-                    ctx.camera.position = glm::vec3(8.5f, (float)y + 1.0f, 8.5f);
+                if (it->second->get(lx, y, lz) != BlockType::Air) {
+                    ctx.camera.position = glm::vec3((float)ctx.spawnX + 0.5f,
+                                                    (float)y + 1.0f,
+                                                    (float)ctx.spawnZ + 0.5f);
                     ctx.noclip          = false;
                     ctx.spawnedOnGround = true;
-                    std::cout << "[Client] Spawned on ground at Y=" << y << "\n";
+                    std::cout << "[Client] Spawned at (" << ctx.spawnX << ", "
+                              << (y + 1) << ", " << ctx.spawnZ << ")\n";
                     break;
                 }
             }

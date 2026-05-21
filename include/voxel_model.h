@@ -130,6 +130,11 @@ static constexpr int HOUSE_VZ = 24;
 // Representative display colour for a block type (editor + placement ghost).
 Voxel houseBlockColor(BlockType t);
 
+// Fills `blocks` (HOUSE_VX*HOUSE_VY*HOUSE_VZ, index ((z*HOUSE_VY)+y)*HOUSE_VX+x)
+// with a procedural house. Shared by the house editor and the town generator.
+void generateHouseGrid(int templateType, int roofType, int material,
+                       std::vector<BlockType>& blocks);
+
 class HouseModel {
 public:
     VoxelVolume* volume = nullptr;            // display mesh, rebuilt from `blocks`

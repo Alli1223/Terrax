@@ -600,15 +600,6 @@ void generateHouseGrid(int templateType, int roofType, int material,
     for (int f = 1; f < floors; f++)
         box(x0 + 1, x1 - 1, f * floorH, f * floorH, z0 + 1, z1 - 1, floorB);
 
-    // Ceiling lamp — one glowstone per storey, centred. It lights the interior,
-    // and because block light passes through glass the glow spills out of the
-    // windows after dark to light the ground around the house.
-    {
-        const int lcx = (x0 + x1) / 2, lcz = (z0 + z1) / 2;
-        for (int f = 0; f < floors; f++)
-            set(lcx, (f + 1) * floorH - 1, lcz, BlockType::Glowstone);
-    }
-
     // Interior staircases — one straight, 2-wide flight per upper storey
     // against the left wall. Each step rises a single block (walkable without
     // jumping), and a matching slot is cut in the slab above to climb through.

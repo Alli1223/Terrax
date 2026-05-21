@@ -12,7 +12,7 @@ class World;
 // (boats, ferries). They are owned polymorphically by an ObjectManager (the
 // local player is the one exception: AppContext holds it directly).
 
-enum class ObjectKind : uint8_t { Player = 0, Prop, Vehicle };
+enum class ObjectKind : uint8_t { Player = 0, Prop, Vehicle, Door };
 
 class GameObject {
 public:

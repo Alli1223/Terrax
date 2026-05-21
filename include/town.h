@@ -14,6 +14,9 @@ class Chunk;
 enum class TownType : unsigned char { Grassland, Coastal, Mountain };
 enum class TownSize : unsigned char { Village, Town };
 
+// What stands at a town's centre — chosen by town type and seed.
+enum class TownCenter : unsigned char { Well, Market, Campfire, Statue };
+
 // One stamped structure — a pre-rotated block grid placed at a fixed world
 // position. `blocks` holds BlockType values, index ((y*dimZ)+z)*dimX+x.
 // kind: 0 = well, 1 = house, 2 = farm.
@@ -22,6 +25,7 @@ struct TownBuilding {
     int baseY = 0;               // world Y of the grid's y=0 (the plot floor)
     int dimX = 0, dimY = 0, dimZ = 0;
     int kind = 1;
+    int doorDX = 0, doorDZ = 0;   // outward facing of the front door (houses only)
     std::vector<uint8_t> blocks;
 };
 
@@ -55,6 +59,7 @@ struct Town {
     std::string name;    // procedurally generated, deterministic per location
     TownType   type;
     TownSize   size;
+    TownCenter centerpiece = TownCenter::Well;   // what stands at the town centre
     int        radius;   // town footprint radius in blocks
     glm::ivec2 bbMin, bbMax;               // world-XZ bounding box of all buildings
     std::vector<TownBuilding> buildings;   // well first, then houses & farms

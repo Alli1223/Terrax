@@ -743,6 +743,31 @@ static void renderMapUI(AppContext& ctx) {
     float texCX = ctx.mapBuiltCX + ctx.mapPanX;
     float texCZ = ctx.mapBuiltCZ + ctx.mapPanZ;
 
+    // Right-click (a click, not a rotate-drag) teleports the player there.
+    if (hovered && ImGui::IsMouseReleased(ImGuiMouseButton_Right)) {
+        ImVec2 dd = ImGui::GetMouseDragDelta(ImGuiMouseButton_Right);
+        if (dd.x * dd.x + dd.y * dd.y < 36.0f) {
+            ImVec2 mp = ImGui::GetIO().MousePos;
+            float lx = mp.x - mc.x, ly = mp.y - mc.y;
+            if (lx * lx + ly * ly < h * h) {          // inside the map disc
+                float wdx =  lx * cr + ly * sr;       // undo the map rotation
+                float wdz = -lx * sr + ly * cr;
+                float wx  = texCX + wdx / h * worldRadius;
+                float wz  = texCZ + wdz / h * worldRadius;
+                ctx.spawnX = (int)floorf(wx);
+                ctx.spawnZ = (int)floorf(wz);
+                int gy = sampleSurfaceSolid(ctx.spawnX, ctx.spawnZ);
+                ctx.camera.position = glm::vec3((float)ctx.spawnX + 0.5f,
+                                                (float)(gy + 2), (float)ctx.spawnZ + 0.5f);
+                ctx.camera.velocity = glm::vec3(0.0f);
+                ctx.spawnedOnGround = false;          // re-grounds when the chunk loads
+                ctx.mapPanX = 0.0f;
+                ctx.mapPanZ = 0.0f;
+                ctx.mapNeedsRebuild = true;
+            }
+        }
+    }
+
     auto worldToMap = [&](float wx, float wz) -> ImVec2 {
         float dx = (wx - texCX) / worldRadius * h;
         float dz = (wz - texCZ) / worldRadius * h;
@@ -816,7 +841,7 @@ static void renderMapUI(AppContext& ctx) {
 
     // ── Controls hint ─────────────────────────────────────────────────────────
     ImGui::Spacing();
-    ImGui::TextDisabled("LMB drag: Pan   |   RMB drag: Rotate   |   Scroll: Zoom   |   M / Esc: Close");
+    ImGui::TextDisabled("LMB drag: Pan   |   RMB drag: Rotate   |   RMB click: Teleport   |   Scroll: Zoom   |   M / Esc: Close");
 
     ImGui::End();
 

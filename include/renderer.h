@@ -45,6 +45,15 @@ private:
     GLuint reflFBO = 0, reflColorTex = 0, reflDepthRBO = 0;
     GLuint particleVao = 0, particleVbo = 0;
 
+    // --- Dynamic point-light occlusion volume ---
+    // A 3D opacity texture of the blocks around the player; the shaders raymarch
+    // it so lantern/lamp light is blocked by walls (and passes through glass).
+    static constexpr int LIGHTVOL_SIZE = 128;
+    GLuint     lightVolTex   = 0;
+    glm::ivec3 lightVolOrigin = glm::ivec3(1 << 28);   // sentinel forces first build
+    float      lightVolTimer = 1.0e9f;
+    void updateLightVolume(AppContext& ctx);
+
     void setupSkybox();
     void renderSkybox(const glm::mat4& view, const glm::mat4& proj, float gameTime, float time);
 };

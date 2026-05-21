@@ -412,6 +412,9 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
     ctx.objectManager.updateAll(ctx.deltaTime, ctx.world);
     ctx.objectManager.streamProps(ctx.camera.position, 260.0f,
                                   getPropPlacements(), ctx.propLibrary);
+    ctx.objectManager.streamDoors(ctx.camera.position, 180.0f,
+                                  getDoorPlacements(), ctx.propLibrary,
+                                  &ctx.camera.position);
     if (ctx.localPlayer) {
         ctx.localPlayer->position    = ctx.camera.position;
         ctx.localPlayer->yaw         = ctx.playerYaw;

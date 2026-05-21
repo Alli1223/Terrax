@@ -21,3 +21,6 @@ VoxelVolume* buildPottedPlant();
 VoxelVolume* buildBush();
 VoxelVolume* buildBench();
 VoxelVolume* buildFenceSection();
+
+// Openable house door panel, one mesh per style/colour (the Door object).
+VoxelVolume* buildDoor(int variant);

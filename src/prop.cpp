@@ -25,7 +25,8 @@ void voxFill(VoxelVolume* v, int x0, int y0, int z0,
 PropLibrary::~PropLibrary() { destroy(); }
 
 void PropLibrary::destroy() {
-    for (auto& v : volumes) { delete v; v = nullptr; }
+    for (auto& v : volumes)     { delete v; v = nullptr; }
+    for (auto& v : doorVolumes) { delete v; v = nullptr; }
     isBuilt = false;
 }
 
@@ -43,7 +44,10 @@ void PropLibrary::buildAll() {
     volumes[(int)PropType::Bush]        = buildBush();
     volumes[(int)PropType::Bench]       = buildBench();
     volumes[(int)PropType::Fence]       = buildFenceSection();
+    for (int i = 0; i < DOOR_VARIANTS; i++) doorVolumes[i] = buildDoor(i);
     for (auto* v : volumes)
+        if (v) v->updateMesh();
+    for (auto* v : doorVolumes)
         if (v) v->updateMesh();
     isBuilt = true;
 }
@@ -52,6 +56,11 @@ VoxelVolume* PropLibrary::mesh(PropType t) const {
     int i = (int)t;
     if (i < 0 || i >= (int)PropType::Count) return nullptr;
     return volumes[i];
+}
+
+VoxelVolume* PropLibrary::doorMesh(int variant) const {
+    if (variant < 0 || variant >= DOOR_VARIANTS) return nullptr;
+    return doorVolumes[variant];
 }
 
 // --- Prop ------------------------------------------------------------------
@@ -88,4 +97,48 @@ void Prop::getAABB(glm::vec3& mn, glm::vec3& mx) const {
     }
     mn = glm::vec3(position.x - hx, position.y,      position.z - hz);
     mx = glm::vec3(position.x + hx, position.y + hy, position.z + hz);
+}
+
+// --- Door ------------------------------------------------------------------
+
+namespace {
+constexpr float DOOR_OPEN_DIST = 4.0f;   // open when the player is this close
+constexpr float DOOR_SPEED     = 4.0f;   // swing speed (full open in ~0.25 s)
+}
+
+Door::Door(glm::vec3 hinge, float closedYawDeg, glm::ivec2 doorCell, glm::ivec2 alongWall,
+           int doorVariant, const PropLibrary* lib, const glm::vec3* player)
+    : GameObject(ObjectKind::Door), wallCell(doorCell), wallDir(alongWall),
+      variant(doorVariant), closedYaw(closedYawDeg), library(lib), playerPos(player) {
+    position = hinge;
+    yaw      = closedYawDeg;
+}
+
+void Door::update(float dt, World&) {
+    float target = 0.0f;
+    if (playerPos) {
+        glm::vec3 d = *playerPos - position;
+        if (glm::dot(d, d) < DOOR_OPEN_DIST * DOOR_OPEN_DIST) target = 1.0f;
+    }
+    float step = dt * DOOR_SPEED;
+    if (openAmount < target) openAmount = std::min(target, openAmount + step);
+    else                     openAmount = std::max(target, openAmount - step);
+}
+
+void Door::draw(GLuint modelLoc) const {
+    if (!library) return;
+    VoxelVolume* v = library->doorMesh(variant);
+    if (!v) return;
+    // The panel swings inward about the hinge (the mesh's x = 0 edge).
+    float a = closedYaw - openAmount * 90.0f;
+    glm::mat4 m = glm::translate(glm::mat4(1.0f), position);
+    m = glm::rotate(m, glm::radians(a), glm::vec3(0, 1, 0));
+    m = glm::scale(m, glm::vec3(DOOR_SCALE));
+    glUniformMatrix4fv(modelLoc, 1, GL_FALSE, &m[0][0]);
+    v->draw();
+}
+
+void Door::getAABB(glm::vec3& mn, glm::vec3& mx) const {
+    mn = position + glm::vec3(-3.4f, 0.0f, -3.4f);
+    mx = position + glm::vec3( 3.4f, 4.4f,  3.4f);
 }

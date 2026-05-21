@@ -185,6 +185,14 @@ void bakeHouse(TownBuilding& b, int templ, int roof, int mat, int q) {
                 }
                 b.blocks[((size_t)y * b.dimZ + rz) * b.dimX + rx] = (uint8_t)bt;
             }
+
+    // The front door faces the rotated front wall (q = 0 faces -Z).
+    switch (q) {
+        case 1:  b.doorDX = -1; b.doorDZ =  0; break;
+        case 2:  b.doorDX =  0; b.doorDZ =  1; break;
+        case 3:  b.doorDX =  1; b.doorDZ =  0; break;
+        default: b.doorDX =  0; b.doorDZ = -1; break;
+    }
 }
 
 // A small village well — stone rim, water pool, four posts and a pyramid roof.
@@ -217,6 +225,107 @@ void makeWell(TownBuilding& b) {
     for (int cx = 0; cx <= 4; cx += 4)
         for (int cz = 0; cz <= 4; cz += 4)
             for (int y = 1; y <= 4; y++) set(cx, y, cz, wood);  // posts
+}
+
+// A market square — a paved plaza ringed by four awning-roofed stalls with
+// goods on their counters, and a flag pole at the centre. kind = 0.
+void makeMarket(TownBuilding& b) {
+    b.kind = 0;
+    b.dimX = 13; b.dimY = 8; b.dimZ = 13;
+    b.blocks.assign((size_t)13 * 8 * 13, (uint8_t)BlockType::Air);
+    auto set = [&](int x, int y, int z, BlockType t) {
+        b.blocks[((size_t)y * 13 + z) * 13 + x] = (uint8_t)t;
+    };
+    const BlockType wood = BlockType::Wood, stone = BlockType::Stone;
+    const BlockType red    = (BlockType)((int)BlockType::PaintFirst + 7);   // awning red
+    const BlockType amber  = (BlockType)((int)BlockType::PaintFirst + 10);  // awning amber
+    const BlockType greens = BlockType::Leaves;
+
+    for (int x = 0; x < 13; x++)                          // paved plaza
+        for (int z = 0; z < 13; z++)
+            set(x, 0, z, stone);
+
+    // One 3x3 stall: a wood counter, four posts, a cloth awning, goods on top.
+    auto stall = [&](int x0, int z0, BlockType awning) {
+        for (int x = x0; x < x0 + 3; x++)
+            for (int z = z0; z < z0 + 3; z++) {
+                set(x, 1, z, wood);                       // counter
+                set(x, 4, z, awning);                     // awning roof
+            }
+        for (int y = 1; y <= 3; y++) {                    // corner posts
+            set(x0,     y, z0,     wood); set(x0 + 2, y, z0,     wood);
+            set(x0,     y, z0 + 2, wood); set(x0 + 2, y, z0 + 2, wood);
+        }
+        set(x0 + 1, 2, z0,     red);                      // goods on the counter
+        set(x0,     2, z0 + 1, amber);
+        set(x0 + 2, 2, z0 + 1, greens);
+        set(x0 + 1, 2, z0 + 2, amber);
+    };
+    stall(1, 1, red);   stall(9, 1, amber);
+    stall(1, 9, amber); stall(9, 9, red);
+
+    for (int y = 1; y <= 6; y++) set(6, y, 6, wood);      // central flag pole
+    set(7, 4, 6, red); set(7, 5, 6, red); set(7, 6, 6, red);
+}
+
+// A communal campfire — a stone hearth with crossed logs, an amber flame and
+// log-stump seats. The flame is lit by a dynamic point light. kind = 0.
+void makeCampfire(TownBuilding& b) {
+    b.kind = 0;
+    b.dimX = 9; b.dimY = 5; b.dimZ = 9;
+    b.blocks.assign((size_t)9 * 5 * 9, (uint8_t)BlockType::Air);
+    auto set = [&](int x, int y, int z, BlockType t) {
+        b.blocks[((size_t)y * 9 + z) * 9 + x] = (uint8_t)t;
+    };
+    const BlockType stone = BlockType::Stone, wood = BlockType::Wood;
+    const BlockType fire  = (BlockType)((int)BlockType::PaintFirst + 10);  // amber glow
+
+    for (int x = 2; x <= 6; x++)                          // stone hearth + raised rim
+        for (int z = 2; z <= 6; z++) {
+            set(x, 0, z, stone);
+            if (x == 2 || x == 6 || z == 2 || z == 6) set(x, 1, z, stone);
+        }
+    for (int x = 3; x <= 5; x++) set(x, 1, 4, wood);      // crossed logs
+    for (int z = 3; z <= 5; z++) set(4, 1, z, wood);
+    set(4, 2, 4, fire); set(3, 2, 4, fire); set(5, 2, 4, fire);   // flame
+    set(4, 2, 3, fire); set(4, 2, 5, fire);
+    set(4, 3, 4, fire);
+    set(0, 0, 4, wood); set(8, 0, 4, wood);              // log-stump seats
+    set(4, 0, 0, wood); set(4, 0, 8, wood);
+}
+
+// A carved figure on a tiered stone pedestal, snow-dusted — the centrepiece of
+// mountain towns. kind = 0.
+void makeStatue(TownBuilding& b) {
+    b.kind = 0;
+    b.dimX = 7; b.dimY = 14; b.dimZ = 7;
+    b.blocks.assign((size_t)7 * 14 * 7, (uint8_t)BlockType::Air);
+    auto set = [&](int x, int y, int z, BlockType t) {
+        b.blocks[((size_t)y * 7 + z) * 7 + x] = (uint8_t)t;
+    };
+    const BlockType stone = BlockType::Stone, snow = BlockType::Snow;
+
+    for (int x = 1; x <= 5; x++)                          // tiered pedestal
+        for (int z = 1; z <= 5; z++) {
+            set(x, 0, z, stone);
+            set(x, 1, z, stone);
+        }
+    for (int x = 2; x <= 4; x++)
+        for (int z = 2; z <= 4; z++)
+            set(x, 2, z, stone);
+
+    for (int y = 3; y <= 6; y++) {                        // legs
+        set(2, y, 3, stone); set(4, y, 3, stone);
+    }
+    for (int y = 7; y <= 10; y++)                         // torso
+        for (int x = 2; x <= 4; x++)
+            set(x, y, 3, stone);
+    for (int y = 8; y <= 10; y++) {                       // arms
+        set(1, y, 3, stone); set(5, y, 3, stone);
+    }
+    set(3, 11, 3, stone); set(3, 12, 3, stone);           // head
+    set(3, 13, 3, snow);                                  // snow cap
+    set(2, 11, 3, snow); set(4, 11, 3, snow);             // snow on the shoulders
 }
 
 // A fenced crop field — tilled soil, rows of crops, a 2-tall wood fence with a
@@ -326,14 +435,26 @@ void layoutTown(Town& t) {
                      ^ (uint32_t)(t.center.x * 73856093)
                      ^ (uint32_t)(t.center.y * 19349663));
 
-    // Well at the town centre.
+    // Town centrepiece — varies by town type and seed.
     {
-        TownBuilding well;
-        makeWell(well);
-        well.wx    = t.center.x - well.dimX / 2;
-        well.wz    = t.center.y - well.dimZ / 2;
-        well.baseY = t.baseY;
-        t.buildings.push_back(std::move(well));
+        if (t.type == TownType::Mountain)
+            t.centerpiece = TownCenter::Statue;
+        else {
+            static const TownCenter OPTS[] = { TownCenter::Well, TownCenter::Market,
+                                               TownCenter::Campfire };
+            t.centerpiece = OPTS[rng() % 3];
+        }
+        TownBuilding cp;
+        switch (t.centerpiece) {
+            case TownCenter::Market:   makeMarket(cp);   break;
+            case TownCenter::Campfire: makeCampfire(cp); break;
+            case TownCenter::Statue:   makeStatue(cp);   break;
+            default:                   makeWell(cp);     break;
+        }
+        cp.wx    = t.center.x - cp.dimX / 2;
+        cp.wz    = t.center.y - cp.dimZ / 2;
+        cp.baseY = t.baseY;
+        t.buildings.push_back(std::move(cp));
     }
 
     const bool big = (t.size == TownSize::Town);
@@ -567,6 +688,17 @@ void emitHighwayRoute(TownPlan& plan, const std::vector<glm::ivec2>& route) {
     std::vector<int> H(n);
     for (int i = 0; i < n; i++) H[i] = sampleSurface(P[i].x, P[i].y).height;
 
+    // Route points within a town — a bridge must never span into one (towns
+    // are flattened, so any crossing there is just flat road).
+    std::vector<char> inTown(n, 0);
+    for (int i = 0; i < n; i++)
+        for (const Town& t : plan.towns) {
+            long long dx = (long long)P[i].x - t.center.x;
+            long long dz = (long long)P[i].y - t.center.y;
+            long long rr = (long long)t.radius + 50;
+            if (dx * dx + dz * dz < rr * rr) { inTown[i] = 1; break; }
+        }
+
     const int MAXSPAN = 200 / SP;   // longest bridge span — 200 blocks
     const int STEEP   = 48  / SP;   // the drop must occur within 48 blocks
     const int MINDROP = 14;         // and fall at least 14 blocks below the rim
@@ -578,6 +710,7 @@ void emitHighwayRoute(TownPlan& plan, const std::vector<glm::ivec2>& route) {
     {
         int i = 0;
         while (i < n - 1) {
+            if (inTown[i]) { i++; continue; }               // never start a span in a town
             int h0  = H[i];
             int lim = std::min(n - 1, i + STEEP);
             int j   = i + 1;
@@ -585,10 +718,11 @@ void emitHighwayRoute(TownPlan& plan, const std::vector<glm::ivec2>& route) {
             if (j > lim) { i++; continue; }
             int s = i;                                      // rim = highest point pre-dip
             for (int q = i; q <= j; q++) if (H[q] > H[s]) s = q;
+            if (inTown[s]) { i++; continue; }
             int deckY = H[s];
             int lim2  = std::min(n - 1, s + MAXSPAN);
             int k     = j + 1;
-            while (k <= lim2 && H[k] < deckY - 2) k++;
+            while (k <= lim2 && H[k] < deckY - 2 && !inTown[k]) k++;  // stop at the town edge
             if (k <= lim2 && H[k] >= deckY - 2) {
                 spans.push_back({ s, k, deckY });
                 i = k;
@@ -733,7 +867,7 @@ void routeHighways(TownPlan& plan, const std::vector<int16_t>& hgt) {
 
 // Places street lights along the gravel paths between houses and along the
 // first stretch of each highway leaving town. Stored as world-XZ positions;
-// stampStreetLight() bakes a glowstone-topped lamp post at each.
+// the prop streamer spawns a lantern-post Prop at each (prop_placement.cpp).
 void placeStreetLamps(TownPlan& plan) {
     for (Town& t : plan.towns) {
         auto tooClose = [&](int wx, int wz) {
@@ -748,17 +882,22 @@ void placeStreetLamps(TownPlan& plan) {
             return false;
         };
         int side = 0;
+        // Walks a polyline placing a lamp every `spacing` blocks of *cumulative*
+        // arc length (the polylines are made of short ~2-4 block segments).
         auto walkRoad = [&](const std::vector<glm::ivec2>& pts, int spacing,
                             float maxFromCentre) {
+            float nextAt   = (float)spacing * 0.5f;
+            float traveled = 0.0f;
             for (size_t i = 0; i + 1 < pts.size(); i++) {
                 glm::ivec2 a = pts[i], b = pts[i + 1];
-                int dx = b.x - a.x, dz = b.y - a.y;
-                float segLen = std::sqrt((float)(dx * dx + dz * dz));
-                if (segLen < 1.0f) continue;
-                float perpX = -(float)dz / segLen, perpZ = (float)dx / segLen;
-                for (int d = spacing / 2; d < (int)segLen; d += spacing) {
-                    float u  = (float)d / segLen;
+                float dx = (float)(b.x - a.x), dz = (float)(b.y - a.y);
+                float segLen = std::sqrt(dx * dx + dz * dz);
+                if (segLen < 0.01f) continue;
+                float perpX = -dz / segLen, perpZ = dx / segLen;
+                while (nextAt <= traveled + segLen) {
+                    float u  = (nextAt - traveled) / segLen;
                     int   px = a.x + (int)(dx * u), pz = a.y + (int)(dz * u);
+                    nextAt  += (float)spacing;
                     if (maxFromCentre > 0.0f) {
                         float cdx = (float)(px - t.center.x);
                         float cdz = (float)(pz - t.center.y);
@@ -771,6 +910,7 @@ void placeStreetLamps(TownPlan& plan) {
                     if (inBuilding(lx, lz) || tooClose(lx, lz)) continue;
                     t.lampPosts.push_back(glm::ivec2(lx, lz));
                 }
+                traveled += segLen;
             }
         };
         for (const TownRoad& p : t.paths)        walkRoad(p.pts, 15,   0.0f);
@@ -927,11 +1067,63 @@ void stampBuilding(Chunk* c, const TownBuilding& b) {
                 c->set(lx, b.baseY + y, lz,
                        (BlockType)b.blocks[((size_t)y * b.dimZ + z) * b.dimX + x]);
 
-            // Foundation skirt down to the terrain surface.
-            int gy = sampleSurface(wx, wz).height;
-            for (int wy = gy; wy < b.baseY; wy++)
+            // Foundation skirt: fill solid from the plot base down past the
+            // real ground (at least 12 blocks) so a house never floats over a
+            // dip in the terrain. Scans the chunk's own blocks — ground truth,
+            // unlike sampleSurface() which is only the predicted height.
+            for (int wy = b.baseY - 1; wy >= 0; wy--) {
+                BlockType cur = c->get(lx, wy, lz);
+                bool ground = cur != BlockType::Air   && cur != BlockType::Water  &&
+                              cur != BlockType::Wood  && cur != BlockType::Leaves &&
+                              cur != BlockType::LeavesOrange &&
+                              cur != BlockType::LeavesRed    &&
+                              cur != BlockType::LeavesPink   && cur != BlockType::Cactus;
+                if (ground && b.baseY - wy > 12) break;
                 c->set(lx, wy, lz, BlockType::Stone);
+            }
         }
+}
+
+// Builds a descending stone staircase from a house's front door down to the
+// terrain, so a house on raised ground stays reachable from the street. The
+// steps run toward the town centre and are clipped to chunk `c`.
+void stampHouseSteps(Chunk* c, const TownBuilding& b) {
+    if (b.kind != 1) return;                          // houses only
+    if (b.doorDX == 0 && b.doorDZ == 0) return;
+    const int ox = c->pos.x * CHUNK_SIZE, oz = c->pos.z * CHUNK_SIZE;
+
+    int wallX, wallZ;                                 // centre of the door wall
+    if      (b.doorDZ < 0) { wallX = b.wx + b.dimX / 2; wallZ = b.wz; }
+    else if (b.doorDZ > 0) { wallX = b.wx + b.dimX / 2; wallZ = b.wz + b.dimZ - 1; }
+    else if (b.doorDX < 0) { wallX = b.wx;              wallZ = b.wz + b.dimZ / 2; }
+    else                   { wallX = b.wx + b.dimX - 1; wallZ = b.wz + b.dimZ / 2; }
+
+    for (int k = 1; k <= 14; k++) {                   // each step drops one block
+        int cx = wallX + b.doorDX * k;
+        int cz = wallZ + b.doorDZ * k;
+        int stepY = b.baseY - k;
+        for (int w = -1; w <= 1; w++) {               // 3-wide, across the doorway
+            int wx = cx + (b.doorDZ != 0 ? w : 0);
+            int wz = cz + (b.doorDX != 0 ? w : 0);
+            int lx = wx - ox, lz = wz - oz;
+            if (lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE) continue;
+
+            int g = -1;                               // top solid (non-foliage) block
+            for (int y = b.baseY + 4; y >= 0; y--) {
+                BlockType t = c->get(lx, y, lz);
+                if (t == BlockType::Air || t == BlockType::Water ||
+                    t == BlockType::Wood || t == BlockType::Leaves ||
+                    t == BlockType::LeavesOrange || t == BlockType::LeavesRed ||
+                    t == BlockType::LeavesPink || t == BlockType::Cactus) continue;
+                g = y; break;
+            }
+            if (stepY <= g) continue;                 // ground already at/above the step
+            for (int y = stepY; y > g && y >= 0; y--) // solid step, no float
+                c->set(lx, y, lz, BlockType::Stone);
+            for (int y = stepY + 1; y <= stepY + 3 && y < CHUNK_HEIGHT; y++)
+                c->set(lx, y, lz, BlockType::Air);    // walking headroom
+        }
+    }
 }
 
 // Lays one gravel road cell: gravel on the terrain surface (a causeway over
@@ -1019,33 +1211,6 @@ void stampRoad(Chunk* c, const TownRoad& r, int sink) {
                 }
         }
     }
-}
-
-// Stamps a street light: a wooden post topped with a glowstone lamp. The
-// glowstone seeds the chunk's block-light flood-fill, lighting the path.
-void stampStreetLight(Chunk* c, int wx, int wz) {
-    const int ox = c->pos.x * CHUNK_SIZE, oz = c->pos.z * CHUNK_SIZE;
-    int lx = wx - ox, lz = wz - oz;
-    if (lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE) return;
-
-    int gtop = -1;
-    for (int y = CHUNK_HEIGHT - 1; y >= 0; y--) {
-        BlockType b = c->get(lx, y, lz);
-        if (b == BlockType::Air || b == BlockType::Water || b == BlockType::Wood ||
-            b == BlockType::Leaves || b == BlockType::LeavesOrange ||
-            b == BlockType::LeavesRed || b == BlockType::LeavesPink ||
-            b == BlockType::Cactus) continue;
-        gtop = y; break;
-    }
-    if (gtop < 0 || gtop < WORLD_SEA_LEVEL - 1) return;         // skip water / very low
-    if (c->get(lx, gtop, lz) == BlockType::Gravel) return;      // not on a road
-
-    int base = gtop + 1;
-    for (int i = 0; i < 5; i++) c->set(lx, base + i, lz, BlockType::Wood);  // post
-    c->set(lx, base + 5, lz, BlockType::Glowstone);             // glowing lamp
-    c->set(lx, base + 6, lz, BlockType::Wood);                  // cap
-    for (int y = base + 7; y < base + 10 && y < CHUNK_HEIGHT; y++)
-        c->set(lx, y, lz, BlockType::Air);
 }
 
 // Stamps a wooden jetty: a 3-wide plank deck at sea level reaching out over the
@@ -1198,11 +1363,6 @@ void stampTownChunk(Chunk* c) {
     for (const TownRoad& h : plan.highways)
         if (ptsHit(h.pts)) stampRoad(c, h, 1);   // highways engraved one block down
 
-    // Street lights along town paths and highway approaches.
-    for (const Town& t : plan.towns)
-        for (const glm::ivec2& L : t.lampPosts)
-            stampStreetLight(c, L.x, L.y);
-
     // Bridges (raised decks over gullies and rivers).
     for (const TownBridge& br : plan.bridges)
         if (ptsHit(br.pts)) stampBridge(c, br);
@@ -1221,7 +1381,9 @@ void stampTownChunk(Chunk* c) {
     for (const Town& t : plan.towns) {
         if (t.bbMax.x <= ox || t.bbMin.x >= ox + CHUNK_SIZE) continue;
         if (t.bbMax.y <= oz || t.bbMin.y >= oz + CHUNK_SIZE) continue;
-        for (const TownBuilding& b : t.buildings)
+        for (const TownBuilding& b : t.buildings) {
             stampBuilding(c, b);
+            stampHouseSteps(c, b);
+        }
     }
 }

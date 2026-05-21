@@ -16,3 +16,15 @@ struct PropPlacement {
 // pattern as getTownPlan()). Lists every placement world-wide; the Object
 // manager streams the nearby ones in and out by distance.
 const std::vector<PropPlacement>& getPropPlacements();
+
+// One openable door the world wants to exist (one per house front door).
+struct DoorPlacement {
+    glm::vec3  hinge;     // world-space hinge point (door's x=0 edge, at the floor)
+    float      closedYaw; // degrees about +Y — the panel's shut orientation
+    glm::ivec2 wallCell;  // doorway centre cell (world XZ)
+    glm::ivec2 wallDir;   // unit step along the wall (door spans +-1 of this)
+    int        variant;   // door style/colour index
+};
+
+// Deterministic list of every house door world-wide; streamed like props.
+const std::vector<DoorPlacement>& getDoorPlacements();

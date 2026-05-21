@@ -13,13 +13,20 @@ const Voxel LEAFD { 44, 102,  42, 255};
 }
 
 VoxelVolume* buildStreetLamp() {
-    const int W = 8, H = 58, D = 8;
+    // A tall thin post (the "stick") with a small lantern hanging from a hook.
+    const int W = 10, H = 72, D = 10;
     VoxelVolume* v = new VoxelVolume(W, H, D);
-    voxFill(v, 1, 0, 1, 6, 2, 6, IRON);          // base
-    voxFill(v, 3, 0, 3, 4, 48, 4, IRONL);        // post
-    voxFill(v, 1, 48, 1, 6, 49, 6, IRON);        // lamp bracket
-    voxFill(v, 2, 50, 2, 5, 55, 5, LAMP);        // glowing lamp head
-    voxFill(v, 1, 56, 1, 6, 57, 6, IRON);        // cap
+    voxFill(v, 3, 0, 3, 6, 2, 6, IRON);             // base foot
+    voxFill(v, 4, 0, 4, 5, 64, 5, IRONL);           // post — the long stick
+    voxFill(v, 5, 63, 4, 8, 64, 5, IRON);           // hook arm
+    voxFill(v, 8, 57, 4, 8, 64, 5, IRON);           // hook drop
+    voxFill(v, 6, 56, 3, 9, 56, 6, IRON);           // lantern cap
+    voxFill(v, 6, 50, 3, 6, 55, 3, IRON);           // cage corner posts
+    voxFill(v, 9, 50, 3, 9, 55, 3, IRON);
+    voxFill(v, 6, 50, 6, 6, 55, 6, IRON);
+    voxFill(v, 9, 50, 6, 9, 55, 6, IRON);
+    voxFill(v, 7, 50, 4, 8, 55, 5, LAMP);           // glowing lantern core
+    voxFill(v, 6, 49, 3, 9, 49, 6, IRON);           // lantern base
     return v;
 }
 
@@ -56,11 +63,49 @@ VoxelVolume* buildBench() {
 }
 
 VoxelVolume* buildFenceSection() {
-    const int W = 24, H = 18, D = 4;
+    // Long axis runs along +Z so a placement yaw aligns it with a path.
+    const int W = 4, H = 18, D = 36;
     VoxelVolume* v = new VoxelVolume(W, H, D);
-    for (int px = 0; px <= W - 3; px += (W - 3) / 2)
-        voxFill(v, px, 0, 1, px + 2, H - 1, 2, WOOD);          // posts
-    voxFill(v, 0, 4, 1, W - 1, 6, 2, WOOD);                    // lower rail
-    voxFill(v, 0, 11, 1, W - 1, 13, 2, WOOD);                  // upper rail
+    for (int pz = 0; pz <= D - 3; pz += (D - 3) / 3)
+        voxFill(v, 1, 0, pz, 2, H - 1, pz + 2, WOODD);         // posts along the run
+    voxFill(v, 1, 4, 0, 2, 6, D - 1, WOOD);                    // lower rail
+    voxFill(v, 1, 11, 0, 2, 13, D - 1, WOOD);                  // upper rail
+    return v;
+}
+
+VoxelVolume* buildDoor(int variant) {
+    // A door panel — the hinge is the x = 0 edge. Colour and style vary.
+    const int W = 15, H = 20, D = 2;
+    struct DoorStyle { Voxel body, trim; bool glazed; };
+    static const DoorStyle STYLES[] = {
+        { {150, 105,  60, 255}, { 95,  62,  34, 255}, false },  // oak
+        { { 84,  56,  38, 255}, { 48,  32,  22, 255}, false },  // dark walnut
+        { {158,  58,  50, 255}, { 78,  34,  30, 255}, false },  // painted red
+        { { 58,  88, 132, 255}, { 34,  50,  74, 255}, true  },  // painted blue, glazed
+        { { 72, 116,  74, 255}, { 42,  66,  44, 255}, false },  // painted green
+        { {128, 126, 120, 255}, { 80,  78,  74, 255}, true  },  // weathered grey, glazed
+    };
+    const int N = (int)(sizeof(STYLES) / sizeof(STYLES[0]));
+    const DoorStyle& s = STYLES[((variant % N) + N) % N];
+    const Voxel pane { 175, 212, 232, 255 };
+
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    voxFill(v, 0,     0,     0, W - 1, H - 1, D - 1, s.body);   // panel body
+    voxFill(v, 0,     0,     0, 0,     H - 1, D - 1, s.trim);   // hinge stile
+    voxFill(v, W - 1, 0,     0, W - 1, H - 1, D - 1, s.trim);   // latch stile
+    voxFill(v, 0,     0,     0, W - 1, 0,     D - 1, s.trim);   // bottom rail
+    voxFill(v, 0,     H - 1, 0, W - 1, H - 1, D - 1, s.trim);   // top rail
+    voxFill(v, 0,     9,     0, W - 1, 10,    D - 1, s.trim);   // middle rail
+    voxFill(v, 5,     1,     0, 5,     8,     D - 1, s.trim);   // lower plank seams
+    voxFill(v, 10,    1,     0, 10,    8,     D - 1, s.trim);
+    if (s.glazed) {
+        voxFill(v, 3, 12, 0, W - 4, 17, D - 1, pane);           // glazed upper panel
+        voxFill(v, 7, 12, 0, 7,     17, D - 1, s.trim);         // muntins
+        voxFill(v, 3, 14, 0, W - 4, 14, D - 1, s.trim);
+    } else {
+        voxFill(v, 5,  11, 0, 5,  H - 2, D - 1, s.trim);        // upper plank seams
+        voxFill(v, 10, 11, 0, 10, H - 2, D - 1, s.trim);
+    }
+    voxFill(v, 12, 6, 0, 12, 8, D - 1, IRON);                   // handle
     return v;
 }

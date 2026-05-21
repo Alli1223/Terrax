@@ -595,6 +595,23 @@ SurfaceSample sampleSurface(int wx, int wz) {
     return { (int)ci.surfH, (int)ci.biome };
 }
 
+// The actual top-solid block Y at a column. computeColumn() yields only the
+// blended target height; Pass 1's 3D density field shifts the real surface
+// several blocks off it. Replaying that crossing lets props rest on the
+// ground instead of on the predicted height.
+int sampleSurfaceSolid(int wx, int wz) {
+    float surfH = computeColumn((float)wx, (float)wz).surfH;
+    int hi = std::min(CHUNK_HEIGHT - 1, (int)surfH + 24);
+    int lo = std::max(1, (int)surfH - 24);
+    for (int y = hi; y >= lo; y--) {
+        float d3   = gNoise.octave((float)wx * 0.012f * 2.0f, (float)y * 0.05f,
+                                   (float)wz * 0.012f * 2.0f, 4, 0.5f, 2.0f);
+        float bias = (surfH - (float)y) * 0.10f;
+        if (d3 + bias > 0.0f) return y;
+    }
+    return (int)surfH;
+}
+
 // ---- Decorator helpers ----
 // All functions take WORLD coordinates (wx, wz) for the anchor position.
 // c->set() silently ignores coordinates outside the chunk, so structures that
@@ -1188,6 +1205,37 @@ static void biomeToMapRGB(Biome bm, float surfH, uint8_t& r, uint8_t& g, uint8_t
     r = (uint8_t)std::clamp((int)(ri * (1.0f + shade)), 0, 255);
     g = (uint8_t)std::clamp((int)(gi * (1.0f + shade)), 0, 255);
     b = (uint8_t)std::clamp((int)(bi * (1.0f + shade)), 0, 255);
+}
+
+void World::fillOpacityVolume(uint8_t* out, int size, int ox, int oy, int oz) const {
+    std::fill(out, out + (size_t)size * size * size, (uint8_t)0);
+    std::lock_guard<std::mutex> lock(chunksMutex);
+    for (const auto& kv : chunks) {
+        const ChunkPos& cp = kv.first;
+        Chunk* c = kv.second.get();
+        if (!c) continue;
+        ChunkState st = c->state.load();
+        if (st == ChunkState::Empty || st == ChunkState::Generating) continue;
+        int cwx = cp.x * CHUNK_SIZE, cwz = cp.z * CHUNK_SIZE;
+        if (cwx + CHUNK_SIZE <= ox || cwx >= ox + size) continue;
+        if (cwz + CHUNK_SIZE <= oz || cwz >= oz + size) continue;
+        for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+            int tx = cwx + lx - ox;
+            if (tx < 0 || tx >= size) continue;
+            for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+                int tz = cwz + lz - oz;
+                if (tz < 0 || tz >= size) continue;
+                for (int ty = 0; ty < size; ty++) {
+                    int wy = oy + ty;
+                    if (wy < 0 || wy >= CHUNK_HEIGHT) continue;
+                    BlockType b = c->get(lx, wy, lz);
+                    if (b != BlockType::Air && b != BlockType::Water &&
+                        b != BlockType::Glass)
+                        out[((size_t)tz * size + ty) * size + tx] = 255;
+                }
+            }
+        }
+    }
 }
 
 void World::fillMapPixels(uint8_t* rgba, int texSize, float cx, float cz, float worldRadius) const {

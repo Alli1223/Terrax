@@ -69,6 +69,7 @@ typedef unsigned char  GLubyte;
 #define GL_ONE_MINUS_SRC_ALPHA  0x0303
 #define GL_TEXTURE1             0x84C1
 #define GL_TEXTURE2             0x84C2
+#define GL_TEXTURE3             0x84C3
 #define GL_DEPTH_COMPONENT      0x1902
 #define GL_DEPTH_COMPONENT24    0x81A6
 #define GL_DEPTH_ATTACHMENT     0x8D00
@@ -79,6 +80,10 @@ typedef unsigned char  GLubyte;
 #define GL_RGB8                 0x8051
 #define GL_RGB                  0x1907
 #define GL_CLIP_DISTANCE0       0x3000
+#define GL_TEXTURE_3D           0x806F
+#define GL_TEXTURE_WRAP_R       0x8072
+#define GL_R8                   0x8229
+#define GL_RED                  0x1903
 
 // --- GL 1.x functions (direct symbols in libGL / opengl32.lib) ---
 extern "C" {
@@ -130,6 +135,8 @@ typedef void   (GL_APIENTRY *PFN_glGenTextures)(GLsizei, GLuint*);
 typedef void   (GL_APIENTRY *PFN_glDeleteTextures)(GLsizei, const GLuint*);
 typedef void   (GL_APIENTRY *PFN_glBindTexture)(GLenum, GLuint);
 typedef void   (GL_APIENTRY *PFN_glTexImage2D)(GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, const void*);
+typedef void   (GL_APIENTRY *PFN_glTexImage3D)(GLenum, GLint, GLint, GLsizei, GLsizei, GLsizei, GLint, GLenum, GLenum, const void*);
+typedef void   (GL_APIENTRY *PFN_glTexSubImage3D)(GLenum, GLint, GLint, GLint, GLint, GLsizei, GLsizei, GLsizei, GLenum, GLenum, const void*);
 typedef void   (GL_APIENTRY *PFN_glTexParameteri)(GLenum, GLenum, GLint);
 typedef void   (GL_APIENTRY *PFN_glTexParameterfv)(GLenum, GLenum, const GLfloat*);
 typedef void   (GL_APIENTRY *PFN_glActiveTexture)(GLenum);
@@ -180,6 +187,8 @@ extern PFN_glGenTextures            glGenTextures;
 extern PFN_glDeleteTextures         glDeleteTextures;
 extern PFN_glBindTexture            glBindTexture;
 extern PFN_glTexImage2D             glTexImage2D;
+extern PFN_glTexImage3D             glTexImage3D;
+extern PFN_glTexSubImage3D          glTexSubImage3D;
 extern PFN_glTexParameteri          glTexParameteri;
 extern PFN_glTexParameterfv         glTexParameterfv;
 extern PFN_glActiveTexture          glActiveTexture;

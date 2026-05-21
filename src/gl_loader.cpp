@@ -33,6 +33,8 @@ PFN_glGenTextures            glGenTextures            = nullptr;
 PFN_glDeleteTextures         glDeleteTextures         = nullptr;
 PFN_glBindTexture            glBindTexture            = nullptr;
 PFN_glTexImage2D             glTexImage2D             = nullptr;
+PFN_glTexImage3D             glTexImage3D             = nullptr;
+PFN_glTexSubImage3D          glTexSubImage3D          = nullptr;
 PFN_glTexParameteri          glTexParameteri          = nullptr;
 PFN_glTexParameterfv         glTexParameterfv         = nullptr;
 PFN_glActiveTexture          glActiveTexture          = nullptr;
@@ -88,6 +90,8 @@ bool gl_load() {
     LOAD(glDeleteTextures)
     LOAD(glBindTexture)
     LOAD(glTexImage2D)
+    LOAD(glTexImage3D)
+    LOAD(glTexSubImage3D)
     LOAD(glTexParameteri)
     LOAD(glTexParameterfv)
     LOAD(glActiveTexture)

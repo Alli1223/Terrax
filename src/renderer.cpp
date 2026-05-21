@@ -4,6 +4,8 @@
 #include "app_context.h"
 #include "game_types.h"
 #include "atlas.h"
+#include "town.h"
+#include "prop_placement.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <cmath>
 #include <vector>
@@ -48,8 +50,8 @@ static void addLantern(LanternLightList& lights, const glm::vec3& feetPos, float
     if (lights.count >= MAX_LANTERNS) return;
     int i = lights.count++;
     lights.pos[i]       = lanternWorldPos(feetPos, yaw, held);
-    lights.intensity[i] = (held ? 1.2f : 0.55f) * flicker;
-    lights.radius[i]    = held ? 14.0f : 6.0f;
+    lights.intensity[i] = (held ? 0.9f : 0.4f) * flicker;
+    lights.radius[i]    = held ? 20.0f : 10.0f;
 }
 
 static void collectLanternLights(const AppContext& ctx, float flicker, LanternLightList& lights) {
@@ -59,10 +61,64 @@ static void collectLanternLights(const AppContext& ctx, float flicker, LanternLi
         (void)id;
         addLantern(lights, p.position, p.yaw, p.lanternHeld, flicker);
     }
+
+    // House lanterns and town street lamps only glow after dark.
+    float sunY        = sunElevation(ctx.gameTime);
+    float nightFactor = 1.0f - smoothstep(-0.08f, 0.12f, sunY);
+    if (nightFactor <= 0.01f) return;
+
+    // Collected nearest-first so distant lights drop off the fixed-size list.
+    const glm::vec3 cam = ctx.camera.position;
+    const float COLLECT2 = 112.0f * 112.0f;
+    struct Cand { glm::vec3 pos; float intensity, radius, d2; };
+    std::vector<Cand> cand;
+
+    for (const PropPlacement& pp : getPropPlacements()) {
+        glm::vec3 lp;
+        float intensity = 0.0f, radius = 0.0f;
+        if (pp.type == PropType::Lantern) {
+            lp        = pp.pos + glm::vec3(0.0f, 0.45f, 0.0f);
+            intensity = 0.78f * flicker * nightFactor;
+            radius    = 24.0f;
+        } else if (pp.type == PropType::StreetLamp) {
+            lp        = pp.pos + glm::vec3(0.0f, 3.15f, 0.0f);
+            intensity = 0.82f * flicker * nightFactor;
+            radius    = 30.0f;
+        } else {
+            continue;
+        }
+        float dx = lp.x - cam.x, dz = lp.z - cam.z;
+        float d2 = dx * dx + dz * dz;
+        if (d2 > COLLECT2) continue;
+        cand.push_back({ lp, intensity, radius, d2 });
+    }
+    // Town campfires glow after dark too.
+    for (const Town& t : getTownPlan().towns) {
+        if (t.centerpiece != TownCenter::Campfire) continue;
+        glm::vec3 lp((float)t.center.x + 0.5f, (float)t.baseY + 2.5f,
+                     (float)t.center.y + 0.5f);
+        float dx = lp.x - cam.x, dz = lp.z - cam.z;
+        float d2 = dx * dx + dz * dz;
+        if (d2 > COLLECT2) continue;
+        cand.push_back({ lp, 0.95f * flicker * nightFactor, 26.0f, d2 });
+    }
+    std::sort(cand.begin(), cand.end(),
+              [](const Cand& a, const Cand& b) { return a.d2 < b.d2; });
+    for (const Cand& c : cand) {
+        if (lights.count >= MAX_LANTERNS) break;
+        int i = lights.count++;
+        lights.pos[i]       = c.pos;
+        lights.intensity[i] = c.intensity;
+        lights.radius[i]    = c.radius;
+    }
 }
 
-static void bindLanternLights(const Shader& shader, const LanternLightList& lights) {
+static void bindLanternLights(const Shader& shader, const LanternLightList& lights,
+                              const glm::ivec3& volOrigin, int volSize, int volTexUnit) {
     shader.setLanternLights(lights.count, lights.pos, lights.intensity, lights.radius);
+    shader.setInt("u_lightVol", volTexUnit);
+    shader.setVec3("u_lightVolOrigin", glm::vec3(volOrigin));
+    shader.setFloat("u_lightVolSize", (float)volSize);
 }
 
 void Renderer::setupSkybox() {
@@ -261,6 +317,70 @@ static float skyExposureAt(const World& world, const glm::vec3& feetPos) {
     return world.getSkyLight(wx, wy, wz) / 15.0f;
 }
 
+// Rebuilds the 3D opacity texture of the blocks around the player when needed.
+// The shaders raymarch this so dynamic point lights are blocked by walls.
+void Renderer::updateLightVolume(AppContext& ctx) {
+    const int S = LIGHTVOL_SIZE;
+    if (!lightVolTex) {
+        glGenTextures(1, &lightVolTex);
+        glBindTexture(GL_TEXTURE_3D, lightVolTex);
+        glTexImage3D(GL_TEXTURE_3D, 0, GL_R8, S, S, S, 0,
+                     GL_RED, GL_UNSIGNED_BYTE, nullptr);
+        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+        glBindTexture(GL_TEXTURE_3D, 0);
+    }
+    glm::ivec3 desired((int)floorf(ctx.camera.position.x) - S / 2,
+                       (int)floorf(ctx.camera.position.y) - S / 2,
+                       (int)floorf(ctx.camera.position.z) - S / 2);
+    lightVolTimer += ctx.deltaTime;
+    glm::ivec3 d = desired - lightVolOrigin;
+    bool moved = std::abs(d.x) >= 8 || std::abs(d.y) >= 8 || std::abs(d.z) >= 8;
+
+    // A shut door occludes light through its doorway; a change in which doors
+    // are shut also forces a rebuild so the leak tracks the swing.
+    uint32_t doorSig = 0;
+    for (const auto& o : ctx.objectManager.objects()) {
+        if (o->dead || o->kind != ObjectKind::Door) continue;
+        Door* dr = static_cast<Door*>(o.get());
+        if (dr->blocksLight()) doorSig = doorSig * 31u + dr->placementIndex + 1u;
+    }
+    static uint32_t lastDoorSig = 0;
+    if (!moved && lightVolTimer < 1.5f && doorSig == lastDoorSig) return;
+    lastDoorSig = doorSig;
+
+    lightVolOrigin = desired;
+    lightVolTimer  = 0.0f;
+    static std::vector<unsigned char> buf;
+    buf.resize((size_t)S * S * S);
+    ctx.world.fillOpacityVolume(buf.data(), S, desired.x, desired.y, desired.z);
+
+    // Stamp shut doors opaque so interior light cannot leak past them.
+    for (const auto& o : ctx.objectManager.objects()) {
+        if (o->dead || o->kind != ObjectKind::Door) continue;
+        Door* dr = static_cast<Door*>(o.get());
+        if (!dr->blocksLight()) continue;
+        int by = (int)o->position.y;
+        for (int tt = -1; tt <= 1; tt++) {
+            int wx = dr->wallCell.x + tt * dr->wallDir.x;
+            int wz = dr->wallCell.y + tt * dr->wallDir.y;
+            for (int dyy = 0; dyy < 4; dyy++) {
+                int tx = wx - desired.x, ty = by + dyy - desired.y, tz = wz - desired.z;
+                if (tx < 0 || tx >= S || ty < 0 || ty >= S || tz < 0 || tz >= S) continue;
+                buf[((size_t)tz * S + ty) * S + tx] = 255;
+            }
+        }
+    }
+
+    glBindTexture(GL_TEXTURE_3D, lightVolTex);
+    glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, S, S, S,
+                    GL_RED, GL_UNSIGNED_BYTE, buf.data());
+    glBindTexture(GL_TEXTURE_3D, 0);
+}
+
 void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTime) {
     int fbW, fbH;
     glfwGetFramebufferSize(window, &fbW, &fbH);
@@ -311,6 +431,11 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     LanternLightList lanternLights;
     collectLanternLights(ctx, flicker, lanternLights);
 
+    // Rebuild the occlusion volume and bind it to texture unit 2 for the frame.
+    updateLightVolume(ctx);
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_3D, lightVolTex);
+
     // Characters and other objects are advanced in updateGameplay (the local
     // player + the ObjectManager); the renderer only draws them.
 
@@ -342,7 +467,7 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
         chunkShader.setVec3("skyAmbient",      skyAmbient);
         chunkShader.setVec3("camPos",          reflEye);
         chunkShader.setVec3("u_sunDir",        sunDir);
-        bindLanternLights(chunkShader, lanternLights);
+        bindLanternLights(chunkShader, lanternLights, lightVolOrigin, LIGHTVOL_SIZE, 2);
         chunkShader.setVec4("u_clipPlane", glm::vec4(0.0f, 1.0f, 0.0f, -WATER_Y));
         ctx.world.drawAll();
         glDisable(GL_CLIP_DISTANCE0); glCullFace(GL_BACK); glEnable(GL_CULL_FACE);
@@ -394,7 +519,7 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     chunkShader.setVec3("skyAmbient",      skyAmbient);
     chunkShader.setVec3("camPos",          eyePos);
     chunkShader.setVec3("u_sunDir",        sunDir);
-    bindLanternLights(chunkShader, lanternLights);
+    bindLanternLights(chunkShader, lanternLights, lightVolOrigin, LIGHTVOL_SIZE, 2);
     chunkShader.setVec4("u_clipPlane", glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
     ctx.world.drawAll();
 
@@ -408,7 +533,7 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     charShader.setFloat("sunFactor",      sunFactor);
     charShader.setVec3("skyAmbient",      skyAmbient);
     charShader.setVec3("u_sunDir",        sunDir);
-    bindLanternLights(charShader, lanternLights);
+    bindLanternLights(charShader, lanternLights, lightVolOrigin, LIGHTVOL_SIZE, 2);
     charShader.setFloat("time", currentTime);
     charShader.setFloat("u_alpha", 1.0f);
     {
@@ -452,7 +577,7 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     chunkShader.setVec3("skyAmbient", skyAmbient);
     chunkShader.setVec3("camPos", eyePos);
     chunkShader.setVec3("u_sunDir", sunDir);
-    bindLanternLights(chunkShader, lanternLights);
+    bindLanternLights(chunkShader, lanternLights, lightVolOrigin, LIGHTVOL_SIZE, 2);
     chunkShader.setFloat("time", currentTime);
     chunkShader.setVec4("u_clipPlane", glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
     ctx.world.drawAllFoliage();
@@ -534,6 +659,7 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     waterShader.use();
     glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, atlasTexture);
     glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, reflColorTex);
+    glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_3D, lightVolTex);
     waterShader.setInt("atlas", 0); waterShader.setInt("u_reflTex", 2);
     waterShader.setMat4("model",       glm::mat4(1.0f));
     waterShader.setMat4("view",        view);
@@ -544,7 +670,7 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     waterShader.setFloat("time",       currentTime);
     waterShader.setFloat("timeOfDay",  ctx.gameTime);
     waterShader.setVec3("u_sunDir",    sunDir);
-    bindLanternLights(waterShader, lanternLights);
+    bindLanternLights(waterShader, lanternLights, lightVolOrigin, LIGHTVOL_SIZE, 3);
     ctx.world.drawAllWater();
     glDepthMask(GL_TRUE); glDisable(GL_BLEND); glEnable(GL_CULL_FACE);
 

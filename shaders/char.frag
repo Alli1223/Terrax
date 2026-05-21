@@ -11,7 +11,7 @@ uniform vec3  u_sunDir;
 uniform float sunFactor;
 uniform vec3  skyAmbient;
 uniform sampler2D shadowMap;
-#define MAX_LANTERNS 16
+#define MAX_LANTERNS 48
 uniform int   u_lanternCount;
 uniform vec3  u_lanternPos[MAX_LANTERNS];
 uniform float u_lanternIntensity[MAX_LANTERNS];
@@ -20,15 +20,40 @@ uniform float time;
 uniform float u_alpha;
 uniform float u_skyExposure;   // 0 = enclosed/indoors, 1 = open sky
 
+uniform sampler3D u_lightVol;
+uniform vec3      u_lightVolOrigin;
+uniform float     u_lightVolSize;
+
 const vec3 LANTERN_COLOR = vec3(1.00, 0.76, 0.40);
 
-vec3 calcLanternLight(vec3 worldPos) {
+// 1.0 = the point light reaches fragPos, 0.0 = an opaque voxel blocks it.
+float lightVisibility(vec3 fragPos, vec3 lightPos, vec3 nrm) {
+    vec3  start = fragPos + nrm * 0.6;
+    vec3  seg   = lightPos - start;
+    float dist  = length(seg);
+    if (dist < 0.001) return 1.0;
+    vec3 dir = seg / dist;
+    const int STEPS = 24;
+    for (int s = 1; s <= STEPS; s++) {
+        float t = dist * float(s) / float(STEPS + 1);
+        if (t > dist - 0.8) break;
+        vec3 uvw = (start + dir * t - u_lightVolOrigin) / u_lightVolSize;
+        if (uvw.x < 0.0 || uvw.x > 1.0 || uvw.y < 0.0 || uvw.y > 1.0 ||
+            uvw.z < 0.0 || uvw.z > 1.0) continue;
+        if (texture(u_lightVol, uvw).r > 0.5) return 0.0;
+    }
+    return 1.0;
+}
+
+vec3 calcLanternLight(vec3 worldPos, vec3 nrm) {
     vec3 contrib = vec3(0.0);
     for (int i = 0; i < u_lanternCount; i++) {
-        float ldist   = length(worldPos - u_lanternPos[i]);
-        float falloff = max(0.0, 1.0 - ldist / u_lanternRadius[i]);
+        float ldist = length(worldPos - u_lanternPos[i]);
+        if (ldist >= u_lanternRadius[i]) continue;
+        float falloff = 1.0 - ldist / u_lanternRadius[i];
         falloff *= falloff;
-        contrib = max(contrib, falloff * u_lanternIntensity[i] * LANTERN_COLOR);
+        float vis = lightVisibility(worldPos, u_lanternPos[i], nrm);
+        contrib += falloff * u_lanternIntensity[i] * vis * LANTERN_COLOR;
     }
     return contrib;
 }
@@ -87,7 +112,7 @@ void main() {
     vec3 skyAmb     = sunFactor * skyAmbient * 0.28 * mix(0.18, 1.0, u_skyExposure);
     vec3 sunContrib = diffuse * (1.0 - shadow * 0.82) * sunFactor * skyAmbient * 0.95 * u_skyExposure;
 
-    vec3 lanternContrib = calcLanternLight(FragPos);
+    vec3 lanternContrib = calcLanternLight(FragPos, norm);
 
     vec3 light = skyAmb + sunContrib;
     light = max(light, lanternContrib);

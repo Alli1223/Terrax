@@ -71,22 +71,29 @@ void placeFurniture(const TownBuilding& b) {
         if (tooClose) continue;
 
         PropType t;
+        bool wallLantern = false;
         if (s.wall) {
-            static const PropType WALL[] = { PropType::Bookshelf, PropType::Bookshelf,
-                                             PropType::Bed, PropType::Cooker };
-            t = WALL[rng() % 4];
+            if (rng() % 4 == 0) {                              // a wall-mounted lantern
+                t = PropType::Lantern;
+                wallLantern = true;
+            } else {
+                static const PropType WALL[] = { PropType::Bookshelf, PropType::Bookshelf,
+                                                 PropType::Bed, PropType::Cooker };
+                t = WALL[rng() % 4];
+            }
         } else {
-            static const PropType OPEN[] = { PropType::Table, PropType::Chair,
-                                             PropType::Lantern };
+            static const PropType OPEN[] = { PropType::Table, PropType::Table,
+                                             PropType::Chair };
             t = OPEN[rng() % 3];
         }
         glm::vec3 pos((float)(b.wx + s.x) + 0.5f,
-                      (float)(b.baseY + s.y + 1),
+                      (float)(b.baseY + s.y + 1) + (wallLantern ? 3.0f : 0.0f),
                       (float)(b.wz + s.z) + 0.5f);
         g_placements.push_back({ t, pos, s.yaw, rng() });
-        if (t == PropType::Table) {                            // a place setting on top
+        if (t == PropType::Table) {                            // a lantern (or crockery) on top
             glm::vec3 cp = pos; cp.y += TABLE_TOP_H;
-            g_placements.push_back({ PropType::Crockery, cp, s.yaw, rng() });
+            PropType on = (rng() % 5 == 0) ? PropType::Crockery : PropType::Lantern;
+            g_placements.push_back({ on, cp, s.yaw, rng() });
         }
         used.push_back(glm::ivec3(s.x, s.y, s.z));
         placed++;
@@ -106,10 +113,10 @@ void placeDecorations(const Town& t) {
                 return true;
         return false;
     };
-    // Street lights are baked structures (see town.cpp) so they emit real
-    // light; the decoration props here are the non-lighting roadside dressing.
+    // Street lamps and fences are emitted by their own passes; these are the
+    // roadside dressing scattered at intervals along each path.
     static const PropType DECOS[] = { PropType::Bush, PropType::PottedPlant,
-                                      PropType::Bench, PropType::Fence };
+                                      PropType::Bench };
     int decoIdx = 0;
     for (const TownRoad& path : t.paths) {
         for (size_t i = 0; i + 1 < path.pts.size(); i++) {
@@ -125,9 +132,9 @@ void placeDecorations(const Town& t) {
                 int oz = a.y + (int)(dz * u + perpZ * 3.0f * side);
                 decoIdx++;
                 if (insideBuilding(ox, oz)) continue;
-                int gy = sampleSurface(ox, oz).height;
+                int gy = sampleSurfaceSolid(ox, oz);
                 if (gy < WORLD_SEA_LEVEL) continue;            // keep them out of water
-                g_placements.push_back({ DECOS[decoIdx % 4],
+                g_placements.push_back({ DECOS[decoIdx % 3],
                     glm::vec3((float)ox + 0.5f, (float)(gy + 1), (float)oz + 0.5f),
                     (float)((rng() % 4) * 90), rng() });
             }
@@ -135,13 +142,156 @@ void placeDecorations(const Town& t) {
     }
 }
 
+// World length of one fence section (the model is 36 voxels deep — see
+// buildFenceSection). Sections are spaced this far apart to form a run.
+constexpr float FENCE_SECTION_LEN = 36.0f * PROP_SCALE;
+
+bool insideAnyBuilding(const TownPlan& plan, int wx, int wz) {
+    for (const Town& t : plan.towns)
+        for (const TownBuilding& b : t.buildings)
+            if (wx >= b.wx - 1 && wx < b.wx + b.dimX + 1 &&
+                wz >= b.wz - 1 && wz < b.wz + b.dimZ + 1)
+                return true;
+    return false;
+}
+
+bool nearAnyTown(const TownPlan& plan, float wx, float wz, float dist) {
+    float d2 = dist * dist;
+    for (const Town& t : plan.towns) {
+        float dx = (float)t.center.x - wx, dz = (float)t.center.y - wz;
+        if (dx * dx + dz * dz < d2) return true;
+    }
+    return false;
+}
+
+// Emits a lantern-on-a-post Prop at each baked street-light position.
+void placeStreetLampProps(const Town& t) {
+    std::mt19937 rng(worldSeed()
+                     ^ (uint32_t)(t.center.x * 73856093)
+                     ^ (uint32_t)(t.center.y * 19349663) ^ 0x5A1Du);
+    for (const glm::ivec2& L : t.lampPosts) {
+        int gy = sampleSurfaceSolid(L.x, L.y);
+        g_placements.push_back({ PropType::StreetLamp,
+            glm::vec3((float)L.x + 0.5f, (float)(gy + 1), (float)L.y + 0.5f),
+            (float)((rng() % 4) * 90), rng() });
+    }
+}
+
+// Lines one side of a road polyline with a continuous run of fence sections.
+// `townGated` keeps highway fencing to the stretch nearest a settlement.
+void placeFenceRun(const TownPlan& plan, const std::vector<glm::ivec2>& pts,
+                   std::mt19937& rng, bool townGated) {
+    int   side     = (rng() & 1u) ? 1 : -1;
+    float traveled = 0.0f;
+    float nextAt   = FENCE_SECTION_LEN * 0.5f;
+    for (size_t i = 0; i + 1 < pts.size(); i++) {
+        float ax = (float)pts[i].x, az = (float)pts[i].y;
+        float dx = (float)pts[i + 1].x - ax, dz = (float)pts[i + 1].y - az;
+        float segLen = std::sqrt(dx * dx + dz * dz);
+        if (segLen < 0.01f) continue;
+        float dirX = dx / segLen, dirZ = dz / segLen;
+        float perpX = -dirZ, perpZ = dirX;
+        float yaw = glm::degrees(std::atan2(dirX, dirZ));
+        while (nextAt <= traveled + segLen) {
+            float u  = nextAt - traveled;
+            float px = ax + dirX * u + perpX * 2.8f * (float)side;
+            float pz = az + dirZ * u + perpZ * 2.8f * (float)side;
+            nextAt += FENCE_SECTION_LEN;
+            int gx = (int)std::floor(px), gz = (int)std::floor(pz);
+            if (insideAnyBuilding(plan, gx, gz)) continue;
+            if (townGated && !nearAnyTown(plan, px, pz, 80.0f)) continue;
+            int gy = sampleSurfaceSolid(gx, gz);
+            if (gy < WORLD_SEA_LEVEL) continue;
+            g_placements.push_back({ PropType::Fence,
+                glm::vec3(px, (float)(gy + 1), pz), yaw, rng() });
+        }
+        traveled += segLen;
+    }
+}
+
+// Fences a fraction of town paths and the town-adjacent end of highways.
+void placeFences(const TownPlan& plan) {
+    std::mt19937 hrng(worldSeed() ^ 0x0FE0CE5Bu);
+    for (const Town& t : plan.towns) {
+        std::mt19937 trng(worldSeed()
+                          ^ (uint32_t)(t.center.x * 83492791)
+                          ^ (uint32_t)(t.center.y * 22695477) ^ 0xFE0Cu);
+        for (const TownRoad& path : t.paths)
+            if (trng() % 6 == 0)
+                placeFenceRun(plan, path.pts, trng, false);
+    }
+    for (const TownRoad& h : plan.highways)
+        if (hrng() % 12 == 0)
+            placeFenceRun(plan, h.pts, hrng, true);
+}
+
 void build() {
     const TownPlan& plan = getTownPlan();
     for (const Town& t : plan.towns) {
         for (const TownBuilding& b : t.buildings)
             if (b.kind == 1) placeFurniture(b);
+        placeStreetLampProps(t);
         placeDecorations(t);
     }
+    placeFences(plan);
+}
+
+std::vector<DoorPlacement> g_doors;
+std::once_flag             g_doorsOnce;
+
+// One door per house, in the gap of its front wall.
+void buildDoors() {
+    const TownPlan& plan = getTownPlan();
+    // Centre index of the widest run of `air` cells over [0, n).
+    auto airRunCentre = [](int n, auto air) {
+        int bestS = n / 2, bestL = 0, rs = -1, rl = 0;
+        for (int i = 0; i <= n; i++) {
+            bool a = (i < n) && air(i);
+            if (a) { if (rs < 0) rs = i; rl++; }
+            else { if (rl > bestL) { bestL = rl; bestS = rs; } rs = -1; rl = 0; }
+        }
+        return bestL > 0 ? bestS + bestL / 2 : n / 2;
+    };
+    for (const Town& t : plan.towns)
+        for (const TownBuilding& b : t.buildings) {
+            if (b.kind != 1 || (b.doorDX == 0 && b.doorDZ == 0)) continue;
+
+            auto solid = [&](int x, int y, int z) {
+                if (x < 0 || x >= b.dimX || y < 0 || y >= b.dimY ||
+                    z < 0 || z >= b.dimZ) return false;
+                return b.blocks[((size_t)y * b.dimZ + z) * b.dimX + x]
+                       != (uint8_t)BlockType::Air;
+            };
+            // The footprint edge can be a roof eave — scan inward (above the
+            // doorway) for the real wall plane, then find the doorway gap's
+            // centre along that wall at door height.
+            int wallX, wallZ;
+            if (b.doorDZ != 0) {
+                int mx = b.dimX / 2, wz;
+                if (b.doorDZ < 0) { wz = 0;          while (wz < b.dimZ - 1 && !solid(mx, 5, wz)) wz++; }
+                else              { wz = b.dimZ - 1; while (wz > 0          && !solid(mx, 5, wz)) wz--; }
+                int dx = airRunCentre(b.dimX, [&](int x){ return !solid(x, 2, wz); });
+                wallX = b.wx + dx; wallZ = b.wz + wz;
+            } else {
+                int mz = b.dimZ / 2, wx;
+                if (b.doorDX < 0) { wx = 0;          while (wx < b.dimX - 1 && !solid(wx, 5, mz)) wx++; }
+                else              { wx = b.dimX - 1; while (wx > 0          && !solid(wx, 5, mz)) wx--; }
+                int dz = airRunCentre(b.dimZ, [&](int z){ return !solid(wx, 2, z); });
+                wallX = b.wx + wx; wallZ = b.wz + dz;
+            }
+
+            float Wx = -(float)b.doorDZ, Wz = (float)b.doorDX;   // along the wall
+            float Fx =  (float)b.doorDX, Fz = (float)b.doorDZ;   // outward
+            float hx = (float)wallX + 0.5f - 1.5f * Wx + 0.2f * Fx;
+            float hz = (float)wallZ + 0.5f - 1.5f * Wz + 0.2f * Fz;
+            float cy = glm::degrees(std::atan2(-(float)b.doorDX, -(float)b.doorDZ));
+            uint32_t dh = worldSeed() ^ (uint32_t)(b.wx * 374761393)
+                                      ^ (uint32_t)(b.wz * 668265263);
+            int variant = (int)(dh % (uint32_t)DOOR_VARIANTS);
+            g_doors.push_back({ glm::vec3(hx, (float)(b.baseY + 1), hz), cy,
+                                glm::ivec2(wallX, wallZ),
+                                glm::ivec2(-b.doorDZ, b.doorDX), variant });
+        }
 }
 
 } // namespace
@@ -149,4 +299,9 @@ void build() {
 const std::vector<PropPlacement>& getPropPlacements() {
     std::call_once(g_once, [] { build(); });
     return g_placements;
+}
+
+const std::vector<DoorPlacement>& getDoorPlacements() {
+    std::call_once(g_doorsOnce, [] { buildDoors(); });
+    return g_doors;
 }

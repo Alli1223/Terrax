@@ -153,6 +153,11 @@ public:
     // Safe to call from a background thread.
     void fillMapPixels(uint8_t* rgba, int texSize, float cx, float cz, float worldRadius) const;
 
+    // Fill an R8 (size^3) buffer with block opacity for the dynamic-light
+    // raymarch: 255 = opaque to light, 0 = transparent (air/water/glass/unloaded).
+    // (ox,oy,oz) is the world position of texel (0,0,0). Background-thread safe.
+    void fillOpacityVolume(uint8_t* out, int size, int ox, int oy, int oz) const;
+
 private:
     std::queue<Chunk*> generationQueue;
     std::queue<Chunk*> meshingQueue;
@@ -173,4 +178,9 @@ static constexpr int WORLD_SEA_LEVEL = 64;
 
 struct SurfaceSample { int height; int biome; };
 SurfaceSample sampleSurface(int wx, int wz);
+
+// The real top-solid block Y at a column (replays the 3D density crossing,
+// unlike sampleSurface, which returns only the blended target height).
+int sampleSurfaceSolid(int wx, int wz);
+
 unsigned int  worldSeed();

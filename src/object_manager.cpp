@@ -10,6 +10,7 @@ void ObjectManager::add(std::unique_ptr<GameObject> obj) {
 void ObjectManager::clear() {
     objs.clear();
     liveProps.clear();
+    liveDoors.clear();
 }
 
 void ObjectManager::updateAll(float dt, World& world) {
@@ -66,6 +67,38 @@ void ObjectManager::streamProps(const glm::vec3& center, float radius,
         prop->placementIndex = idx;
         objs.push_back(std::move(prop));
         liveProps.insert(idx);
+        budget--;
+    }
+}
+
+void ObjectManager::streamDoors(const glm::vec3& center, float radius,
+                                const std::vector<DoorPlacement>& placements,
+                                const PropLibrary& lib, const glm::vec3* playerPos) {
+    const float in2  = radius * radius;
+    const float out  = radius + 24.0f;          // hysteresis band
+    const float out2 = out * out;
+
+    for (auto& o : objs) {
+        if (o->dead || o->kind != ObjectKind::Door) continue;
+        float dx = o->position.x - center.x, dz = o->position.z - center.z;
+        if (dx * dx + dz * dz > out2) {
+            o->dead = true;
+            liveDoors.erase(static_cast<Door*>(o.get())->placementIndex);
+        }
+    }
+
+    int budget = 24;
+    for (size_t i = 0; i < placements.size() && budget > 0; i++) {
+        uint32_t idx = (uint32_t)i;
+        if (liveDoors.count(idx)) continue;
+        const DoorPlacement& dp = placements[i];
+        float dx = dp.hinge.x - center.x, dz = dp.hinge.z - center.z;
+        if (dx * dx + dz * dz > in2) continue;
+        auto door = std::make_unique<Door>(dp.hinge, dp.closedYaw, dp.wallCell,
+                                           dp.wallDir, dp.variant, &lib, playerPos);
+        door->placementIndex = idx;
+        objs.push_back(std::move(door));
+        liveDoors.insert(idx);
         budget--;
     }
 }

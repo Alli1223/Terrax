@@ -594,17 +594,17 @@ void HouseModel::rebuild() {
     for (int f = 1; f < floors; f++)
         box(x0 + 1, x1 - 1, f * floorH, f * floorH, z0 + 1, z1 - 1, floorB);
 
-    // Interior staircases — one straight flight per upper storey against the
-    // left wall. Each step rises a single block (walkable without jumping),
-    // and a matching slot is cut in the slab above to climb through. Flights
-    // alternate between two adjacent columns so the well of one does not
+    // Interior staircases — one straight, 2-wide flight per upper storey
+    // against the left wall. Each step rises a single block (walkable without
+    // jumping), and a matching slot is cut in the slab above to climb through.
+    // Flights alternate between two adjacent lanes so the well of one does not
     // undercut the foot of the next.
     for (int f = 1; f < floors; f++) {
-        const int xStair = (f % 2 == 1) ? x0 + 1 : x0 + 2;
+        const int xStair = (f % 2 == 1) ? x0 + 1 : x0 + 3;   // 2-wide lane
         const int yL     = (f - 1) * floorH + 1;   // walkable level of the floor below
         for (int s = 0; s < floorH - 1; s++)
-            box(xStair, xStair, yL + s, yL + s, z0 + 2 + s, z0 + 2 + s, floorB);
-        box(xStair, xStair, f * floorH, f * floorH, z0 + 2, z0 + floorH, BlockType::Air);
+            box(xStair, xStair + 1, yL + s, yL + s, z0 + 2 + s, z0 + 2 + s, floorB);
+        box(xStair, xStair + 1, f * floorH, f * floorH, z0 + 2, z0 + floorH, BlockType::Air);
     }
 
     // Door — an opening centred on the front wall (z = z0), ground floor.

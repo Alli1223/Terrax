@@ -6,6 +6,9 @@
 #include "world.h"
 #include "network.h"
 #include "voxel_model.h"
+#include "object_manager.h"
+#include "player_object.h"
+#include "prop.h"
 #include <glm/glm.hpp>
 #include <string>
 #include <unordered_map>
@@ -33,6 +36,7 @@ struct AppContext {
 
     // --- Player ---
     BipedalRig* playerRig  = nullptr;
+    Player*     localPlayer = nullptr;   // GameObject wrapper over camera + rig
     char playerName[MAX_PLAYER_NAME + 1] = {};
     float playerYaw        = 0.0f;
     bool spawnedOnGround   = false;
@@ -57,6 +61,10 @@ struct AppContext {
 
     // --- World ---
     World world;
+
+    // --- Objects (remote players, props, vehicles) ---
+    ObjectManager objectManager;
+    PropLibrary   propLibrary;   // shared furniture/decoration meshes
 
     // --- Network ---
     NetworkClient* client          = nullptr;

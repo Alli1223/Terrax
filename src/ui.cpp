@@ -5,6 +5,7 @@
 #include "renderer.h"
 #include "game_session.h"
 #include "gameplay.h"
+#include "town.h"
 #include "graphics_settings.h"
 #include "gl_loader.h"
 #include "imgui.h"
@@ -748,6 +749,34 @@ static void renderMapUI(AppContext& ctx) {
         return { mc.x + dx * cr - dz * sr,
                  mc.y + dx * sr + dz * cr };
     };
+
+    // ── Towns: settlement markers + names ────────────────────────────────────
+    {
+        const TownPlan& plan = getTownPlan();
+        bool showNames = worldRadius < 1100.0f;   // hide labels when far zoomed out
+        for (const Town& t : plan.towns) {
+            ImVec2 sp = worldToMap((float)t.center.x, (float)t.center.y);
+            float  d2 = (sp.x - mc.x) * (sp.x - mc.x) + (sp.y - mc.y) * (sp.y - mc.y);
+            if (d2 >= h * h) continue;
+
+            ImU32 col;
+            switch (t.type) {
+                case TownType::Coastal:  col = IM_COL32( 90, 170, 230, 235); break;
+                case TownType::Mountain: col = IM_COL32(205, 205, 210, 235); break;
+                default:                 col = IM_COL32(120, 200, 110, 235); break;
+            }
+            dl->AddRectFilled({ sp.x - 4, sp.y - 4 }, { sp.x + 4, sp.y + 4 }, col, 1.0f);
+            dl->AddRect({ sp.x - 4, sp.y - 4 }, { sp.x + 4, sp.y + 4 },
+                        IM_COL32(0, 0, 0, 190), 1.0f, 0, 1.5f);
+
+            if (showNames && !t.name.empty()) {
+                ImVec2 ts = ImGui::CalcTextSize(t.name.c_str());
+                ImVec2 tp = { sp.x - ts.x * 0.5f, sp.y + 6.0f };
+                dl->AddText({ tp.x + 1, tp.y + 1 }, IM_COL32(0, 0, 0, 210), t.name.c_str());
+                dl->AddText(tp, IM_COL32(245, 235, 200, 245), t.name.c_str());
+            }
+        }
+    }
 
     // Local player: white triangle pointing in facing direction
     {

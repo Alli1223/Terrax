@@ -2,10 +2,14 @@
 #include "game_types.h"
 #include "network.h"
 #include "world.h"
+#include "vehicle.h"
+#include "ferry_routes.h"
 #include <chrono>
 #include <cmath>
 #include <iostream>
 #include <thread>
+#include <vector>
+#include <memory>
 
 static std::thread       g_serverThread;
 static std::atomic<bool> g_serverThreadRunning{false};
@@ -20,6 +24,19 @@ static void serverThreadMain(unsigned short port) {
     World serverWorld(true);
     serverWorld.renderDistance = g_serverRenderDistance.load();
     serverWorld.generate(0, 0);
+
+    // Server-authoritative ferries — one per wide highway water crossing.
+    std::vector<std::unique_ptr<Ferry>> ferries;
+    {
+        const std::vector<FerryRoute>& routes = getFerryRoutes();
+        uint32_t fid = 1000000u;   // entity id space, disjoint from client ids
+        for (int i = 0; i < (int)routes.size(); i++) {
+            auto f = std::make_unique<Ferry>();
+            f->id         = fid++;
+            f->routeIndex = i;
+            ferries.push_back(std::move(f));
+        }
+    }
 
     auto lastWall = std::chrono::high_resolution_clock::now();
     float accumulator = 0.0f;
@@ -39,6 +56,19 @@ static void serverThreadMain(unsigned short port) {
                 serverWorld.update(pcx, pcz);
             }
             g_server->update(serverWorld);
+
+            for (auto& f : ferries) {
+                f->serverStep(SERVER_TICK_DT);
+                EntityStatePacket ep{};
+                ep.entityId = f->id;
+                ep.kind     = (uint8_t)ObjectKind::Vehicle;
+                ep.subType  = 0;
+                ep.x = f->position.x; ep.y = f->position.y; ep.z = f->position.z;
+                ep.yaw = f->yaw;
+                ep.vx = f->velocity.x; ep.vy = f->velocity.y; ep.vz = f->velocity.z;
+                g_server->broadcast(PacketType::EntityState, &ep, sizeof(ep));
+            }
+
             g_serverGameTime = fmodf(g_serverGameTime + SERVER_TICK_DT / DAY_CYCLE_SECONDS, 1.0f);
             g_serverDayTimeSync.store(true);
             DayTimePacket dt { g_serverGameTime };

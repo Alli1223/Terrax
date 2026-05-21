@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <vector>
+#include <string>
 #include <glm/glm.hpp>
 
 class Chunk;
@@ -42,15 +43,23 @@ struct TownBridge {
     int deckY = 0;               // world Y of the deck surface
 };
 
+// A wide water crossing (> 200 blocks) where a highway is carried by a ferry
+// instead of a road. The two values are the roots of the docks on each shore.
+struct TownFerryLink {
+    glm::ivec2 dockA, dockB;
+};
+
 struct Town {
     glm::ivec2 center;   // world XZ of the town centre
     int        baseY;    // ground height at the centre
+    std::string name;    // procedurally generated, deterministic per location
     TownType   type;
     TownSize   size;
     int        radius;   // town footprint radius in blocks
     glm::ivec2 bbMin, bbMax;               // world-XZ bounding box of all buildings
     std::vector<TownBuilding> buildings;   // well first, then houses & farms
     std::vector<TownRoad>     paths;       // gravel paths from each house to the well
+    std::vector<glm::ivec2>   lampPosts;   // street-light positions (world XZ)
 };
 
 struct TownPlan {
@@ -58,6 +67,7 @@ struct TownPlan {
     std::vector<TownRoad>  highways;       // terrain-following roads between settlements
     std::vector<TownDock>  docks;          // jetties where highways meet the sea
     std::vector<TownBridge> bridges;       // raised spans over gullies and rivers
+    std::vector<TownFerryLink> ferryLinks; // wide crossings served by a ferry
 };
 
 // Lazily builds (once, thread-safe) and returns the global settlement plan.
@@ -65,3 +75,8 @@ const TownPlan& getTownPlan();
 
 // Chunk-generation pass: stamps any town features that fall inside this chunk.
 void stampTownChunk(Chunk* c);
+
+// Terrain-oracle hook: blends a raw surface height toward nearby town base
+// levels so settlements sit on flat ground. Returns the raw height unchanged
+// until the town plan has finished building.
+float townFlattenedHeight(float wx, float wz, float rawHeight);

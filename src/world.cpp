@@ -568,17 +568,23 @@ static ColumnInfo computeColumn(float wx, float wz) {
         float h = gNoise.octave(wx * BIOMES[i].freq, wz * BIOMES[i].freq, BIOMES[i].octaves, BIOMES[i].persistence, 2.0f);
         blendH += w * h * BIOMES[i].amplitude;
     }
-    float ridgeN = std::abs(gRiverNoise.octave(wx * 0.006f + 777.0f, wz * 0.006f + 777.0f, 3, 0.5f, 2.0f));
-    if (ridgeN < 0.13f && blendH > (float)(SEA_LEVEL + 1)) {
-        float depth = (0.13f - ridgeN) / 0.13f;
-        blendH -= depth * depth * 30.0f;
+    // Ravine rivers — kept infrequent, with smooth (not cliff-like) valley
+    // walls: a lower noise frequency widens each valley, a narrower threshold
+    // makes them rarer, and a smoothstep profile gives gentle rims and floors.
+    float ridgeN = std::abs(gRiverNoise.octave(wx * 0.0045f + 777.0f, wz * 0.0045f + 777.0f, 3, 0.5f, 2.0f));
+    if (ridgeN < 0.065f && blendH > (float)(SEA_LEVEL + 1)) {
+        float t     = (0.065f - ridgeN) / 0.065f;        // 0 at the rim, 1 at the centre
+        float carve = t * t * (3.0f - 2.0f * t);         // smoothstep — gentle rim and floor
+        blendH -= carve * 13.0f;
         blendH = std::max(blendH, (float)(SEA_LEVEL - 3));
     }
     float riverN = gRiverNoise.octave(wx * 0.005f, wz * 0.005f, 2, 0.5f, 2.0f);
-    if (std::abs(riverN) < 0.045f && blendH > SEA_LEVEL - 6 && blendH < SEA_LEVEL + 50) {
-        float riverDepth = (0.045f - std::abs(riverN)) / 0.045f;
+    if (std::abs(riverN) < 0.035f && blendH > SEA_LEVEL - 6 && blendH < SEA_LEVEL + 50) {
+        float riverDepth = (0.035f - std::abs(riverN)) / 0.035f;
         blendH = std::min(blendH, (float)(SEA_LEVEL - 1) - riverDepth * 4.0f);
     }
+    // Level the land under settlements (no-op until the town plan is built).
+    blendH = townFlattenedHeight(wx, wz, blendH);
     return { blendH, (Biome)domIdx };
 }
 
@@ -918,6 +924,10 @@ static void tryPlaceIceSpike(Chunk* c, int wx, int wz, int top, float n, float t
 static void generateChunk(Chunk* c) {
     const int ox = c->pos.x * CHUNK_SIZE;
     const int oz = c->pos.z * CHUNK_SIZE;
+
+    // Build the town plan before Pass 0 so the terrain oracle flattens the land
+    // under settlements while the chunk's heightmap is computed.
+    getTownPlan();
 
     // Pass 0: per-column biome weights → blended surface height + dominant biome
     float surfH_f[CHUNK_SIZE][CHUNK_SIZE];

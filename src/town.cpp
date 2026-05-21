@@ -2,6 +2,7 @@
 #include "world.h"
 #include "voxel_model.h"
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <iostream>
@@ -25,6 +26,11 @@ constexpr int DOCK_LEN    = 9;       // jetty length out over the water (blocks)
 // Biome ids — mirror the Biome enum order in world.cpp.
 constexpr int BIOME_MOUNTAINS = 3, BIOME_TUNDRA = 4;
 
+// Set true once buildTownPlan() has finished. While it is false the terrain
+// oracle skips town flattening, so the survey itself works on the natural,
+// unflattened land (and there is no recursion back into the plan build).
+std::atomic<bool> g_townReady{false};
+
 int cellWorld(int g) { return -REGION + g * SURVEY_STEP + SURVEY_STEP / 2; }
 
 // Inverse of cellWorld: the survey cell that contains a world X or Z.
@@ -35,6 +41,29 @@ int worldToCell(int w) {
 
 float frand(std::mt19937& r, float lo, float hi) {
     return lo + (float)(r() % 100000) / 100000.0f * (hi - lo);
+}
+
+// A deterministic settlement name: a root chosen from the town's location,
+// plus a suffix themed to the town type (coastal/mountain/grassland).
+std::string makeTownName(int wx, int wz, TownType type) {
+    static const char* PRE[] = {
+        "Ash","Black","Bram","Crow","Dun","Elder","Fern","Frost","Gold","Grey",
+        "Hart","Holl","Iron","Lark","Mire","Moss","Oak","Pine","Raven","Red",
+        "Stone","Thorn","West","North","Brook","Birch","Clear","Wild","Marsh","Dawn"
+    };
+    static const char* COAST[] = { "port","bay","wick","mouth","shore","cove","harbour","strand" };
+    static const char* MTN[]   = { "peak","crag","ridge","fell","hold","spire","crest","reach" };
+    static const char* GRASS[] = { "field","vale","meadow","dale","ford","hollow","ton","mere" };
+
+    std::mt19937 rng(worldSeed()
+                     ^ (uint32_t)(wx * 0x9E3779B1u)
+                     ^ (uint32_t)(wz * 0x85EBCA77u) ^ 0x7A11u);
+    const char* pre = PRE[rng() % (sizeof(PRE) / sizeof(PRE[0]))];
+    const char* suf;
+    if      (type == TownType::Coastal)  suf = COAST[rng() % (sizeof(COAST) / sizeof(COAST[0]))];
+    else if (type == TownType::Mountain) suf = MTN[rng()   % (sizeof(MTN)   / sizeof(MTN[0]))];
+    else                                 suf = GRASS[rng() % (sizeof(GRASS) / sizeof(GRASS[0]))];
+    return std::string(pre) + suf;
 }
 
 // --- Generic A* --------------------------------------------------------------
@@ -247,7 +276,7 @@ bool tryPlaceHouse(Town& t, std::mt19937& rng, int px, int pz, int faceX, int fa
         if (boxesOverlap(b.wx - 3, b.wz - 3, b.dimX + 6, b.dimZ + 6,
                          o.wx, o.wz, o.dimX, o.dimZ))
             return false;
-    b.baseY = sampleSurface(px, pz).height;
+    b.baseY = t.baseY;   // every building sits on the town's flattened level
     t.buildings.push_back(std::move(b));
     return true;
 }
@@ -261,7 +290,7 @@ bool tryPlaceFarm(Town& t, std::mt19937& rng, int px, int pz) {
         if (boxesOverlap(b.wx - 4, b.wz - 4, b.dimX + 8, b.dimZ + 8,
                          o.wx, o.wz, o.dimX, o.dimZ))
             return false;
-    b.baseY = sampleSurface(px, pz).height;
+    b.baseY = t.baseY;   // every building sits on the town's flattened level
     t.buildings.push_back(std::move(b));
     return true;
 }
@@ -574,20 +603,28 @@ void emitHighwayRoute(TownPlan& plan, const std::vector<glm::ivec2>& route) {
         TownRoad   cur;
         bool       inWater  = false;
         glm::ivec2 lastLand = P[a];
+        int        waterEnter = 0;
+        glm::ivec2 dockEnter(0);
         for (int idx = a; idx <= b; idx++) {
             if (H[idx] >= WORLD_SEA_LEVEL) {
                 if (inWater) {                              // water -> land
+                    glm::ivec2 dockExit = placeDock(plan, P[idx], P[idx - 1]);
                     cur = TownRoad();
-                    cur.pts.push_back(placeDock(plan, P[idx], P[idx - 1]));
+                    cur.pts.push_back(dockExit);
                     inWater = false;
+                    // A crossing wider than 200 blocks is served by a ferry.
+                    if ((idx - waterEnter) * SP > 200)
+                        plan.ferryLinks.push_back({ dockEnter, dockExit });
                 }
                 cur.pts.push_back(P[idx]);
                 lastLand = P[idx];
             } else if (!inWater) {                          // land -> water
-                cur.pts.push_back(placeDock(plan, lastLand, P[idx]));
+                dockEnter = placeDock(plan, lastLand, P[idx]);
+                cur.pts.push_back(dockEnter);
                 if (cur.pts.size() >= 2) plan.highways.push_back(std::move(cur));
                 cur = TownRoad();
                 inWater = true;
+                waterEnter = idx;
             }
         }
         if (!inWater && cur.pts.size() >= 2) plan.highways.push_back(std::move(cur));
@@ -694,6 +731,53 @@ void routeHighways(TownPlan& plan, const std::vector<int16_t>& hgt) {
     }
 }
 
+// Places street lights along the gravel paths between houses and along the
+// first stretch of each highway leaving town. Stored as world-XZ positions;
+// stampStreetLight() bakes a glowstone-topped lamp post at each.
+void placeStreetLamps(TownPlan& plan) {
+    for (Town& t : plan.towns) {
+        auto tooClose = [&](int wx, int wz) {
+            for (const glm::ivec2& L : t.lampPosts)
+                if (std::abs(L.x - wx) + std::abs(L.y - wz) < 11) return true;
+            return false;
+        };
+        auto inBuilding = [&](int wx, int wz) {
+            for (const TownBuilding& b : t.buildings)
+                if (wx >= b.wx - 1 && wx < b.wx + b.dimX + 1 &&
+                    wz >= b.wz - 1 && wz < b.wz + b.dimZ + 1) return true;
+            return false;
+        };
+        int side = 0;
+        auto walkRoad = [&](const std::vector<glm::ivec2>& pts, int spacing,
+                            float maxFromCentre) {
+            for (size_t i = 0; i + 1 < pts.size(); i++) {
+                glm::ivec2 a = pts[i], b = pts[i + 1];
+                int dx = b.x - a.x, dz = b.y - a.y;
+                float segLen = std::sqrt((float)(dx * dx + dz * dz));
+                if (segLen < 1.0f) continue;
+                float perpX = -(float)dz / segLen, perpZ = (float)dx / segLen;
+                for (int d = spacing / 2; d < (int)segLen; d += spacing) {
+                    float u  = (float)d / segLen;
+                    int   px = a.x + (int)(dx * u), pz = a.y + (int)(dz * u);
+                    if (maxFromCentre > 0.0f) {
+                        float cdx = (float)(px - t.center.x);
+                        float cdz = (float)(pz - t.center.y);
+                        if (cdx * cdx + cdz * cdz > maxFromCentre * maxFromCentre)
+                            continue;
+                    }
+                    int s  = (side++ & 1) ? 1 : -1;
+                    int lx = px + (int)(perpX * 4.0f * (float)s);
+                    int lz = pz + (int)(perpZ * 4.0f * (float)s);
+                    if (inBuilding(lx, lz) || tooClose(lx, lz)) continue;
+                    t.lampPosts.push_back(glm::ivec2(lx, lz));
+                }
+            }
+        };
+        for (const TownRoad& p : t.paths)        walkRoad(p.pts, 15,   0.0f);
+        for (const TownRoad& h : plan.highways)  walkRoad(h.pts, 20, 130.0f);
+    }
+}
+
 // --- Survey & plan -----------------------------------------------------------
 
 TownPlan buildTownPlan() {
@@ -786,6 +870,7 @@ TownPlan buildTownPlan() {
         t.center = { wx, wz };
         t.baseY  = s.baseY;
         t.type   = s.type;
+        t.name   = makeTownName(wx, wz, t.type);
         t.size   = (rng() % 5 < 2) ? TownSize::Town : TownSize::Village;
         t.radius = (t.size == TownSize::Town) ? 64 : 38;
         plan.towns.push_back(std::move(t));
@@ -801,6 +886,9 @@ TownPlan buildTownPlan() {
 
     // Inter-town highways: curvy, terrain-following routes with shoreline docks.
     routeHighways(plan, hgt);
+
+    // Street lights for every town's paths and highway approaches.
+    placeStreetLamps(plan);
 
     int nc = 0, nm = 0, ng = 0;
     for (const Town& t : plan.towns)
@@ -848,7 +936,7 @@ void stampBuilding(Chunk* c, const TownBuilding& b) {
 
 // Lays one gravel road cell: gravel on the terrain surface (a causeway over
 // water), with the column above cleared so the path stays walkable.
-void stampRoadCell(Chunk* c, int lx, int lz) {
+void stampRoadCell(Chunk* c, int lx, int lz, int sink) {
     int gtop = -1;
     for (int y = CHUNK_HEIGHT - 1; y >= 0; y--) {
         BlockType b = c->get(lx, y, lz);
@@ -859,10 +947,14 @@ void stampRoadCell(Chunk* c, int lx, int lz) {
         gtop = y; break;
     }
     if (gtop < 0) return;
+    // Idempotent guard: a 3-wide road revisits each cell from many overlapping
+    // stamps. If the surface is already road gravel, stop — otherwise each
+    // revisit would re-engrave it another block deeper.
+    if (c->get(lx, gtop, lz) == BlockType::Gravel) return;
 
     int roadY;
     if (gtop >= WORLD_SEA_LEVEL) {
-        roadY = gtop;                                   // land — gravel on the surface
+        roadY = gtop - sink;                            // land — engraved `sink` blocks down
     } else {
         roadY = WORLD_SEA_LEVEL;                        // water — a stone causeway
         for (int y = gtop + 1; y < roadY; y++) c->set(lx, y, lz, BlockType::Stone);
@@ -889,7 +981,7 @@ void stampRoadCell(Chunk* c, int lx, int lz) {
 
 // Rasterises a road polyline into this chunk; each segment is slab-clipped to
 // the chunk so only the part that actually crosses it is drawn.
-void stampRoad(Chunk* c, const TownRoad& r) {
+void stampRoad(Chunk* c, const TownRoad& r, int sink) {
     const int ox = c->pos.x * CHUNK_SIZE, oz = c->pos.z * CHUNK_SIZE;
     const int hw = 1;                                   // 3-wide road
     const int xmin = ox - hw - 1, xmax = ox + CHUNK_SIZE + hw;
@@ -923,10 +1015,37 @@ void stampRoad(Chunk* c, const TownRoad& r) {
                 for (int ddz = -hw; ddz <= hw; ddz++) {
                     int lx = px + ddx - ox, lz = pz + ddz - oz;
                     if (lx >= 0 && lx < CHUNK_SIZE && lz >= 0 && lz < CHUNK_SIZE)
-                        stampRoadCell(c, lx, lz);
+                        stampRoadCell(c, lx, lz, sink);
                 }
         }
     }
+}
+
+// Stamps a street light: a wooden post topped with a glowstone lamp. The
+// glowstone seeds the chunk's block-light flood-fill, lighting the path.
+void stampStreetLight(Chunk* c, int wx, int wz) {
+    const int ox = c->pos.x * CHUNK_SIZE, oz = c->pos.z * CHUNK_SIZE;
+    int lx = wx - ox, lz = wz - oz;
+    if (lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE) return;
+
+    int gtop = -1;
+    for (int y = CHUNK_HEIGHT - 1; y >= 0; y--) {
+        BlockType b = c->get(lx, y, lz);
+        if (b == BlockType::Air || b == BlockType::Water || b == BlockType::Wood ||
+            b == BlockType::Leaves || b == BlockType::LeavesOrange ||
+            b == BlockType::LeavesRed || b == BlockType::LeavesPink ||
+            b == BlockType::Cactus) continue;
+        gtop = y; break;
+    }
+    if (gtop < 0 || gtop < WORLD_SEA_LEVEL - 1) return;         // skip water / very low
+    if (c->get(lx, gtop, lz) == BlockType::Gravel) return;      // not on a road
+
+    int base = gtop + 1;
+    for (int i = 0; i < 5; i++) c->set(lx, base + i, lz, BlockType::Wood);  // post
+    c->set(lx, base + 5, lz, BlockType::Glowstone);             // glowing lamp
+    c->set(lx, base + 6, lz, BlockType::Wood);                  // cap
+    for (int y = base + 7; y < base + 10 && y < CHUNK_HEIGHT; y++)
+        c->set(lx, y, lz, BlockType::Air);
 }
 
 // Stamps a wooden jetty: a 3-wide plank deck at sea level reaching out over the
@@ -1021,8 +1140,38 @@ void stampBridge(Chunk* c, const TownBridge& br) {
 const TownPlan& getTownPlan() {
     static TownPlan      plan;
     static std::once_flag once;
-    std::call_once(once, [] { plan = buildTownPlan(); });
+    std::call_once(once, [] {
+        plan = buildTownPlan();
+        g_townReady.store(true, std::memory_order_release);
+    });
     return plan;
+}
+
+// Blends a raw surface height toward the base level of any nearby town, so
+// settlements sit on relatively flat ground. A no-op until the plan is ready,
+// which keeps the survey working on the natural, unflattened terrain.
+float townFlattenedHeight(float wx, float wz, float rawHeight) {
+    if (!g_townReady.load(std::memory_order_acquire)) return rawHeight;
+    const TownPlan& plan = getTownPlan();
+    float h = rawHeight;
+    for (const Town& t : plan.towns) {
+        float dx = wx - (float)t.center.x;
+        float dz = wz - (float)t.center.y;
+        float flatR  = (float)t.radius + 52.0f;   // fully level out to here
+        float blendR = flatR + 50.0f;             // eased back to natural by here
+        float d2 = dx * dx + dz * dz;
+        if (d2 >= blendR * blendR) continue;
+        float dist = std::sqrt(d2);
+        float w;
+        if (dist <= flatR) {
+            w = 1.0f;
+        } else {
+            float u = (dist - flatR) / (blendR - flatR);
+            w = 1.0f - u * u * (3.0f - 2.0f * u);   // smoothstep ease-out
+        }
+        h += ((float)t.baseY - h) * w;
+    }
+    return h;
 }
 
 void stampTownChunk(Chunk* c) {
@@ -1044,10 +1193,15 @@ void stampTownChunk(Chunk* c) {
     for (const Town& t : plan.towns) {
         if (t.bbMax.x <= ox - 4 || t.bbMin.x >= ox + CHUNK_SIZE + 4) continue;
         if (t.bbMax.y <= oz - 4 || t.bbMin.y >= oz + CHUNK_SIZE + 4) continue;
-        for (const TownRoad& p : t.paths) stampRoad(c, p);
+        for (const TownRoad& p : t.paths) stampRoad(c, p, 0);
     }
     for (const TownRoad& h : plan.highways)
-        if (ptsHit(h.pts)) stampRoad(c, h);
+        if (ptsHit(h.pts)) stampRoad(c, h, 1);   // highways engraved one block down
+
+    // Street lights along town paths and highway approaches.
+    for (const Town& t : plan.towns)
+        for (const glm::ivec2& L : t.lampPosts)
+            stampStreetLight(c, L.x, L.y);
 
     // Bridges (raised decks over gullies and rivers).
     for (const TownBridge& br : plan.bridges)

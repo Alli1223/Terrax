@@ -6,6 +6,8 @@
 #include "network.h"
 #include "game_session.h"
 #include "town.h"
+#include "prop_placement.h"
+#include "vehicle.h"
 #include <algorithm>
 #include <vector>
 #include <iostream>
@@ -13,6 +15,7 @@
 #include <cstring>
 #include <mutex>
 #include <random>
+#include <memory>
 
 static void cleanupRemotePlayers(AppContext& ctx) {
     for (auto& [id, p] : ctx.remotePlayers) {
@@ -22,12 +25,66 @@ static void cleanupRemotePlayers(AppContext& ctx) {
     ctx.remotePlayers.clear();
 }
 
+// Keeps the ObjectManager's remote-player objects in step with the
+// remotePlayers map: drop objects whose player has gone, add objects for
+// newly-seen players. Must run before objectManager.updateAll so a Player
+// never dereferences a freed RemotePlayer record.
+static void syncRemotePlayerObjects(AppContext& ctx) {
+    std::vector<uint32_t> gone;
+    for (auto& o : ctx.objectManager.objects())
+        if (o->kind == ObjectKind::Player && o->id != 0 &&
+            ctx.remotePlayers.find(o->id) == ctx.remotePlayers.end())
+            gone.push_back(o->id);
+    for (uint32_t id : gone) ctx.objectManager.removeById(id);
+
+    for (auto& [id, rp] : ctx.remotePlayers)
+        if (!ctx.objectManager.findById(id))
+            ctx.objectManager.add(std::make_unique<Player>(&rp, id));
+}
+
+// Creates/updates client-side Ferry objects from the server's EntityState
+// broadcasts. The server owns ferry motion; clients only interpolate + render.
+static void syncFerryObjects(AppContext& ctx) {
+    if (!ctx.client) return;
+    for (const EntityStatePacket& ep : ctx.client->entityUpdates) {
+        GameObject* o = ctx.objectManager.findById(ep.entityId);
+        Ferry* f = nullptr;
+        if (!o) {
+            auto nf = std::make_unique<Ferry>();
+            nf->id       = ep.entityId;
+            nf->mesh     = getFerryMesh();
+            nf->position = glm::vec3(ep.x, ep.y, ep.z);
+            nf->yaw      = ep.yaw;
+            f = nf.get();
+            ctx.objectManager.add(std::move(nf));
+        } else if (o->kind == ObjectKind::Vehicle) {
+            f = static_cast<Ferry*>(o);
+        }
+        if (f) {
+            f->targetPos = glm::vec3(ep.x, ep.y, ep.z);
+            f->targetYaw = ep.yaw;
+        }
+    }
+    ctx.client->entityUpdates.clear();
+}
+
+// The ferry the local player is currently standing on (deck test), or null.
+static Ferry* findSupportFerry(AppContext& ctx) {
+    for (auto& o : ctx.objectManager.objects()) {
+        if (o->dead || o->kind != ObjectKind::Vehicle) continue;
+        Ferry* f = static_cast<Ferry*>(o.get());
+        if (f->onDeck(ctx.camera.position)) return f;
+    }
+    return nullptr;
+}
+
 void disconnectFromGame(AppContext& ctx) {
     if (ctx.client) {
         ctx.client->disconnect();
         delete ctx.client;
         ctx.client = nullptr;
     }
+    ctx.objectManager.clear();
     cleanupRemotePlayers(ctx);
     if (ctx.weOwnServer) {
         stopEmbeddedServer();
@@ -133,6 +190,7 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
         ctx.joinNameSent      = false;
         ctx.noclip            = true;
         ctx.firstMouse        = true;
+        ctx.propLibrary.buildAll();   // shared furniture/decoration meshes
 
         // Spawn in the town nearest the world origin. Only host / singleplayer
         // run in-process with the server, so only there is the town plan (which
@@ -280,6 +338,11 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
     }
 
     if (gameplayActive) {
+        // Riding a ferry: carry the player with the deck before block physics.
+        Ferry* supportFerry = findSupportFerry(ctx);
+        if (supportFerry)
+            ctx.camera.position += supportFerry->velocity * ctx.deltaTime;
+
         int wfx = (int)floorf(ctx.camera.position.x);
         int wfz = (int)floorf(ctx.camera.position.z);
         int wfy = (int)floorf(ctx.camera.position.y);
@@ -322,11 +385,39 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
             ctx.camera.applyGravity(ctx.deltaTime);
             ctx.camera.position = resolveCollision(ctx.camera.position, ctx.camera, hw, ph, ctx.world, ctx.deltaTime);
         }
+
+        // The ferry deck is an object, not blocks, so settle the player onto
+        // it after the normal block physics has run.
+        if (supportFerry && !ctx.noclip) {
+            float deckY = supportFerry->deckTopY();
+            if (ctx.camera.position.y <= deckY + 0.05f &&
+                ctx.camera.position.y >  deckY - 2.5f &&
+                ctx.camera.velocity.y <= 0.1f) {
+                ctx.camera.position.y = deckY;
+                ctx.camera.velocity.y = 0.0f;
+                ctx.camera.onGround   = true;
+            }
+        }
     }
 
     int pcx = (int)floorf(ctx.camera.position.x / (float)CHUNK_SIZE);
     int pcz = (int)floorf(ctx.camera.position.z / (float)CHUNK_SIZE);
     ctx.world.update(pcx, pcz);
+
+    // --- Object system: sync remote players, advance every managed object,
+    // then drive the local-player wrapper (after physics, so the rig sees
+    // this frame's velocity). ---
+    syncRemotePlayerObjects(ctx);
+    syncFerryObjects(ctx);
+    ctx.objectManager.updateAll(ctx.deltaTime, ctx.world);
+    ctx.objectManager.streamProps(ctx.camera.position, 260.0f,
+                                  getPropPlacements(), ctx.propLibrary);
+    if (ctx.localPlayer) {
+        ctx.localPlayer->position    = ctx.camera.position;
+        ctx.localPlayer->yaw         = ctx.playerYaw;
+        ctx.localPlayer->lanternHeld = ctx.lanternHeld;
+        ctx.localPlayer->update(ctx.deltaTime, ctx.world);
+    }
 
     if (ctx.state == GameState::Playing && !ctx.paused)
         updateLeafParticles(ctx);

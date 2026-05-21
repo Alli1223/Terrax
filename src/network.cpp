@@ -762,6 +762,11 @@ void NetworkClient::update(World& world, std::unordered_map<uint32_t, RemotePlay
                 hasServerGameTime = true;
                 dayTimeUpdated = true;
             }
+        } else if (msg.type == PacketType::EntityState) {
+            if (msg.data.size() == sizeof(EntityStatePacket)) {
+                EntityStatePacket* p = (EntityStatePacket*)msg.data.data();
+                entityUpdates.push_back(*p);
+            }
         }
     }
 }

@@ -12,7 +12,10 @@ IMGUI_BACKEND_OBJS := $(IMGUI_BACKEND_SRCS:$(IMGUI_DIR)/backends/%.cpp=build/img
 SRCS := src/main.cpp src/shader.cpp src/camera.cpp src/world.cpp src/town.cpp \
         src/gl_loader.cpp src/atlas.cpp src/network.cpp src/voxel_model.cpp \
         src/game_session.cpp src/app_context.cpp src/physics.cpp src/input.cpp \
-        src/renderer.cpp src/gameplay.cpp src/ui.cpp src/graphics_settings.cpp
+        src/renderer.cpp src/gameplay.cpp src/ui.cpp src/graphics_settings.cpp \
+        src/object_manager.cpp src/player_object.cpp src/prop.cpp \
+        src/furniture.cpp src/decorations.cpp src/prop_placement.cpp \
+        src/vehicles.cpp src/ferry_routes.cpp
 OBJS := $(SRCS:src/%.cpp=build/%.o)
 
 DEPS := $(OBJS:.o=.d) $(IMGUI_OBJS:.o=.d) $(IMGUI_BACKEND_OBJS:.o=.d)

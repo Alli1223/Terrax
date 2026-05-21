@@ -311,44 +311,8 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     LanternLightList lanternLights;
     collectLanternLights(ctx, flicker, lanternLights);
 
-    // --- Build character draw list ---
-    glm::mat4 playerM(1.0f);
-    if (ctx.playerRig) {
-        ctx.playerRig->lanternHeld = ctx.lanternHeld;
-        float velocity = glm::length(ctx.camera.velocity);
-        ctx.playerRig->update(ctx.deltaTime, std::min(velocity * 0.5f, 5.0f));
-        playerM = glm::translate(glm::mat4(1.0f), ctx.camera.position);
-        playerM = glm::rotate(playerM, glm::radians(ctx.playerYaw), glm::vec3(0, 1, 0));
-        playerM = glm::scale(playerM, glm::vec3(0.06f * ctx.playerRig->heightScale));
-    }
-
-    struct CharEntry { glm::mat4 m; BipedalRig* rig; };
-    std::vector<CharEntry> remoteChars;
-    for (auto& [id, p] : ctx.remotePlayers) {
-        (void)id;
-        if (!p.rig || !p.rig->torso || !p.rig->torso->volume) {
-            if (!p.rig) p.rig = new BipedalRig();
-            p.rig->setupDefaultHuman(true);
-        }
-        float lerpF   = 10.0f * ctx.deltaTime;
-        glm::vec3 lastPos = p.position;
-        p.position = glm::mix(p.position, p.targetPosition, std::min(1.0f, lerpF));
-        p.pitch    = glm::mix(p.pitch, p.targetPitch, std::min(1.0f, lerpF));
-        p.yaw      = glm::mix(p.yaw,   p.targetYaw,   std::min(1.0f, lerpF));
-        float vel  = glm::length(p.position - lastPos) / (ctx.deltaTime > 0 ? ctx.deltaTime : 1.0f);
-        if (p.isAttacking) {
-            p.attackAnim += ctx.deltaTime * 5.0f;
-            if (p.attackAnim > 1.0f) { p.isAttacking = false; p.attackAnim = 0.0f; }
-        }
-        p.rig->lanternHeld   = p.lanternHeld;
-        p.rig->isAttacking = p.isAttacking;
-        p.rig->attackAnim  = p.attackAnim;
-        p.rig->update(ctx.deltaTime, std::min(vel, 10.0f));
-        glm::mat4 pm = glm::translate(glm::mat4(1.0f), p.position);
-        pm = glm::rotate(pm, glm::radians(p.yaw), glm::vec3(0, 1, 0));
-        pm = glm::scale(pm, glm::vec3(0.06f * p.rig->heightScale));
-        remoteChars.push_back({pm, p.rig});
-    }
+    // Characters and other objects are advanced in updateGameplay (the local
+    // player + the ObjectManager); the renderer only draws them.
 
     // --- Reflection pass ---
     {
@@ -403,8 +367,8 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     ctx.world.drawAll();
     {
         GLuint sml = glGetUniformLocation(shadowShader.id, "model");
-        if (ctx.playerRig) ctx.playerRig->draw(playerM, sml);
-        for (auto& ce : remoteChars) ce.rig->draw(ce.m, sml);
+        if (ctx.localPlayer) ctx.localPlayer->draw(sml);
+        ctx.objectManager.drawAll(sml);
     }
     glCullFace(GL_BACK);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -450,13 +414,14 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     {
         GLuint ml    = glGetUniformLocation(charShader.id, "model");
         GLint  seLoc = glGetUniformLocation(charShader.id, "u_skyExposure");
-        if (ctx.playerRig) {
-            glUniform1f(seLoc, skyExposureAt(ctx.world, ctx.camera.position));
-            ctx.playerRig->draw(playerM, ml);
+        if (ctx.localPlayer) {
+            glUniform1f(seLoc, skyExposureAt(ctx.world, ctx.localPlayer->position));
+            ctx.localPlayer->draw(ml);
         }
-        for (auto& ce : remoteChars) {
-            glUniform1f(seLoc, skyExposureAt(ctx.world, glm::vec3(ce.m[3])));
-            ce.rig->draw(ce.m, ml);
+        for (const auto& o : ctx.objectManager.objects()) {
+            if (o->dead) continue;
+            glUniform1f(seLoc, skyExposureAt(ctx.world, o->position));
+            o->draw(ml);
         }
     }
 

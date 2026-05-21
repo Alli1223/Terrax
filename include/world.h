@@ -140,6 +140,7 @@ public:
 
     BlockType getBlock(int wx, int wy, int wz) const;
     BlockType getBlockInternal(int wx, int wy, int wz) const;
+    uint8_t   getSkyLight(int wx, int wy, int wz) const;   // 0-15; 15 for unloaded
     void setBlock(int wx, int wy, int wz, BlockType t);
     void relightAt(int wx, int wy, int wz);
 

@@ -464,21 +464,23 @@ void renderCharacterEditorUI(AppContext& ctx, GLFWwindow* window, Renderer& rend
 // ---------------------------------------------------------------------------
 
 // Blocks the player can build a house from (parallel to the combo labels below).
-static const BlockType kHouseBuildBlocks[] = {
-    BlockType::Wood, BlockType::Stone, BlockType::Glass, BlockType::Glowstone, BlockType::Leaves,
-    (BlockType)((int)BlockType::PaintFirst + 0),  (BlockType)((int)BlockType::PaintFirst + 1),
-    (BlockType)((int)BlockType::PaintFirst + 2),  (BlockType)((int)BlockType::PaintFirst + 3),
-    (BlockType)((int)BlockType::PaintFirst + 4),  (BlockType)((int)BlockType::PaintFirst + 5),
-    (BlockType)((int)BlockType::PaintFirst + 6),  (BlockType)((int)BlockType::PaintFirst + 7),
-    (BlockType)((int)BlockType::PaintFirst + 8),  (BlockType)((int)BlockType::PaintFirst + 9),
-    (BlockType)((int)BlockType::PaintFirst + 10), (BlockType)((int)BlockType::PaintFirst + 11),
-    (BlockType)((int)BlockType::PaintFirst + 12), (BlockType)((int)BlockType::PaintFirst + 13),
-    (BlockType)((int)BlockType::PaintFirst + 14), (BlockType)((int)BlockType::PaintFirst + 15),
-};
+// First the structural blocks, then every painted-palette colour.
+static std::vector<BlockType> makeHouseBuildBlocks() {
+    std::vector<BlockType> v = {
+        BlockType::Wood, BlockType::Stone, BlockType::Glass,
+        BlockType::Glowstone, BlockType::Leaves,
+    };
+    for (int i = 0; i < PAINT_COUNT; i++)
+        v.push_back((BlockType)((int)BlockType::PaintFirst + i));
+    return v;
+}
+static const std::vector<BlockType> kHouseBuildBlocks = makeHouseBuildBlocks();
 static const char* kHouseBuildBlockLabels =
     "Wood\0Stone\0Glass\0Glowstone\0Leaves\0"
-    "White\0Light Gray\0Gray\0Black\0Red\0Orange\0Yellow\0Lime\0"
-    "Green\0Teal\0Light Blue\0Blue\0Purple\0Pink\0Brown\0Tan\0";
+    "White\0Cream\0Light Gray\0Slate Gray\0Charcoal\0Black\0"
+    "Terracotta\0Brick Red\0Crimson\0Rust Orange\0Amber\0Mustard\0"
+    "Chestnut\0Sand\0Olive\0Sage\0Forest Green\0Mint\0"
+    "Sky Blue\0Teal\0Navy\0Steel Blue\0Plum\0Dusty Rose\0";
 
 void renderHouseEditorUI(AppContext& ctx, GLFWwindow* window, Renderer& renderer) {
     int fbW, fbH;
@@ -511,13 +513,15 @@ void renderHouseEditorUI(AppContext& ctx, GLFWwindow* window, Renderer& renderer
     if (house) {
         ImGui::Text("Template");
         if (ImGui::Combo("##template", &house->templateType,
-                "Bungalow\0Two-Story\0Cottage\0Tower\0"))
+                "Bungalow\0Two-Story\0Cottage\0Tower\0Cabin\0"
+                "Longhouse\0Townhouse\0Manor\0Hall\0Keep\0"))
             house->rebuild();
         if (ImGui::Combo("Roof", &house->roofType,
                 "Flat\0Gabled\0Hipped\0Pyramid\0"))
             house->rebuild();
         if (ImGui::Combo("Material", &house->material,
-                "Timber\0Cottage\0Stone\0Manor\0"))
+                "Timber\0Cottage\0Stone\0Manor\0Cabin\0"
+                "Sandstone\0Forest\0Coastal\0Autumn\0Plum\0"))
             house->rebuild();
 
         ImGui::Separator();
@@ -578,7 +582,7 @@ void renderHouseEditorUI(AppContext& ctx, GLFWwindow* window, Renderer& renderer
                 ctx.editorRotX += (float)(my - ctx.lastEditorY) * 0.5f;
                 ctx.editorRotX  = std::clamp(ctx.editorRotX, -89.0f, 89.0f);
             } else if (house->volume->raycast(lro, lrd, 500.0f, hv, hn)) {
-                const int blockCount = (int)(sizeof(kHouseBuildBlocks) / sizeof(BlockType));
+                const int blockCount = (int)kHouseBuildBlocks.size();
                 BlockType placeB = kHouseBuildBlocks[std::clamp(ctx.editorBlock, 0, blockCount - 1)];
                 if (ctx.editorTool == EditorTool::Paint) {
                     house->set(hv.x, hv.y, hv.z, placeB);

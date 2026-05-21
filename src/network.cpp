@@ -180,7 +180,14 @@ NetworkServer::NetworkServer(unsigned short port)
       udp_buffer(1024) {
     doAccept();
     doReceiveUDP();
-    std::thread([this]() { io_context.run(); }).detach();
+    io_thread = std::thread([this]() { io_context.run(); });
+}
+
+NetworkServer::~NetworkServer() {
+    // Stop the io_context and join its thread before any members are destroyed,
+    // otherwise the still-running io thread dereferences freed vectors/queues.
+    io_context.stop();
+    if (io_thread.joinable()) io_thread.join();
 }
 
 void NetworkServer::doAccept() {

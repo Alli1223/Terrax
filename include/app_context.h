@@ -79,6 +79,7 @@ struct AppContext {
     glm::vec4 editorColor  = glm::vec4(1.0f);
     EditorTool editorTool  = EditorTool::Paint;
     float camDist          = 10.0f;
+    float camDistSmooth    = 10.0f;   // wall-clipped third-person distance (gameplay)
     int   editorCharType   = 0;
     int   editorBlock      = 0;   // selected build-block index in the house editor
 

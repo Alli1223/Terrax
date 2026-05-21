@@ -541,25 +541,39 @@ void HouseModel::rebuild() {
     auto paint = [](int i) { return (BlockType)((int)BlockType::PaintFirst + i); };
     BlockType wallB, roofB;
     switch (material) {
-        case 1: wallB = paint(0);  roofB = paint(4);  break;  // Cottage: white walls, red roof
-        case 2: wallB = paint(2);  roofB = paint(3);  break;  // Stone:   grey walls, black roof
-        case 3: wallB = paint(1);  roofB = paint(11); break;  // Manor:   light-grey walls, blue roof
-        default:wallB = paint(15); roofB = paint(14); break;  // Timber:  tan walls, brown roof
+        case 1: wallB = paint(0);  roofB = paint(7);  break;  // Cottage:   white / brick red
+        case 2: wallB = paint(3);  roofB = paint(4);  break;  // Stone:     slate / charcoal
+        case 3: wallB = paint(2);  roofB = paint(20); break;  // Manor:     light grey / navy
+        case 4: wallB = paint(12); roofB = paint(4);  break;  // Cabin:     chestnut / charcoal
+        case 5: wallB = paint(13); roofB = paint(6);  break;  // Sandstone: sand / terracotta
+        case 6: wallB = paint(15); roofB = paint(16); break;  // Forest:    sage / forest green
+        case 7: wallB = paint(0);  roofB = paint(21); break;  // Coastal:   white / steel blue
+        case 8: wallB = paint(6);  roofB = paint(9);  break;  // Autumn:    terracotta / rust
+        case 9: wallB = paint(23); roofB = paint(22); break;  // Plum:      dusty rose / plum
+        default:wallB = paint(13); roofB = paint(12); break;  // Timber:    sand / chestnut
     }
     const BlockType foundationB = BlockType::Stone;
-    const BlockType floorB      = paint(14);          // brown floorboards
+    const BlockType floorB      = paint(12);          // chestnut floorboards
     const BlockType windowB     = BlockType::Glass;   // see-through glass windows
+    const BlockType chimneyB    = paint(7);           // brick chimney stack
 
-    // Template parameters: floor count, per-floor height, perimeter margin.
-    int floors, floorH, margin;
+    // Template -> floor count, storey height, footprint margins (X and Z
+    // separately, which gives non-square footprints).
+    int floors, floorH, marginX, marginZ;
     switch (templateType) {
-        case 1: floors = 2; floorH = 6; margin = 4; break;   // Two-Story
-        case 2: floors = 1; floorH = 6; margin = 7; break;   // Cottage
-        case 3: floors = 4; floorH = 5; margin = 9; break;   // Tower
-        default:floors = 1; floorH = 7; margin = 3; break;   // Bungalow
+        case 1: floors=2; floorH= 6; marginX=4; marginZ=4; break;  // Two-Story
+        case 2: floors=1; floorH= 6; marginX=7; marginZ=7; break;  // Cottage
+        case 3: floors=4; floorH= 5; marginX=7; marginZ=7; break;  // Tower
+        case 4: floors=1; floorH= 6; marginX=5; marginZ=8; break;  // Cabin
+        case 5: floors=1; floorH= 7; marginX=2; marginZ=7; break;  // Longhouse
+        case 6: floors=3; floorH= 6; marginX=8; marginZ=6; break;  // Townhouse
+        case 7: floors=2; floorH= 6; marginX=2; marginZ=5; break;  // Manor
+        case 8: floors=1; floorH=11; marginX=3; marginZ=3; break;  // Hall
+        case 9: floors=3; floorH= 6; marginX=4; marginZ=4; break;  // Keep
+        default:floors=1; floorH= 7; marginX=3; marginZ=3; break;  // Bungalow
     }
-    const int x0 = margin, x1 = HOUSE_VX - 1 - margin;
-    const int z0 = margin, z1 = HOUSE_VZ - 1 - margin;
+    const int x0 = marginX, x1 = HOUSE_VX - 1 - marginX;
+    const int z0 = marginZ, z1 = HOUSE_VZ - 1 - marginZ;
     const int wallH = floors * floorH;            // walls span y in [1, wallH]
 
     auto box = [&](int ax, int bx, int ay, int by, int az, int bz, BlockType t) {
@@ -572,12 +586,26 @@ void HouseModel::rebuild() {
     // Foundation, solid shell, hollow interior.
     box(x0 - 1, x1 + 1, 0, 0, z0 - 1, z1 + 1, foundationB);
     box(x0, x1, 1, wallH, z0, z1, wallB);
-    box(x0 + 1, x1 - 1, 2, wallH - 1, z0 + 1, z1 - 1, BlockType::Air);
+    box(x0 + 1, x1 - 1, 1, wallH - 1, z0 + 1, z1 - 1, BlockType::Air);
 
-    // Interior floor slabs (ground + one per upper storey).
-    box(x0 + 1, x1 - 1, 1, 1, z0 + 1, z1 - 1, floorB);
+    // Floors — the ground-floor boards sit directly on the foundation so they
+    // are level with the bottom of the doorway; each upper storey gets a slab.
+    box(x0 + 1, x1 - 1, 0, 0, z0 + 1, z1 - 1, floorB);
     for (int f = 1; f < floors; f++)
         box(x0 + 1, x1 - 1, f * floorH, f * floorH, z0 + 1, z1 - 1, floorB);
+
+    // Interior staircases — one straight flight per upper storey against the
+    // left wall. Each step rises a single block (walkable without jumping),
+    // and a matching slot is cut in the slab above to climb through. Flights
+    // alternate between two adjacent columns so the well of one does not
+    // undercut the foot of the next.
+    for (int f = 1; f < floors; f++) {
+        const int xStair = (f % 2 == 1) ? x0 + 1 : x0 + 2;
+        const int yL     = (f - 1) * floorH + 1;   // walkable level of the floor below
+        for (int s = 0; s < floorH - 1; s++)
+            box(xStair, xStair, yL + s, yL + s, z0 + 2 + s, z0 + 2 + s, floorB);
+        box(xStair, xStair, f * floorH, f * floorH, z0 + 2, z0 + floorH, BlockType::Air);
+    }
 
     // Door — an opening centred on the front wall (z = z0), ground floor.
     const int dcx = (x0 + x1) / 2;
@@ -615,34 +643,70 @@ void HouseModel::rebuild() {
         }
     }
 
-    // Roof — sits one row above the walls, overhanging the footprint by one block.
+    // Roof — sits one row above the walls, overhanging the footprint by one
+    // block. Gabled and hipped roofs run their ridge along the longer wall.
     const int rx0 = x0 - 1, rx1 = x1 + 1, rz0 = z0 - 1, rz1 = z1 + 1;
     const int ry = wallH + 1;
+    const bool ridgeX = (xspan >= zspan);
+    int roofTopY = ry;
     if (roofType == 0) {                              // Flat
         box(rx0, rx1, ry, ry, rz0, rz1, roofB);
     } else if (roofType == 3) {                       // Pyramid
         int ax0 = rx0, ax1 = rx1, az0 = rz0, az1 = rz1, h = 0;
         while (ax0 <= ax1 && az0 <= az1) {
             box(ax0, ax1, ry + h, ry + h, az0, az1, roofB);
+            roofTopY = ry + h;
             ax0++; ax1--; az0++; az1--; h++;
         }
     } else if (roofType == 2) {                       // Hipped
         int ax0 = rx0, ax1 = rx1, az0 = rz0, az1 = rz1, h = 0;
-        while (az0 <= az1) {
-            box(ax0, ax1, ry + h, ry + h, az0, az1, roofB);
-            az0++; az1--;
-            if (ax1 - ax0 > 4) { ax0++; ax1--; }      // keep a ridge along X
-            h++;
+        if (ridgeX) {
+            while (az0 <= az1) {
+                box(ax0, ax1, ry + h, ry + h, az0, az1, roofB);
+                roofTopY = ry + h;
+                az0++; az1--;
+                if (ax1 - ax0 > 4) { ax0++; ax1--; }
+                h++;
+            }
+        } else {
+            while (ax0 <= ax1) {
+                box(ax0, ax1, ry + h, ry + h, az0, az1, roofB);
+                roofTopY = ry + h;
+                ax0++; ax1--;
+                if (az1 - az0 > 4) { az0++; az1--; }
+                h++;
+            }
         }
     } else {                                          // Gabled (1)
-        int az0 = rz0, az1 = rz1, h = 0;
-        while (az0 <= az1) {
-            box(rx0, rx1, ry + h, ry + h, az0, az1, roofB);
-            const int gz0 = std::max(az0, z0), gz1 = std::min(az1, z1);
-            box(x0, x0, ry + h, ry + h, gz0, gz1, wallB);   // triangular gable ends
-            box(x1, x1, ry + h, ry + h, gz0, gz1, wallB);
-            az0++; az1--; h++;
+        int h = 0;
+        if (ridgeX) {
+            int az0 = rz0, az1 = rz1;
+            while (az0 <= az1) {
+                box(rx0, rx1, ry + h, ry + h, az0, az1, roofB);
+                const int g0 = std::max(az0, z0), g1 = std::min(az1, z1);
+                box(x0, x0, ry + h, ry + h, g0, g1, wallB);   // triangular gable ends
+                box(x1, x1, ry + h, ry + h, g0, g1, wallB);
+                roofTopY = ry + h;
+                az0++; az1--; h++;
+            }
+        } else {
+            int ax0 = rx0, ax1 = rx1;
+            while (ax0 <= ax1) {
+                box(ax0, ax1, ry + h, ry + h, rz0, rz1, roofB);
+                const int g0 = std::max(ax0, x0), g1 = std::min(ax1, x1);
+                box(g0, g1, ry + h, ry + h, z0, z0, wallB);   // triangular gable ends
+                box(g0, g1, ry + h, ry + h, z1, z1, wallB);
+                roofTopY = ry + h;
+                ax0++; ax1--; h++;
+            }
         }
+    }
+
+    // Chimney — a brick stack that starts at the roofline and rises out past
+    // the roof peak (it does not run down into the interior).
+    if (xspan >= 7 && zspan >= 7) {
+        const int cx = x1 - 3, cz = z1 - 3;
+        box(cx, cx + 1, wallH, roofTopY + 2, cz, cz + 1, chimneyB);
     }
 
     refreshMesh();

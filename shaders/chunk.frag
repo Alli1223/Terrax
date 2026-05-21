@@ -96,8 +96,12 @@ void main() {
     // Sky ambient (indirect light, not shadowed)
     vec3 skyAmb = SkyLight * sunFactor * skyAmbient * 0.22;
 
-    // Direct sun, attenuated by both geometry shadow and cloud shadow
-    vec3 sunContrib = diffuse * (1.0 - shadow * 0.82) * sunFactor * skyAmbient * 0.95 * cloudAtten;
+    // Direct sun only reaches surfaces open to the sky. Enclosed spaces (house
+    // interiors, caves) get no direct sun and stay dark — they are lit only by
+    // sky ambient that floods in through windows and doorways (SkyLight), and
+    // by block / lantern light.
+    float skyMask = smoothstep(0.2, 0.5, SkyLight);
+    vec3 sunContrib = diffuse * (1.0 - shadow * 0.82) * sunFactor * skyAmbient * 0.95 * cloudAtten * skyMask;
 
     // Warm block / lantern light
     vec3 blockContrib = BlockLight * vec3(1.00, 0.76, 0.40) * 0.9;

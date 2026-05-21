@@ -178,6 +178,7 @@ void Renderer::renderEditorCharacter(AppContext& ctx, const glm::mat4& model,
     charShader.setVec3("skyAmbient", glm::vec3(0.85f, 0.90f, 1.00f));
     charShader.setLanternLights(0, nullptr, nullptr, nullptr);
     charShader.setFloat("u_alpha", 1.0f);
+    charShader.setFloat("u_skyExposure", 1.0f);
     // Shadow disabled: map all fragments outside clip-space so calcShadow returns 0
     glm::mat4 editorLSM = glm::mat4(0.0f);
     editorLSM[3][2] = 2.0f;
@@ -205,6 +206,7 @@ void Renderer::renderEditorHouse(AppContext& ctx, const glm::mat4& model,
     charShader.setVec3("skyAmbient", glm::vec3(0.85f, 0.90f, 1.00f));
     charShader.setLanternLights(0, nullptr, nullptr, nullptr);
     charShader.setFloat("u_alpha", 1.0f);
+    charShader.setFloat("u_skyExposure", 1.0f);
     // Shadow disabled: map all fragments outside clip-space so calcShadow returns 0
     glm::mat4 editorLSM = glm::mat4(0.0f);
     editorLSM[3][2] = 2.0f;
@@ -234,14 +236,51 @@ static glm::mat4 housePreviewMatrix(const AppContext& ctx) {
     return m;
 }
 
+// Casts backward from the player and returns how far the third-person camera
+// can sit before a solid block would come between it and the player.
+static float cameraClipDistance(const World& world, const glm::vec3& base,
+                                const glm::vec3& backDir, float desired) {
+    const float margin  = 0.30f;   // keep the camera off the wall surface
+    const float step    = 0.25f;
+    const float minDist = 0.50f;
+    for (float t = step; t <= desired; t += step) {
+        glm::vec3 sp = base + backDir * t;
+        BlockType b = world.getBlock((int)floorf(sp.x), (int)floorf(sp.y), (int)floorf(sp.z));
+        if (b != BlockType::Air && b != BlockType::Water)
+            return std::max(t - margin, minDist);
+    }
+    return desired;
+}
+
+// Sky-light exposure (0..1) at a character's position — drives how brightly the
+// character is lit, so someone standing inside a house renders dark like the room.
+static float skyExposureAt(const World& world, const glm::vec3& feetPos) {
+    int wx = (int)floorf(feetPos.x);
+    int wy = (int)floorf(feetPos.y) + 1;
+    int wz = (int)floorf(feetPos.z);
+    return world.getSkyLight(wx, wy, wz) / 15.0f;
+}
+
 void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTime) {
     int fbW, fbH;
     glfwGetFramebufferSize(window, &fbW, &fbH);
     glViewport(0, 0, fbW, fbH);
     float aspect = fbW / (float)fbH;
 
-    glm::mat4 proj   = glm::perspective(glm::radians(ctx.camera.fov), aspect, 0.1f, 1000.0f);
-    glm::vec3 eyePos = ctx.camera.position + glm::vec3(0, 1.6f, 0) - (ctx.camera.front * ctx.camDist);
+    glm::mat4 proj = glm::perspective(glm::radians(ctx.camera.fov), aspect, 0.1f, 1000.0f);
+
+    // Third-person camera with wall clipping: pull the camera in so a solid
+    // block never sits between it and the player. Snap inward immediately,
+    // ease back outward so leaving a tight space isn't jarring.
+    glm::vec3 camBase    = ctx.camera.position + glm::vec3(0, 1.6f, 0);
+    float     targetDist = cameraClipDistance(ctx.world, camBase, -ctx.camera.front, ctx.camDist);
+    if (targetDist < ctx.camDistSmooth)
+        ctx.camDistSmooth = targetDist;
+    else
+        ctx.camDistSmooth += (targetDist - ctx.camDistSmooth)
+                           * std::min(1.0f, ctx.deltaTime * 8.0f);
+
+    glm::vec3 eyePos = camBase - ctx.camera.front * ctx.camDistSmooth;
     glm::mat4 view   = glm::lookAt(eyePos, ctx.camera.position + glm::vec3(0, 1.2f, 0), ctx.camera.worldUp);
 
     // Expose to UI for nametags
@@ -409,9 +448,16 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     charShader.setFloat("time", currentTime);
     charShader.setFloat("u_alpha", 1.0f);
     {
-        GLuint ml = glGetUniformLocation(charShader.id, "model");
-        if (ctx.playerRig) ctx.playerRig->draw(playerM, ml);
-        for (auto& ce : remoteChars) ce.rig->draw(ce.m, ml);
+        GLuint ml    = glGetUniformLocation(charShader.id, "model");
+        GLint  seLoc = glGetUniformLocation(charShader.id, "u_skyExposure");
+        if (ctx.playerRig) {
+            glUniform1f(seLoc, skyExposureAt(ctx.world, ctx.camera.position));
+            ctx.playerRig->draw(playerM, ml);
+        }
+        for (auto& ce : remoteChars) {
+            glUniform1f(seLoc, skyExposureAt(ctx.world, glm::vec3(ce.m[3])));
+            ce.rig->draw(ce.m, ml);
+        }
     }
 
     // House placement ghost — translucent preview that follows the player.
@@ -421,6 +467,7 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glDepthMask(GL_FALSE);
         charShader.setFloat("u_alpha", 0.42f);
+        charShader.setFloat("u_skyExposure", 1.0f);
         glUniformMatrix4fv(glGetUniformLocation(charShader.id, "model"),
                            1, GL_FALSE, &ghostM[0][0]);
         ctx.houseModel->volume->draw();

@@ -18,6 +18,7 @@ uniform float u_lanternIntensity[MAX_LANTERNS];
 uniform float u_lanternRadius[MAX_LANTERNS];
 uniform float time;
 uniform float u_alpha;
+uniform float u_skyExposure;   // 0 = enclosed/indoors, 1 = open sky
 
 const vec3 LANTERN_COLOR = vec3(1.00, 0.76, 0.40);
 
@@ -81,8 +82,10 @@ void main() {
     float cloudAtten  = getCloudShadow(FragPos, u_sunDir, time);
     float shadow = min(blockShadow + (1.0 - cloudAtten), 1.0);
 
-    vec3 skyAmb     = sunFactor * skyAmbient * 0.28;
-    vec3 sunContrib = diffuse * (1.0 - shadow * 0.82) * sunFactor * skyAmbient * 0.95;
+    // Indoors the character loses direct sun and most ambient — it must be lit
+    // by lanterns, matching the dark house interior around it.
+    vec3 skyAmb     = sunFactor * skyAmbient * 0.28 * mix(0.18, 1.0, u_skyExposure);
+    vec3 sunContrib = diffuse * (1.0 - shadow * 0.82) * sunFactor * skyAmbient * 0.95 * u_skyExposure;
 
     vec3 lanternContrib = calcLanternLight(FragPos);
 

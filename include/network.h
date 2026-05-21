@@ -163,6 +163,7 @@ struct RemotePlayer {
 class NetworkServer {
 public:
     NetworkServer(unsigned short port);
+    ~NetworkServer();
     void update(World& world);
     void broadcast(PacketType type, const void* data, size_t size, std::shared_ptr<Connection> skip = nullptr);
     void broadcastUDP(const void* data, size_t size);
@@ -190,6 +191,7 @@ private:
     udp::socket udp_socket;
     udp::endpoint remote_endpoint;
     std::vector<uint8_t> udp_buffer;
+    std::thread io_thread;
 
     std::vector<std::shared_ptr<Connection>> clients;
     std::mutex clientsMutex;

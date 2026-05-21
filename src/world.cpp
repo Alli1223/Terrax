@@ -1415,6 +1415,19 @@ BlockType World::getBlock(int wx, int wy, int wz) const {
     return getBlockInternal(wx, wy, wz);
 }
 
+uint8_t World::getSkyLight(int wx, int wy, int wz) const {
+    if (wy < 0 || wy >= CHUNK_HEIGHT) return 15;
+    int cx = (wx < 0 && wx % CHUNK_SIZE != 0) ? wx / CHUNK_SIZE - 1 : wx / CHUNK_SIZE;
+    int cz = (wz < 0 && wz % CHUNK_SIZE != 0) ? wz / CHUNK_SIZE - 1 : wz / CHUNK_SIZE;
+
+    std::lock_guard<std::mutex> lock(chunksMutex);
+    auto it = chunks.find({cx, cz});
+    if (it == chunks.end() || it->second->state == ChunkState::Empty ||
+        it->second->state == ChunkState::Generating)
+        return 15;
+    return it->second->getSkyLight(wx - cx * CHUNK_SIZE, wy, wz - cz * CHUNK_SIZE);
+}
+
 void World::setBlock(int wx, int wy, int wz, BlockType t) {
     if (wy < 0 || wy >= CHUNK_HEIGHT) return;
     int cx = (wx < 0 && wx % CHUNK_SIZE != 0) ? wx/CHUNK_SIZE - 1 : wx/CHUNK_SIZE;

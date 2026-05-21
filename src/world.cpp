@@ -67,7 +67,8 @@ void Chunk::computeLight() {
         for (int z = 0; z < CHUNK_SIZE; z++) {
             for (int y = CHUNK_HEIGHT - 1; y >= 0; y--) {
                 BlockType bt = get(x, y, z);
-                if (bt != BlockType::Air && bt != BlockType::Water) break;
+                if (bt != BlockType::Air && bt != BlockType::Water &&
+                    bt != BlockType::Glass) break;
                 setSkyLight(x, y, z, 15);
                 q.push({(uint8_t)x, (uint8_t)y, (uint8_t)z, 15u});
             }
@@ -98,7 +99,8 @@ void Chunk::computeLight() {
             int bx = (int)nx + d[0], by = (int)ny + d[1], bz = (int)nz + d[2];
             if (bx < 0 || bx >= CHUNK_SIZE || by < 0 || by >= CHUNK_HEIGHT || bz < 0 || bz >= CHUNK_SIZE) continue;
             BlockType nb = get(bx, by, bz);
-            if (nb != BlockType::Air && nb != BlockType::Water) continue;
+            if (nb != BlockType::Air && nb != BlockType::Water &&
+                nb != BlockType::Glass) continue;
             uint8_t cur = isBlock ? getBlockLight(bx,by,bz) : getSkyLight(bx,by,bz);
             if (next > cur) {
                 isBlock ? setBlockLight(bx,by,bz,next) : setSkyLight(bx,by,bz,next);
@@ -113,6 +115,7 @@ Chunk::~Chunk() {
         if (vao)        { glDeleteVertexArrays(1, &vao);        glDeleteBuffers(1, &vbo);        }
         if (waterVao)   { glDeleteVertexArrays(1, &waterVao);   glDeleteBuffers(1, &waterVbo);   }
         if (foliageVao) { glDeleteVertexArrays(1, &foliageVao); glDeleteBuffers(1, &foliageVbo); }
+        if (glassVao)   { glDeleteVertexArrays(1, &glassVao);   glDeleteBuffers(1, &glassVbo);   }
     }
 }
 
@@ -127,7 +130,9 @@ void Chunk::set(int x, int y, int z, BlockType t) {
     blocks[y * CHUNK_SIZE * CHUNK_SIZE + z * CHUNK_SIZE + x] = t;
 }
 
-static bool isOpaque(BlockType b) { return b != BlockType::Air && b != BlockType::Water; }
+static bool isOpaque(BlockType b) {
+    return b != BlockType::Air && b != BlockType::Water && b != BlockType::Glass;
+}
 static bool isAnyLeaves(BlockType b) {
     return b == BlockType::Leaves || b == BlockType::LeavesOrange ||
            b == BlockType::LeavesRed || b == BlockType::LeavesPink;
@@ -156,15 +161,23 @@ static TileID getTile(BlockType bt, int face) {
         case BlockType::Ice:       return TileID::Ice;
         case BlockType::Glowstone: return TileID::Glowstone;
         case BlockType::Water:     return TileID::Water;
-        default:                   return TileID::Stone;
+        case BlockType::Glass:     return TileID::Glass;
+        default: {
+            int pidx = (int)bt - (int)BlockType::PaintFirst;
+            if (pidx >= 0 && pidx < PAINT_COUNT)
+                return (TileID)((int)TileID::PaintFirst + pidx);
+            return TileID::Stone;
+        }
     }
 }
 
 void Chunk::buildMesh(World* world) {
     std::vector<Vertex> verts;
     std::vector<Vertex> wverts;
+    std::vector<Vertex> gverts;
     verts.reserve(4096);
     wverts.reserve(512);
+    gverts.reserve(256);
 
     struct NeighborData {
         ChunkPos pos;
@@ -269,6 +282,7 @@ void Chunk::buildMesh(World* world) {
                 int wx = pos.x * CHUNK_SIZE + x;
                 int wz = pos.z * CHUNK_SIZE + z;
                 bool isWater = (bt == BlockType::Water);
+                bool isGlass = (bt == BlockType::Glass);
 
                 for (int face = 0; face < 6; face++) {
                     int ax = wx + FDX[face], ay = y + FDY[face], az = wz + FDZ[face];
@@ -278,6 +292,9 @@ void Chunk::buildMesh(World* world) {
                         // Water: only expose faces adjacent to Air; skip bottom face
                         if (face == 3) continue; // bottom face (–Y): never seen
                         if (adj != BlockType::Air) continue;
+                    } else if (isGlass) {
+                        // Glass: hide faces shared with other glass or behind solids
+                        if (adj == BlockType::Glass || isOpaque(adj)) continue;
                     } else {
                         // Opaque: expose faces adjacent to Air OR Water so seafloor shows through
                         if (isOpaque(adj)) continue;
@@ -305,7 +322,7 @@ void Chunk::buildMesh(World* world) {
                             (float)bt, skyL, blockL, sd
                         };
                     }
-                    pushQuad(isWater ? wverts : verts, quad);
+                    pushQuad(isWater ? wverts : (isGlass ? gverts : verts), quad);
                 }
             }
         }
@@ -377,6 +394,7 @@ void Chunk::buildMesh(World* world) {
         meshData     = std::move(verts);
         waterData    = std::move(wverts);
         foliageData  = std::move(fverts);
+        glassData    = std::move(gverts);
     }
     neighborsAtMeshTime = (int)neighbors.size();
     state = ChunkState::MeshReady;
@@ -432,6 +450,19 @@ void Chunk::uploadMesh() {
         foliageData.clear();
     }
 
+    // Glass mesh
+    if (!glassData.empty()) {
+        if (!glassVao) { glGenVertexArrays(1, &glassVao); glGenBuffers(1, &glassVbo); }
+        glBindVertexArray(glassVao);
+        glBindBuffer(GL_ARRAY_BUFFER, glassVbo);
+        glBufferData(GL_ARRAY_BUFFER, glassData.size() * sizeof(Vertex), glassData.data(), GL_STATIC_DRAW);
+        setupVertexAttribs();
+        glassVertexCount = (int)glassData.size();
+        glassData.clear();
+    } else {
+        glassVertexCount = 0;
+    }
+
     glBindVertexArray(0);
     state = ChunkState::Ready;
 }
@@ -454,6 +485,13 @@ void Chunk::drawFoliage() const {
     if (isServer || state != ChunkState::Ready || foliageVertexCount == 0) return;
     glBindVertexArray(foliageVao);
     glDrawArrays(GL_TRIANGLES, 0, foliageVertexCount);
+    glBindVertexArray(0);
+}
+
+void Chunk::drawGlass() const {
+    if (isServer || state != ChunkState::Ready || glassVertexCount == 0) return;
+    glBindVertexArray(glassVao);
+    glDrawArrays(GL_TRIANGLES, 0, glassVertexCount);
     glBindVertexArray(0);
 }
 
@@ -1355,6 +1393,11 @@ void World::drawAllWater() const {
 void World::drawAllFoliage() const {
     std::lock_guard<std::mutex> lock(chunksMutex);
     for (auto& [k, c] : chunks) c->drawFoliage();
+}
+
+void World::drawAllGlass() const {
+    std::lock_guard<std::mutex> lock(chunksMutex);
+    for (auto& [k, c] : chunks) c->drawGlass();
 }
 
 BlockType World::getBlockInternal(int wx, int wy, int wz) const {

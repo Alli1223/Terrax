@@ -31,6 +31,8 @@ enum class BlockType : uint8_t {
     LeavesOrange = 14,
     LeavesRed    = 15,
     LeavesPink   = 16,
+    Glass        = 17,
+    PaintFirst   = 18,   // 16 painted-colour blocks: ids 18..33 (see PAINT_PALETTE)
 };
 
 enum class ChunkState {
@@ -78,13 +80,16 @@ public:
     GLuint vao = 0, vbo = 0;
     GLuint waterVao = 0, waterVbo = 0;
     GLuint foliageVao = 0, foliageVbo = 0;
+    GLuint glassVao = 0, glassVbo = 0;
     int vertexCount = 0;
     int waterVertexCount = 0;
     int foliageVertexCount = 0;
+    int glassVertexCount = 0;
     std::atomic<ChunkState> state{ChunkState::Empty};
     std::vector<Vertex> meshData;
     std::vector<Vertex> waterData;
     std::vector<Vertex> foliageData;
+    std::vector<Vertex> glassData;
     std::mutex meshMutex;
     int neighborsAtMeshTime = 0;
 
@@ -111,6 +116,7 @@ public:
     void draw() const;
     void drawWater() const;
     void drawFoliage() const;
+    void drawGlass() const;
 };
 
 class World {
@@ -130,6 +136,7 @@ public:
     void drawAll() const;
     void drawAllWater() const;
     void drawAllFoliage() const;
+    void drawAllGlass() const;
 
     BlockType getBlock(int wx, int wy, int wz) const;
     BlockType getBlockInternal(int wx, int wy, int wz) const;

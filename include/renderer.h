@@ -21,6 +21,10 @@ public:
     void renderEditorCharacter(AppContext& ctx, const glm::mat4& model,
                                 const glm::mat4& view, const glm::mat4& proj);
 
+    // Renders the house 3D viewport inside the house editor (call before ImGui panel).
+    void renderEditorHouse(AppContext& ctx, const glm::mat4& model,
+                            const glm::mat4& view, const glm::mat4& proj);
+
     GLuint getShadowMapTex() const { return shadowMapTex; }
 
     // Written each frame by renderWorld; readable by UI for nametag projections.
@@ -33,7 +37,7 @@ private:
     static constexpr int   SHADOW_RES = 2048;
     static constexpr float WATER_Y    = 29.0f;
 
-    Shader chunkShader, waterShader, skyShader, charShader, shadowShader;
+    Shader chunkShader, waterShader, skyShader, charShader, shadowShader, glassShader;
 
     GLuint skyVAO = 0, skyVBO = 0;
     GLuint atlasTexture = 0;

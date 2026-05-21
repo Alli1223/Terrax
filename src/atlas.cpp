@@ -124,6 +124,14 @@ GLuint generateAtlas() {
     fillSolid(data, 0, 5, 220, 105,  22);  // LeavesOrange — autumn orange
     fillSolid(data, 1, 5, 175,  35,  18);  // LeavesRed    — deep autumn red
     fillSolid(data, 2, 5, 255, 165, 200);  // LeavesPink   — spring blossom pink
+    // Glass (row 5, col 3) — tint only; the glass shader applies transparency
+    fillSolid(data, 3, 5, GLASS_TINT.r, GLASS_TINT.g, GLASS_TINT.b);
+    // Painted-colour blocks (ids 24..39, rows 6..9)
+    for (int i = 0; i < PAINT_COUNT; i++) {
+        int id = (int)TileID::PaintFirst + i;
+        fillSolid(data, id % ATLAS_COLS, id / ATLAS_COLS,
+                  PAINT_PALETTE[i].r, PAINT_PALETTE[i].g, PAINT_PALETTE[i].b);
+    }
 
     GLuint tex;
     glGenTextures(1, &tex);

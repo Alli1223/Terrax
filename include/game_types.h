@@ -1,6 +1,6 @@
 #pragma once
 
-enum class GameState   { MainMenu, SettingsMenu, JoinMenu, CharacterEditor, Playing, Paused };
+enum class GameState   { MainMenu, SettingsMenu, JoinMenu, CharacterEditor, HouseEditor, Playing, Paused };
 enum class SessionMode { None, Host, Join, Singleplayer };
 enum class EditorTool  { Paint, Add, Erase };
 

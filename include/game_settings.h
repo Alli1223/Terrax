@@ -2,7 +2,7 @@
 
 static constexpr int MIN_RENDER_DISTANCE     = 4;
 static constexpr int MAX_RENDER_DISTANCE     = 64;
-static constexpr int DEFAULT_RENDER_DISTANCE = 30;
+static constexpr int DEFAULT_RENDER_DISTANCE = 10;
 
 struct GameSettings {
     int  renderDistance = DEFAULT_RENDER_DISTANCE;

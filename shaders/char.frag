@@ -17,6 +17,7 @@ uniform vec3  u_lanternPos[MAX_LANTERNS];
 uniform float u_lanternIntensity[MAX_LANTERNS];
 uniform float u_lanternRadius[MAX_LANTERNS];
 uniform float time;
+uniform float u_alpha;
 
 const vec3 LANTERN_COLOR = vec3(1.00, 0.76, 0.40);
 
@@ -91,5 +92,5 @@ void main() {
 
     vec3 result = Color.rgb * light;
     result = pow(clamp(result, 0.0, 1.0), vec3(1.0 / 2.2));
-    FragColor = vec4(result, Color.a);
+    FragColor = vec4(result, Color.a * u_alpha);
 }

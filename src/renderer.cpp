@@ -82,6 +82,7 @@ bool Renderer::init(int width, int height) {
     skyShader    = Shader("shaders/sky.vert",    "shaders/sky.frag");
     charShader   = Shader("shaders/char.vert",   "shaders/char.frag");
     shadowShader = Shader("shaders/shadow.vert", "shaders/shadow.frag");
+    glassShader  = Shader("shaders/glass.vert",  "shaders/glass.frag");
 
     setupSkybox();
     atlasTexture = generateAtlas();
@@ -176,6 +177,7 @@ void Renderer::renderEditorCharacter(AppContext& ctx, const glm::mat4& model,
     charShader.setFloat("sunFactor", 1.0f);
     charShader.setVec3("skyAmbient", glm::vec3(0.85f, 0.90f, 1.00f));
     charShader.setLanternLights(0, nullptr, nullptr, nullptr);
+    charShader.setFloat("u_alpha", 1.0f);
     // Shadow disabled: map all fragments outside clip-space so calcShadow returns 0
     glm::mat4 editorLSM = glm::mat4(0.0f);
     editorLSM[3][2] = 2.0f;
@@ -189,6 +191,47 @@ void Renderer::renderEditorCharacter(AppContext& ctx, const glm::mat4& model,
         ctx.playerRig->update(ctx.deltaTime, 0.0f);
         ctx.playerRig->draw(model, glGetUniformLocation(charShader.id, "model"));
     }
+}
+
+void Renderer::renderEditorHouse(AppContext& ctx, const glm::mat4& model,
+                                  const glm::mat4& view, const glm::mat4& proj) {
+    if (!ctx.houseModel || !ctx.houseModel->volume) return;
+
+    charShader.use();
+    charShader.setMat4("projection", proj);
+    charShader.setMat4("view", view);
+    charShader.setVec3("u_sunDir", glm::normalize(glm::vec3(0.5f, 1.0f, 0.4f)));
+    charShader.setFloat("sunFactor", 1.0f);
+    charShader.setVec3("skyAmbient", glm::vec3(0.85f, 0.90f, 1.00f));
+    charShader.setLanternLights(0, nullptr, nullptr, nullptr);
+    charShader.setFloat("u_alpha", 1.0f);
+    // Shadow disabled: map all fragments outside clip-space so calcShadow returns 0
+    glm::mat4 editorLSM = glm::mat4(0.0f);
+    editorLSM[3][2] = 2.0f;
+    editorLSM[3][3] = 1.0f;
+    charShader.setMat4("lightSpaceMatrix", editorLSM);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, shadowMapTex);
+    charShader.setInt("shadowMap", 1);
+
+    ctx.houseModel->volume->updateMesh();
+    glUniformMatrix4fv(glGetUniformLocation(charShader.id, "model"), 1, GL_FALSE, &model[0][0]);
+    ctx.houseModel->volume->draw();
+}
+
+// Model matrix that places the house design at the live placement-preview spot.
+static glm::mat4 housePreviewMatrix(const AppContext& ctx) {
+    const HouseModel* hm = ctx.houseModel;
+    glm::vec3 ctr((hm->boundMin.x + hm->boundMax.x + 1) * 0.5f,
+                  (float)hm->boundMin.y,
+                  (hm->boundMin.z + hm->boundMax.z + 1) * 0.5f);
+    glm::mat4 m = glm::translate(glm::mat4(1.0f),
+        glm::vec3(floorf(ctx.housePreviewPos.x) + 0.5f,
+                  floorf(ctx.housePreviewPos.y),
+                  floorf(ctx.housePreviewPos.z) + 0.5f));
+    m = glm::rotate(m, glm::radians(ctx.housePreviewYaw), glm::vec3(0, 1, 0));
+    m = glm::translate(m, -ctr);
+    return m;
 }
 
 void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTime) {
@@ -364,10 +407,26 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     charShader.setVec3("u_sunDir",        sunDir);
     bindLanternLights(charShader, lanternLights);
     charShader.setFloat("time", currentTime);
+    charShader.setFloat("u_alpha", 1.0f);
     {
         GLuint ml = glGetUniformLocation(charShader.id, "model");
         if (ctx.playerRig) ctx.playerRig->draw(playerM, ml);
         for (auto& ce : remoteChars) ce.rig->draw(ce.m, ml);
+    }
+
+    // House placement ghost — translucent preview that follows the player.
+    if (ctx.housePreviewActive && ctx.houseModel && ctx.houseModel->volume) {
+        glm::mat4 ghostM = housePreviewMatrix(ctx);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDepthMask(GL_FALSE);
+        charShader.setFloat("u_alpha", 0.42f);
+        glUniformMatrix4fv(glGetUniformLocation(charShader.id, "model"),
+                           1, GL_FALSE, &ghostM[0][0]);
+        ctx.houseModel->volume->draw();
+        charShader.setFloat("u_alpha", 1.0f);
+        glDepthMask(GL_TRUE);
+        glDisable(GL_BLEND);
     }
 
     // Foliage (alpha-cutout, no back-face culling)
@@ -440,6 +499,22 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     }
 
     glEnable(GL_CULL_FACE);
+
+    // Glass — translucent block faces, drawn after opaque geometry
+    glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDepthMask(GL_FALSE); glDisable(GL_CULL_FACE);
+    glassShader.use();
+    glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, atlasTexture);
+    glassShader.setInt("atlas", 0);
+    glassShader.setMat4("model",      glm::mat4(1.0f));
+    glassShader.setMat4("view",       view);
+    glassShader.setMat4("projection", proj);
+    glassShader.setFloat("sunFactor", sunFactor);
+    glassShader.setVec3("skyAmbient", skyAmbient);
+    glassShader.setVec3("camPos",     eyePos);
+    glassShader.setVec3("u_sunDir",   sunDir);
+    ctx.world.drawAllGlass();
+    glDepthMask(GL_TRUE); glDisable(GL_BLEND); glEnable(GL_CULL_FACE);
 
     // Water
     glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);

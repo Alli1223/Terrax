@@ -9,6 +9,7 @@
 #include <vector>
 #include <iostream>
 #include <cmath>
+#include <cstring>
 #include <mutex>
 #include <random>
 
@@ -39,6 +40,7 @@ void disconnectFromGame(AppContext& ctx) {
     ctx.showPlayerList    = false;
     ctx.spawnedOnGround   = false;
     ctx.keyFwd = ctx.keyBack = ctx.keyLeft = ctx.keyRight = ctx.keyJump = 0;
+    ctx.housePreviewActive = false;
 }
 
 static void updateLeafParticles(AppContext& ctx) {
@@ -93,6 +95,21 @@ static void updateLeafParticles(AppContext& ctx) {
             }
         }
     }
+}
+
+// Keeps the house placement ghost in front of the player, snapped to the
+// ground surface, while a placement is being previewed.
+static void updateHousePreview(AppContext& ctx) {
+    if (!ctx.housePreviewActive) return;
+    glm::vec3 fwd(sinf(glm::radians(ctx.playerYaw)), 0.0f,
+                  cosf(glm::radians(ctx.playerYaw)));
+    glm::vec3 target = ctx.camera.position + fwd * 10.0f;
+    int gx = (int)floorf(target.x), gz = (int)floorf(target.z);
+    int gy = std::min((int)ctx.camera.position.y + 8, CHUNK_HEIGHT - 2);
+    while (gy > 1 && ctx.world.getBlock(gx, gy - 1, gz) == BlockType::Air)
+        gy--;
+    ctx.housePreviewPos = glm::vec3(target.x, (float)gy, target.z);
+    ctx.housePreviewYaw = roundf(ctx.playerYaw / 90.0f) * 90.0f;
 }
 
 void updateGameplay(AppContext& ctx, GLFWwindow* window) {
@@ -259,7 +276,7 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
             if (ctx.keyJump)
                 ctx.camera.velocity.y = std::max(ctx.camera.velocity.y + 8.0f * ctx.deltaTime, 4.0f);
             ctx.camera.position += ctx.camera.velocity * ctx.deltaTime;
-            ctx.camera.position  = resolveCollision(ctx.camera.position, ctx.camera, hw, ph, ctx.world);
+            ctx.camera.position  = resolveCollision(ctx.camera.position, ctx.camera, hw, ph, ctx.world, ctx.deltaTime);
             ctx.camera.onGround  = false;
         } else {
             float walkSpeed = ctx.keySprint ? 20.0f : 10.0f;
@@ -267,7 +284,7 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
             ctx.camera.velocity.z = moveDir.z * walkSpeed;
             if (ctx.keyJump && ctx.camera.onGround) ctx.camera.velocity.y = 8.0f;
             ctx.camera.applyGravity(ctx.deltaTime);
-            ctx.camera.position = resolveCollision(ctx.camera.position, ctx.camera, hw, ph, ctx.world);
+            ctx.camera.position = resolveCollision(ctx.camera.position, ctx.camera, hw, ph, ctx.world, ctx.deltaTime);
         }
     }
 
@@ -277,4 +294,49 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
 
     if (ctx.state == GameState::Playing && !ctx.paused)
         updateLeafParticles(ctx);
+
+    updateHousePreview(ctx);
+}
+
+void sendHousePlacement(AppContext& ctx) {
+    if (!ctx.houseModel || !ctx.client) return;
+    HouseModel* h = ctx.houseModel;
+    glm::ivec3 mn = h->boundMin, mx = h->boundMax;
+    int sx = mx.x - mn.x + 1, sy = mx.y - mn.y + 1, sz = mx.z - mn.z + 1;
+    if (sx <= 0 || sy <= 0 || sz <= 0) return;
+
+    // Rotate the design by the snapped yaw quadrant (matches glm rotateY).
+    int q = ((int)lroundf(ctx.housePreviewYaw / 90.0f)) & 3;
+    int dimX = (q % 2 == 0) ? sx : sz;
+    int dimZ = (q % 2 == 0) ? sz : sx;
+    int dimY = sy;
+
+    std::vector<uint8_t> blocks((size_t)dimX * dimY * dimZ, (uint8_t)BlockType::Air);
+    auto outIdx = [&](int x, int y, int z) {
+        return ((size_t)y * dimZ + z) * dimX + x;
+    };
+    for (int y = 0; y < sy; y++)
+        for (int z = 0; z < sz; z++)
+            for (int x = 0; x < sx; x++) {
+                BlockType bt = h->get(mn.x + x, mn.y + y, mn.z + z);
+                int rx, rz;
+                switch (q) {
+                    case 1:  rx = z;          rz = sx - 1 - x; break;
+                    case 2:  rx = sx - 1 - x; rz = sz - 1 - z; break;
+                    case 3:  rx = sz - 1 - z; rz = x;          break;
+                    default: rx = x;          rz = z;          break;
+                }
+                blocks[outIdx(rx, y, rz)] = (uint8_t)bt;
+            }
+
+    HousePlaceHeader hdr;
+    hdr.worldX = (int)floorf(ctx.housePreviewPos.x) - dimX / 2;
+    hdr.baseY  = (int)floorf(ctx.housePreviewPos.y);
+    hdr.worldZ = (int)floorf(ctx.housePreviewPos.z) - dimZ / 2;
+    hdr.dimX = dimX; hdr.dimY = dimY; hdr.dimZ = dimZ;
+
+    std::vector<uint8_t> packet(sizeof(hdr) + blocks.size());
+    memcpy(packet.data(), &hdr, sizeof(hdr));
+    memcpy(packet.data() + sizeof(hdr), blocks.data(), blocks.size());
+    ctx.client->send(PacketType::HousePlace, packet.data(), packet.size());
 }

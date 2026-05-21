@@ -202,8 +202,8 @@ void renderMenuUI(AppContext& ctx, GLFWwindow* window, Renderer* renderer) {
         return;
     }
     if (ctx.state == GameState::MainMenu) {
-        ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH / 2 - 160, WINDOW_HEIGHT / 2 - 180));
-        ImGui::SetNextWindowSize(ImVec2(320, 400));
+        ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH / 2 - 160, WINDOW_HEIGHT / 2 - 230));
+        ImGui::SetNextWindowSize(ImVec2(320, 468));
         ImGui::Begin("Main Menu", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove);
 
         ImGui::Text("TERRAX");
@@ -236,6 +236,12 @@ void renderMenuUI(AppContext& ctx, GLFWwindow* window, Renderer* renderer) {
         }
         if (ImGui::Button("Character Editor", ImVec2(-1, 36))) {
             ctx.state = GameState::CharacterEditor;
+        }
+        if (ImGui::Button("House Editor", ImVec2(-1, 36))) {
+            ctx.state      = GameState::HouseEditor;
+            ctx.editorRotX = -18.0f;
+            ctx.editorRotY = 35.0f;
+            ctx.camDist    = 16.0f;
         }
         if (ImGui::Button("Settings", ImVec2(-1, 36))) {
             ctx.state = GameState::SettingsMenu;
@@ -444,6 +450,145 @@ void renderCharacterEditorUI(AppContext& ctx, GLFWwindow* window, Renderer& rend
                     }
                     hit.node->volume->updateMesh();
                 }
+            }
+        }
+        ctx.lastEditorX = mx;
+        ctx.lastEditorY = my;
+    } else {
+        ctx.wasEditorClick = false;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// House editor UI
+// ---------------------------------------------------------------------------
+
+// Blocks the player can build a house from (parallel to the combo labels below).
+static const BlockType kHouseBuildBlocks[] = {
+    BlockType::Wood, BlockType::Stone, BlockType::Glass, BlockType::Glowstone, BlockType::Leaves,
+    (BlockType)((int)BlockType::PaintFirst + 0),  (BlockType)((int)BlockType::PaintFirst + 1),
+    (BlockType)((int)BlockType::PaintFirst + 2),  (BlockType)((int)BlockType::PaintFirst + 3),
+    (BlockType)((int)BlockType::PaintFirst + 4),  (BlockType)((int)BlockType::PaintFirst + 5),
+    (BlockType)((int)BlockType::PaintFirst + 6),  (BlockType)((int)BlockType::PaintFirst + 7),
+    (BlockType)((int)BlockType::PaintFirst + 8),  (BlockType)((int)BlockType::PaintFirst + 9),
+    (BlockType)((int)BlockType::PaintFirst + 10), (BlockType)((int)BlockType::PaintFirst + 11),
+    (BlockType)((int)BlockType::PaintFirst + 12), (BlockType)((int)BlockType::PaintFirst + 13),
+    (BlockType)((int)BlockType::PaintFirst + 14), (BlockType)((int)BlockType::PaintFirst + 15),
+};
+static const char* kHouseBuildBlockLabels =
+    "Wood\0Stone\0Glass\0Glowstone\0Leaves\0"
+    "White\0Light Gray\0Gray\0Black\0Red\0Orange\0Yellow\0Lime\0"
+    "Green\0Teal\0Light Blue\0Blue\0Purple\0Pink\0Brown\0Tan\0";
+
+void renderHouseEditorUI(AppContext& ctx, GLFWwindow* window, Renderer& renderer) {
+    int fbW, fbH;
+    glfwGetFramebufferSize(window, &fbW, &fbH);
+    glViewport(0, 0, fbW, fbH);
+
+    HouseModel* house = ctx.houseModel;
+
+    glm::mat4 proj  = glm::perspective(glm::radians(45.0f), fbW / (float)fbH, 0.1f, 1000.0f);
+    glm::vec3 center(HOUSE_VX * 0.5f, 12.0f, HOUSE_VZ * 0.5f);
+    glm::mat4 model = glm::rotate(glm::mat4(1.0f), glm::radians(ctx.editorRotY), glm::vec3(0, 1, 0));
+    model = glm::rotate(model, glm::radians(ctx.editorRotX), glm::vec3(1, 0, 0));
+    model = glm::scale(model, glm::vec3(0.28f));
+    model = glm::translate(model, -center);
+    glm::mat4 view  = glm::lookAt(glm::vec3(0, 0, ctx.camDist),
+                                  glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
+
+    renderer.renderEditorHouse(ctx, model, view, proj);
+
+    // ImGui panel
+    ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(300, (float)fbH), ImGuiCond_Always);
+    ImGui::Begin("House Editor", nullptr,
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus);
+
+    if (ImGui::Button("Back to Menu", ImVec2(-1, 0))) ctx.state = GameState::MainMenu;
+    ImGui::Separator();
+
+    if (house) {
+        ImGui::Text("Template");
+        if (ImGui::Combo("##template", &house->templateType,
+                "Bungalow\0Two-Story\0Cottage\0Tower\0"))
+            house->rebuild();
+        if (ImGui::Combo("Roof", &house->roofType,
+                "Flat\0Gabled\0Hipped\0Pyramid\0"))
+            house->rebuild();
+        if (ImGui::Combo("Material", &house->material,
+                "Timber\0Cottage\0Stone\0Manor\0"))
+            house->rebuild();
+
+        ImGui::Separator();
+        if (ImGui::Button("Reset to Template", ImVec2(-1, 0)))
+            house->rebuild();
+    }
+
+    ImGui::Separator();
+    ImGui::Text("Edit Tools");
+    if (ImGui::RadioButton("Paint", ctx.editorTool == EditorTool::Paint))
+        ctx.editorTool = EditorTool::Paint;
+    if (ImGui::RadioButton("Add",   ctx.editorTool == EditorTool::Add))
+        ctx.editorTool = EditorTool::Add;
+    if (ImGui::RadioButton("Erase", ctx.editorTool == EditorTool::Erase))
+        ctx.editorTool = EditorTool::Erase;
+
+    ImGui::Separator();
+    ImGui::Text("Build Block");
+    ImGui::Combo("##buildblock", &ctx.editorBlock, kHouseBuildBlockLabels);
+
+    ImGui::Separator();
+    ImGui::TextWrapped("Drag empty space to rotate, scroll to zoom. "
+                       "Drag the house to paint/add/erase blocks.");
+    ImGui::TextWrapped("The house is built from real world blocks, so it has full "
+                       "collision once placed.");
+    ImGui::Spacing();
+    ImGui::TextWrapped("In game: press H to preview placement, H again to build it, "
+                       "Esc to cancel.");
+
+    ImGui::End();
+
+    // Mouse: rotation or block editing
+    if (house && house->volume &&
+        glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS) {
+        double mx, my;
+        glfwGetCursorPos(window, &mx, &my);
+        if (!ImGui::GetIO().WantCaptureMouse) {
+            float rx = (2.0f * (float)mx) / fbW - 1.0f;
+            float ry = 1.0f - (2.0f * (float)my) / fbH;
+            glm::vec4 clip(rx, ry, -1.0f, 1.0f);
+            glm::vec4 eye = glm::inverse(proj) * clip;
+            eye.z = -1.0f; eye.w = 0.0f;
+            glm::vec3 rd = glm::normalize(glm::vec3(glm::inverse(view) * eye));
+            glm::vec3 ro = glm::vec3(glm::inverse(view) * glm::vec4(0, 0, 0, 1));
+
+            glm::mat4 invM = glm::inverse(model);
+            glm::vec3 lro  = glm::vec3(invM * glm::vec4(ro, 1.0f));
+            glm::vec3 lrd  = glm::normalize(glm::vec3(invM * glm::vec4(rd, 0.0f)));
+            glm::ivec3 hv, hn;
+
+            if (!ctx.wasEditorClick) {
+                ctx.isEditorRotating = !house->volume->raycast(lro, lrd, 500.0f, hv, hn);
+                ctx.wasEditorClick   = true;
+            }
+
+            if (ctx.isEditorRotating) {
+                ctx.editorRotY += (float)(mx - ctx.lastEditorX) * 0.5f;
+                ctx.editorRotX += (float)(my - ctx.lastEditorY) * 0.5f;
+                ctx.editorRotX  = std::clamp(ctx.editorRotX, -89.0f, 89.0f);
+            } else if (house->volume->raycast(lro, lrd, 500.0f, hv, hn)) {
+                const int blockCount = (int)(sizeof(kHouseBuildBlocks) / sizeof(BlockType));
+                BlockType placeB = kHouseBuildBlocks[std::clamp(ctx.editorBlock, 0, blockCount - 1)];
+                if (ctx.editorTool == EditorTool::Paint) {
+                    house->set(hv.x, hv.y, hv.z, placeB);
+                } else if (ctx.editorTool == EditorTool::Add) {
+                    glm::ivec3 ap = hv + hn;
+                    house->set(ap.x, ap.y, ap.z, placeB);
+                } else {
+                    house->set(hv.x, hv.y, hv.z, BlockType::Air);
+                }
+                house->refreshMesh();
             }
         }
         ctx.lastEditorX = mx;

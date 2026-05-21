@@ -151,6 +151,8 @@
     <None Include="shaders\char.frag" />
     <None Include="shaders\shadow.vert" />
     <None Include="shaders\shadow.frag" />
+    <None Include="shaders\glass.vert" />
+    <None Include="shaders\glass.frag" />
     <None Include="Makefile" />
     <None Include="vcpkg.json" />
   </ItemGroup>

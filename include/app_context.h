@@ -18,6 +18,7 @@ struct LeafParticle {
     uint8_t   leafBT = 0;
 };
 
+
 struct AppContext {
     // --- State ---
     GameState   state       = GameState::MainMenu;
@@ -70,7 +71,7 @@ struct AppContext {
     char chatInput[MAX_CHAT_TEXT + 1] = {};
     bool showPlayerList = false;
 
-    // --- Character editor ---
+    // --- Character / house editor ---
     float editorRotX = 0.0f, editorRotY = 0.0f;
     bool  wasEditorClick   = false;
     bool  isEditorRotating = false;
@@ -79,6 +80,13 @@ struct AppContext {
     EditorTool editorTool  = EditorTool::Paint;
     float camDist          = 10.0f;
     int   editorCharType   = 0;
+    int   editorBlock      = 0;   // selected build-block index in the house editor
+
+    // --- House generator ---
+    HouseModel* houseModel        = nullptr;
+    bool        housePreviewActive = false;   // H once = preview, H again = confirm
+    glm::vec3   housePreviewPos    = glm::vec3(0.0f);
+    float       housePreviewYaw    = 0.0f;
 
     // --- Gameplay state (updated each frame by gameplay system) ---
     bool  headUnderwater = false;

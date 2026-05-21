@@ -282,6 +282,41 @@ void NetworkServer::doReceiveUDP() {
         });
 }
 
+// Floor-divide a world coordinate to its chunk coordinate.
+static int chunkOf(int w) {
+    return (w < 0 && w % CHUNK_SIZE != 0) ? w / CHUNK_SIZE - 1 : w / CHUNK_SIZE;
+}
+
+// Stamps a pre-rotated house block grid into the world and grounds it onto the
+// terrain by filling foundation pillars beneath the footprint.
+static void stampHouse(World& world, const HousePlaceHeader& h, const uint8_t* blk) {
+    auto idx = [&](int x, int y, int z) {
+        return ((size_t)y * h.dimZ + z) * h.dimX + x;
+    };
+    // Build the house (and carve any terrain inside its footprint).
+    for (int y = 0; y < h.dimY; y++)
+        for (int z = 0; z < h.dimZ; z++)
+            for (int x = 0; x < h.dimX; x++)
+                world.setBlock(h.worldX + x, h.baseY + y, h.worldZ + z,
+                               (BlockType)blk[idx(x, y, z)]);
+
+    // Ground attachment: under every solid footprint column, fill the gap down
+    // to the terrain surface so the house never floats over uneven ground.
+    for (int z = 0; z < h.dimZ; z++)
+        for (int x = 0; x < h.dimX; x++) {
+            if ((BlockType)blk[idx(x, 0, z)] == BlockType::Air) continue;
+            int wx = h.worldX + x, wz = h.worldZ + z;
+            int gy = h.baseY - 1;
+            while (gy > 0) {
+                BlockType g = world.getBlock(wx, gy, wz);
+                if (g != BlockType::Air && g != BlockType::Water) break;
+                gy--;
+            }
+            for (int wy = gy + 1; wy < h.baseY; wy++)
+                world.setBlock(wx, wy, wz, BlockType::Stone);
+        }
+}
+
 void NetworkServer::update(World& world) {
     std::queue<QueuedMessage> localQueue;
     {
@@ -344,6 +379,55 @@ void NetworkServer::update(World& world) {
                     playerNames[pj->clientID] = pj->name;
                 }
                 broadcast(PacketType::PlayerJoin, pj, sizeof(PlayerJoinPacket));
+            }
+        } else if (msg.type == PacketType::HousePlace) {
+            if (msg.data.size() >= sizeof(HousePlaceHeader) && msg.client) {
+                HousePlaceHeader hd;
+                memcpy(&hd, msg.data.data(), sizeof(hd));
+                size_t need = sizeof(HousePlaceHeader)
+                            + (size_t)hd.dimX * hd.dimY * hd.dimZ;
+                bool dimsOk = hd.dimX > 0 && hd.dimY > 0 && hd.dimZ > 0 &&
+                              hd.dimX <= 64 && hd.dimY <= 128 && hd.dimZ <= 64 &&
+                              hd.baseY >= 1 && hd.baseY + hd.dimY <= CHUNK_HEIGHT;
+                // Anti-grief: the house must be placed near the requesting player.
+                glm::vec3 pp = getPlayerPosition(msg.client->id);
+                float hcx = hd.worldX + hd.dimX * 0.5f, hcz = hd.worldZ + hd.dimZ * 0.5f;
+                float ddx = hcx - pp.x, ddz = hcz - pp.z;
+                bool nearPlayer = (ddx * ddx + ddz * ddz) <= 96.0f * 96.0f;
+
+                if (dimsOk && nearPlayer && msg.data.size() == need) {
+                    stampHouse(world, hd, msg.data.data() + sizeof(HousePlaceHeader));
+
+                    // Relight and re-broadcast every chunk the house touched so
+                    // all clients (including the placer) see the new blocks.
+                    int cx0 = chunkOf(hd.worldX - 1), cx1 = chunkOf(hd.worldX + hd.dimX);
+                    int cz0 = chunkOf(hd.worldZ - 1), cz1 = chunkOf(hd.worldZ + hd.dimZ);
+                    std::vector<std::vector<uint8_t>> chunkPackets;
+                    {
+                        std::lock_guard<std::mutex> wlock(world.chunksMutex);
+                        for (int cx = cx0; cx <= cx1; cx++)
+                            for (int cz = cz0; cz <= cz1; cz++) {
+                                auto it = world.chunks.find({cx, cz});
+                                if (it == world.chunks.end()) continue;
+                                Chunk* c = it->second.get();
+                                c->computeLight();
+                                std::vector<uint8_t> data(
+                                    sizeof(ChunkPos) + c->blocks.size() + c->lightMap.size());
+                                memcpy(data.data(), &c->pos, sizeof(ChunkPos));
+                                memcpy(data.data() + sizeof(ChunkPos),
+                                       c->blocks.data(), c->blocks.size());
+                                memcpy(data.data() + sizeof(ChunkPos) + c->blocks.size(),
+                                       c->lightMap.data(), c->lightMap.size());
+                                chunkPackets.push_back(std::move(data));
+                            }
+                    }
+                    {
+                        std::lock_guard<std::mutex> clock(clientsMutex);
+                        for (auto& cl : clients)
+                            for (auto& pkt : chunkPackets)
+                                cl->send(PacketType::ChunkData, pkt.data(), pkt.size());
+                    }
+                }
             }
         }
     }

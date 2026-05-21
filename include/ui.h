@@ -13,6 +13,10 @@ void renderMenuUI(AppContext& ctx, GLFWwindow* window, Renderer* renderer);
 // Also calls renderer.renderEditorCharacter for the 3D viewport.
 void renderCharacterEditorUI(AppContext& ctx, GLFWwindow* window, Renderer& renderer);
 
+// Renders the house generator ImGui panel + handles mouse input for voxel editing / rotation.
+// Also calls renderer.renderEditorHouse for the 3D viewport.
+void renderHouseEditorUI(AppContext& ctx, GLFWwindow* window, Renderer& renderer);
+
 // Renders in-game HUD, underwater overlay, breath bar, nametags, chat, player list.
 void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer);
 

@@ -35,6 +35,7 @@ enum class PacketType : uint8_t {
     Chat = 9,
     PlayerJoin = 10,
     DayTime = 11,
+    HousePlace = 12,
 };
 
 #pragma pack(push, 1)
@@ -100,6 +101,14 @@ struct ChatPacket {
 
 struct DayTimePacket {
     float gameTime;
+};
+
+// HousePlace payload: this header, followed by dimX*dimY*dimZ bytes of BlockType.
+// Block index order is ((y * dimZ) + z) * dimX + x. The grid is pre-rotated by
+// the client so the server can stamp it axis-aligned at (worldX, baseY, worldZ).
+struct HousePlaceHeader {
+    int worldX, baseY, worldZ;   // world position of the grid's (0,0,0) corner
+    int dimX, dimY, dimZ;        // dimensions of the block grid that follows
 };
 #pragma pack(pop)
 

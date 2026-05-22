@@ -128,8 +128,9 @@ void placeDecorations(const Town& t) {
             for (int d = 6; d < (int)segLen; d += 11) {
                 float u = (float)d / segLen;
                 int side = (decoIdx & 1) ? 1 : -1;
-                int ox = a.x + (int)(dx * u + perpX * 3.0f * side);
-                int oz = a.y + (int)(dz * u + perpZ * 3.0f * side);
+                // Offset clear of the widest a path ever varies to (see pathHalfWidth).
+                int ox = a.x + (int)(dx * u + perpX * 5.0f * side);
+                int oz = a.y + (int)(dz * u + perpZ * 5.0f * side);
                 decoIdx++;
                 if (insideBuilding(ox, oz)) continue;
                 int gy = sampleSurfaceSolid(ox, oz);
@@ -194,8 +195,9 @@ void placeFenceRun(const TownPlan& plan, const std::vector<glm::ivec2>& pts,
         float yaw = glm::degrees(std::atan2(dirX, dirZ));
         while (nextAt <= traveled + segLen) {
             float u  = nextAt - traveled;
-            float px = ax + dirX * u + perpX * 2.8f * (float)side;
-            float pz = az + dirZ * u + perpZ * 2.8f * (float)side;
+            // Offset clear of the widest a path ever varies to (see pathHalfWidth).
+            float px = ax + dirX * u + perpX * 4.8f * (float)side;
+            float pz = az + dirZ * u + perpZ * 4.8f * (float)side;
             nextAt += FENCE_SECTION_LEN;
             int gx = (int)std::floor(px), gz = (int)std::floor(pz);
             if (insideAnyBuilding(plan, gx, gz)) continue;

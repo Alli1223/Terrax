@@ -21,6 +21,12 @@ struct LeafParticle {
     uint8_t   leafBT = 0;
 };
 
+struct WeatherParticle {
+    glm::vec3 pos{0.0f}, vel{0.0f};
+    float     life = 0.0f;
+    float     seed = 0.0f;   // per-particle phase offset for drift
+};
+
 
 struct AppContext {
     // --- State ---
@@ -121,6 +127,13 @@ struct AppContext {
     // --- Leaf particles ---
     std::vector<LeafParticle> leafParticles;
     float leafSpawnTimer = 0.0f;
+
+    // --- Weather (client-side: dynamic cycles with occasional storms) ---
+    float weatherIntensity = 0.0f;   // eased 0 (clear) .. 1 (full storm)
+    float weatherTarget    = 0.0f;   // intensity the current phase eases toward
+    float weatherTimer     = 5.0f;   // seconds until the next weather phase
+    int   weatherKind      = 0;      // 0 = rain biome, 1 = snow biome
+    std::vector<WeatherParticle> weatherParticles;
 
     // --- NPC interaction ---
     bool        interactPressed = false;   // E pressed this frame (set by input)

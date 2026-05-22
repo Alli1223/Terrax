@@ -916,8 +916,9 @@ void placeStreetLamps(TownPlan& plan) {
                             continue;
                     }
                     int s  = (side++ & 1) ? 1 : -1;
-                    int lx = px + (int)(perpX * 4.0f * (float)s);
-                    int lz = pz + (int)(perpZ * 4.0f * (float)s);
+                    // Offset clear of the widest a path ever varies to (see pathHalfWidth).
+                    int lx = px + (int)(perpX * 5.2f * (float)s);
+                    int lz = pz + (int)(perpZ * 5.2f * (float)s);
                     if (inBuilding(lx, lz) || tooClose(lx, lz)) continue;
                     t.lampPosts.push_back(glm::ivec2(lx, lz));
                 }
@@ -1137,6 +1138,38 @@ void stampHouseSteps(Chunk* c, const TownBuilding& b) {
     }
 }
 
+// --- Path width --------------------------------------------------------------
+// Gravel paths are not a fixed width: each one widens and narrows along its
+// length. The half-width at a point comes from smooth 1-D value noise of the
+// arc length travelled, so a given path position yields the same width no
+// matter which chunk happens to stamp it.
+constexpr float PATH_HW_MIN  = 2.0f;   // narrowest -> ~4 voxels across
+constexpr float PATH_HW_MAX  = 4.0f;   // widest    -> ~8 voxels across
+constexpr int   PATH_HW_CEIL = 4;      // ceil(PATH_HW_MAX) — chunk-clip margin
+
+// Smooth value noise in [0,1]: lattice points are hashed and blended with a
+// smoothstep, giving a continuous curve with no abrupt steps.
+float pathNoise1D(float x, uint32_t seed) {
+    int   i0 = (int)std::floor(x);
+    float f  = x - (float)i0;
+    f = f * f * (3.0f - 2.0f * f);
+    auto h = [seed](int i) {
+        uint32_t u = (uint32_t)i * 0x9E3779B1u ^ seed;
+        u ^= u >> 16; u *= 0x85EBCA77u; u ^= u >> 13;
+        return (float)(u & 0xFFFFFFu) / (float)0xFFFFFFu;
+    };
+    float a = h(i0), b = h(i0 + 1);
+    return a + (b - a) * f;
+}
+
+// Path half-width `arc` blocks along a path. A low-frequency octave drives the
+// broad widen/narrow; a smaller octave adds finer texture to the edge.
+float pathHalfWidth(float arc, uint32_t seed) {
+    float n = pathNoise1D(arc * (1.0f / 25.0f), seed)           * 0.75f
+            + pathNoise1D(arc * (1.0f /  9.0f), seed ^ 0xA53Cu) * 0.25f;
+    return PATH_HW_MIN + n * (PATH_HW_MAX - PATH_HW_MIN);
+}
+
 // Lays one gravel road cell: gravel on the terrain surface (a causeway over
 // water), with the column above cleared so the path stays walkable.
 void stampRoadCell(Chunk* c, int lx, int lz, int sink) {
@@ -1150,7 +1183,7 @@ void stampRoadCell(Chunk* c, int lx, int lz, int sink) {
         gtop = y; break;
     }
     if (gtop < 0) return;
-    // Idempotent guard: a 3-wide road revisits each cell from many overlapping
+    // Idempotent guard: a wide road revisits each cell from many overlapping
     // stamps. If the surface is already road gravel, stop — otherwise each
     // revisit would re-engrave it another block deeper.
     if (c->get(lx, gtop, lz) == BlockType::Gravel) return;
@@ -1183,16 +1216,26 @@ void stampRoadCell(Chunk* c, int lx, int lz, int sink) {
 }
 
 // Rasterises a road polyline into this chunk; each segment is slab-clipped to
-// the chunk so only the part that actually crosses it is drawn.
+// the chunk so only the part that actually crosses it is drawn. The stamp is a
+// disc whose radius varies smoothly along the path (see pathHalfWidth).
 void stampRoad(Chunk* c, const TownRoad& r, int sink) {
+    if (r.pts.size() < 2) return;
     const int ox = c->pos.x * CHUNK_SIZE, oz = c->pos.z * CHUNK_SIZE;
-    const int hw = 1;                                   // 3-wide road
+    const int hw = PATH_HW_CEIL;                        // widest the disc reaches
     const int xmin = ox - hw - 1, xmax = ox + CHUNK_SIZE + hw;
     const int zmin = oz - hw - 1, zmax = oz + CHUNK_SIZE + hw;
 
+    // Per-road seed: each path's width wobble is unique but deterministic, so
+    // every chunk that re-stamps the road agrees on the width along it.
+    uint32_t seed = (uint32_t)worldSeed()
+                  ^ (uint32_t)(r.pts[0].x * 0x9E3779B1u)
+                  ^ (uint32_t)(r.pts[0].y * 0x85EBCA77u);
+
+    float arc = 0.0f;                                   // arc length to segment start
     for (size_t i = 0; i + 1 < r.pts.size(); i++) {
         int ax = r.pts[i].x,     az = r.pts[i].y;
         int dx = r.pts[i+1].x - ax, dz = r.pts[i+1].y - az;
+        float segLen = std::sqrt((float)(dx * dx + dz * dz));
 
         float t0 = 0.0f, t1 = 1.0f;
         bool ok = true;
@@ -1205,7 +1248,7 @@ void stampRoad(Chunk* c, const TownRoad& r, int sink) {
         };
         slab(ax, dx, xmin, xmax);
         if (ok) slab(az, dz, zmin, zmax);
-        if (!ok) continue;
+        if (!ok) { arc += segLen; continue; }
 
         int steps = std::max(std::abs(dx), std::abs(dz));
         if (steps == 0) steps = 1;
@@ -1214,13 +1257,20 @@ void stampRoad(Chunk* c, const TownRoad& r, int sink) {
         for (int s = s0; s <= s1; s++) {
             int px = ax + (int)((long long)dx * s / steps);
             int pz = az + (int)((long long)dz * s / steps);
-            for (int ddx = -hw; ddx <= hw; ddx++)
-                for (int ddz = -hw; ddz <= hw; ddz++) {
+
+            // Disc radius for this point, from the arc length reached so far.
+            float w  = pathHalfWidth(arc + segLen * ((float)s / (float)steps), seed);
+            float w2 = w * w;
+            int   wi = (int)std::ceil(w);
+            for (int ddx = -wi; ddx <= wi; ddx++)
+                for (int ddz = -wi; ddz <= wi; ddz++) {
+                    if ((float)(ddx * ddx + ddz * ddz) > w2) continue;
                     int lx = px + ddx - ox, lz = pz + ddz - oz;
                     if (lx >= 0 && lx < CHUNK_SIZE && lz >= 0 && lz < CHUNK_SIZE)
                         stampRoadCell(c, lx, lz, sink);
                 }
         }
+        arc += segLen;
     }
 }
 

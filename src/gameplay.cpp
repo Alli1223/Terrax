@@ -321,6 +321,101 @@ static void updateLeafParticles(AppContext& ctx) {
     }
 }
 
+// Advances the client-side weather state: a dynamic cycle of clear spells,
+// rain and the occasional storm. weatherIntensity eases toward each phase's
+// target so weather rolls in and clears gradually rather than snapping.
+static void updateWeather(AppContext& ctx) {
+    static std::mt19937 wRng(std::random_device{}());
+    std::uniform_real_distribution<float> u01(0.0f, 1.0f);
+
+    // Precipitation kind tracks the biome under the player — mountains and
+    // tundra get snow, everywhere else gets rain.
+    SurfaceSample s = sampleSurface((int)floorf(ctx.camera.position.x),
+                                    (int)floorf(ctx.camera.position.z));
+    ctx.weatherKind = (s.biome == 3 || s.biome == 4) ? 1 : 0;
+
+    // When a phase ends, roll the next one: mostly fair weather, sometimes
+    // rain, occasionally a full storm.
+    ctx.weatherTimer -= ctx.deltaTime;
+    if (ctx.weatherTimer <= 0.0f) {
+        float r = u01(wRng);
+        if (r < 0.50f) {                                  // clear spell
+            ctx.weatherTarget = 0.05f * u01(wRng);
+            ctx.weatherTimer  = 70.0f + 80.0f * u01(wRng);
+        } else if (r < 0.84f) {                           // rain / light weather
+            ctx.weatherTarget = 0.30f + 0.30f * u01(wRng);
+            ctx.weatherTimer  = 55.0f + 55.0f * u01(wRng);
+        } else {                                          // storm
+            ctx.weatherTarget = 0.82f + 0.18f * u01(wRng);
+            ctx.weatherTimer  = 35.0f + 35.0f * u01(wRng);
+        }
+    }
+    // Ease toward the target so weather rolls in and clears gradually.
+    ctx.weatherIntensity += (ctx.weatherTarget - ctx.weatherIntensity)
+                          * std::min(1.0f, ctx.deltaTime * 0.18f);
+}
+
+// Spawns and advances rain / snow particles in a column around the camera.
+// Density tracks the storm intensity; rain falls fast and straight, snow
+// drifts gently. Particles die on any solid block, so precipitation naturally
+// stops under a roof (leaves are pass-through so rain reaches the forest floor).
+static void updateWeatherParticles(AppContext& ctx) {
+    static std::mt19937 pRng(std::random_device{}());
+    std::uniform_real_distribution<float> u01(0.0f, 1.0f);
+    const int       MAX_WP = 900;
+    const bool      snow   = (ctx.weatherKind == 1);
+    const glm::vec3 cam    = ctx.camera.position;
+
+    // Advance and recycle existing particles.
+    for (int i = (int)ctx.weatherParticles.size() - 1; i >= 0; i--) {
+        WeatherParticle& p = ctx.weatherParticles[i];
+        p.life -= ctx.deltaTime;
+        if (snow) {
+            p.pos.x += sinf(p.pos.y * 0.6f + p.seed) * 0.5f * ctx.deltaTime;
+            p.pos.z += cosf(p.pos.y * 0.5f + p.seed * 1.3f) * 0.5f * ctx.deltaTime;
+            p.pos.y += p.vel.y * ctx.deltaTime;
+        } else {
+            p.pos += p.vel * ctx.deltaTime;
+        }
+        BlockType hb = ctx.world.getBlock((int)floorf(p.pos.x),
+                                          (int)floorf(p.pos.y),
+                                          (int)floorf(p.pos.z));
+        bool hitSolid = hb != BlockType::Air        && hb != BlockType::Leaves &&
+                        hb != BlockType::LeavesOrange && hb != BlockType::LeavesRed &&
+                        hb != BlockType::LeavesPink;
+        if (p.life <= 0.0f || p.pos.y < cam.y - 12.0f || hitSolid) {
+            ctx.weatherParticles[i] = ctx.weatherParticles.back();
+            ctx.weatherParticles.pop_back();
+        }
+    }
+
+    // Below a whisper of weather, stop spawning and let the stragglers fall.
+    if (ctx.weatherIntensity < 0.04f) return;
+
+    int target  = std::min(MAX_WP,
+                  (int)((snow ? 470.0f : 820.0f) * ctx.weatherIntensity));
+    int deficit = target - (int)ctx.weatherParticles.size();
+    int spawn   = std::min(deficit, snow ? 9 : 26);
+    for (int s = 0; s < spawn; s++) {
+        WeatherParticle p;
+        float ang = u01(pRng) * 6.2831853f;
+        float rad = sqrtf(u01(pRng)) * 24.0f;
+        float hi  = snow ? (8.0f + u01(pRng) * 14.0f) : (14.0f + u01(pRng) * 12.0f);
+        p.pos  = glm::vec3(cam.x + cosf(ang) * rad, cam.y + hi,
+                           cam.z + sinf(ang) * rad);
+        p.seed = u01(pRng) * 6.2831853f;
+        if (snow) {
+            p.vel  = glm::vec3(0.0f, -1.3f - u01(pRng) * 0.9f, 0.0f);
+            p.life = 24.0f;
+        } else {
+            p.vel  = glm::vec3(1.4f + u01(pRng) * 1.3f,
+                               -22.0f - u01(pRng) * 7.0f, 0.7f);
+            p.life = 5.0f;
+        }
+        ctx.weatherParticles.push_back(p);
+    }
+}
+
 // Keeps the house placement ghost in front of the player, snapped to the
 // ground surface, while a placement is being previewed.
 static void updateHousePreview(AppContext& ctx) {
@@ -594,8 +689,11 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
 
     updateNpcInteraction(ctx);
 
-    if (ctx.state == GameState::Playing && !ctx.paused)
+    if (ctx.state == GameState::Playing && !ctx.paused) {
         updateLeafParticles(ctx);
+        updateWeather(ctx);
+        updateWeatherParticles(ctx);
+    }
 
     updateHousePreview(ctx);
 }

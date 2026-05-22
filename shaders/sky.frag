@@ -5,6 +5,7 @@ out vec4 FragColor;
 
 uniform float timeOfDay;
 uniform float time;
+uniform float u_weather;   // 0 = clear .. 1 = full storm
 
 const float PI = 3.14159265359;
 
@@ -185,7 +186,7 @@ void main() {
                 * celestialDisc(dir, moon, 0.9994, 220.0) * moonVis * 0.85;
 
     // ── Stars ─────────────────────────────────────────────────────────────────
-    float star = starField(dir, nightness);
+    float star = starField(dir, nightness) * (1.0 - u_weather);
     skyColor  += vec3(star * 0.95, star * 0.97, star * 1.00);
 
     // ── Voxel clouds ─────────────────────────────────────────────────────────
@@ -206,6 +207,12 @@ void main() {
                              mix(nightHorizon, dayHorizon, dayness) * 0.5, 0.25);
         skyColor = mix(skyColor, groundCol, smoothstep(0.06, -0.10, dir.y));
     }
+
+    // ── Overcast: a storm flattens the dome to a heavy grey ───────────────────
+    vec3 overcastDay   = mix(vec3(0.62, 0.64, 0.68), vec3(0.40, 0.43, 0.49), elevP);
+    vec3 overcastNight = mix(vec3(0.045, 0.050, 0.065), vec3(0.020, 0.025, 0.035), elevP);
+    vec3 overcast      = mix(overcastNight, overcastDay, dayness);
+    skyColor = mix(skyColor, overcast, u_weather * 0.90);
 
     // Valheim: slight desaturation for naturalistic mood
     float lum = dot(skyColor, vec3(0.299, 0.587, 0.114));

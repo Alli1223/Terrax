@@ -38,12 +38,17 @@ private:
     static constexpr float WATER_Y    = 29.0f;
 
     Shader chunkShader, waterShader, skyShader, charShader, shadowShader, glassShader;
+    Shader weatherShader, postShader, vegetationShader;
 
     GLuint skyVAO = 0, skyVBO = 0;
     GLuint atlasTexture = 0;
     GLuint shadowFBO = 0, shadowMapTex = 0;
     GLuint reflFBO = 0, reflColorTex = 0, reflDepthRBO = 0;
     GLuint particleVao = 0, particleVbo = 0;
+
+    // Scene framebuffer + fullscreen post pass (volumetric light shafts).
+    GLuint sceneFBO = 0, sceneColorTex = 0, sceneDepthTex = 0;
+    GLuint postVao = 0;
 
     // --- Dynamic point-light occlusion volume ---
     // A 3D opacity texture of the blocks around the player; the shaders raymarch
@@ -55,5 +60,6 @@ private:
     void updateLightVolume(AppContext& ctx);
 
     void setupSkybox();
-    void renderSkybox(const glm::mat4& view, const glm::mat4& proj, float gameTime, float time);
+    void renderSkybox(const glm::mat4& view, const glm::mat4& proj,
+                      float gameTime, float time, float weather);
 };

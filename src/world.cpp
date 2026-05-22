@@ -333,26 +333,12 @@ void Chunk::buildMesh(World* world) {
         }
     }
 
-    // --- Foliage cross-mesh ---
-    std::vector<Vertex> fverts;
-    fverts.reserve(256);
-
-    auto pushFoliageQuad = [&](
-        float x0, float y0, float z0,
-        float x1, float y1, float z1,
-        float x2, float y2, float z2,
-        float x3, float y3, float z3,
-        float fu0, float fv0, float fu1, float fv1,
-        float skyL, float blkL)
-    {
-        Vertex q[4];
-        q[0] = {x0,y0,z0, 0,1,0, fu0, fv0, 0, skyL, blkL, 0.0f};
-        q[1] = {x1,y1,z1, 0,1,0, fu0, fv1, 0, skyL, blkL, 0.0f};
-        q[2] = {x2,y2,z2, 0,1,0, fu1, fv1, 0, skyL, blkL, 0.0f};
-        q[3] = {x3,y3,z3, 0,1,0, fu1, fv0, 0, skyL, blkL, 0.0f};
-        fverts.push_back(q[0]); fverts.push_back(q[1]); fverts.push_back(q[2]);
-        fverts.push_back(q[0]); fverts.push_back(q[2]); fverts.push_back(q[3]);
-    };
+    // --- Vegetation mesh ---
+    // Detailed procedural ground cover (ferns, grasses, logs, ...) — see
+    // vegetation.cpp. Replaces the old cross-quad grass/flowers; baked
+    // per-chunk so a whole chunk of vegetation is still a single draw call.
+    std::vector<VegVertex> fverts;
+    fverts.reserve(4096);
 
     for (int z = 0; z < CHUNK_SIZE; z++) {
         for (int x = 0; x < CHUNK_SIZE; x++) {
@@ -362,35 +348,24 @@ void Chunk::buildMesh(World* world) {
                 BlockType b = get(x, y, z);
                 if (b != BlockType::Air) { topY = y; topBlock = b; break; }
             }
-            if (topY < 0 || topBlock != BlockType::Grass) continue;
+            if (topY < 0) continue;
+            // Vegetation only roots in natural ground cover — never on snow.
+            if (topBlock != BlockType::Grass && topBlock != BlockType::Dirt &&
+                topBlock != BlockType::Sand) continue;
             int fy = topY + 1;
             if (fy >= CHUNK_HEIGHT || get(x, fy, z) != BlockType::Air) continue;
 
             int wx = pos.x * CHUNK_SIZE + x;
             int wz = pos.z * CHUNK_SIZE + z;
-            uint32_t h = (uint32_t)(wx * 1619 + wz * 31337);
-            h ^= (h >> 16); h *= 0x45d9f3bu; h ^= (h >> 16);
-            uint32_t sel = h & 0xFF;
-
-            TileID tile;
-            if      (sel < 64)  tile = TileID::TallGrass;
-            else if (sel < 74)  tile = TileID::FlowerRed;
-            else if (sel < 84)  tile = TileID::FlowerYellow;
-            else if (sel < 92)  tile = TileID::FlowerBlue;
-            else continue;
-
-            float fu0, fv0, fu1, fv1;
-            tileUV(tile, fu0, fv0, fu1, fv1);
+            VegetationType vt =
+                Vegetation::pick(sampleSurface(wx, wz).biome, wx, wz);
+            if (vt == VegetationType::None) continue;
 
             float skyL = getSkyLight (x, fy, z) / 15.0f;
             float blkL = getBlockLight(x, fy, z) / 15.0f;
-
-            float fx = (float)wx, fz = (float)wz;
-            float fy0 = (float)fy, fy1 = fy0 + 1.0f;
-
-            // Two crossed quads (X shape)
-            pushFoliageQuad(fx,   fy0, fz,   fx,   fy1, fz,   fx+1, fy1, fz+1, fx+1, fy0, fz+1, fu0, fv0, fu1, fv1, skyL, blkL);
-            pushFoliageQuad(fx+1, fy0, fz,   fx+1, fy1, fz,   fx,   fy1, fz+1, fx,   fy0, fz+1, fu0, fv0, fu1, fv1, skyL, blkL);
+            uint32_t seed = (uint32_t)wx * 73856093u ^ (uint32_t)wz * 19349663u;
+            Vegetation::emit(fverts, vt, (float)wx, (float)fy, (float)wz,
+                             skyL, blkL, seed);
         }
     }
 
@@ -422,6 +397,21 @@ static void setupVertexAttribs() {
     glEnableVertexAttribArray(6);
 }
 
+static void setupVegVertexAttribs() {
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(VegVertex), (void*)offsetof(VegVertex, x));
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(VegVertex), (void*)offsetof(VegVertex, nx));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(VegVertex), (void*)offsetof(VegVertex, r));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, sizeof(VegVertex), (void*)offsetof(VegVertex, sway));
+    glEnableVertexAttribArray(3);
+    glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, sizeof(VegVertex), (void*)offsetof(VegVertex, skyLight));
+    glEnableVertexAttribArray(4);
+    glVertexAttribPointer(5, 1, GL_FLOAT, GL_FALSE, sizeof(VegVertex), (void*)offsetof(VegVertex, blockLight));
+    glEnableVertexAttribArray(5);
+}
+
 void Chunk::uploadMesh() {
     if (isServer) return;
     std::lock_guard<std::mutex> lock(meshMutex);
@@ -444,13 +434,13 @@ void Chunk::uploadMesh() {
     waterVertexCount = (int)waterData.size();
     waterData.clear();
 
-    // Foliage mesh
+    // Vegetation mesh
     if (!foliageData.empty()) {
         if (!foliageVao) { glGenVertexArrays(1, &foliageVao); glGenBuffers(1, &foliageVbo); }
         glBindVertexArray(foliageVao);
         glBindBuffer(GL_ARRAY_BUFFER, foliageVbo);
-        glBufferData(GL_ARRAY_BUFFER, foliageData.size() * sizeof(Vertex), foliageData.data(), GL_STATIC_DRAW);
-        setupVertexAttribs();
+        glBufferData(GL_ARRAY_BUFFER, foliageData.size() * sizeof(VegVertex), foliageData.data(), GL_STATIC_DRAW);
+        setupVegVertexAttribs();
         foliageVertexCount = (int)foliageData.size();
         foliageData.clear();
     }

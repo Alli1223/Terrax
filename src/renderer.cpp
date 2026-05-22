@@ -139,6 +139,9 @@ bool Renderer::init(int width, int height) {
     charShader   = Shader("shaders/char.vert",   "shaders/char.frag");
     shadowShader = Shader("shaders/shadow.vert", "shaders/shadow.frag");
     glassShader  = Shader("shaders/glass.vert",  "shaders/glass.frag");
+    weatherShader = Shader("shaders/weather.vert", "shaders/weather.frag");
+    postShader    = Shader("shaders/post.vert",    "shaders/post.frag");
+    vegetationShader = Shader("shaders/vegetation.vert", "shaders/vegetation.frag");
 
     setupSkybox();
     atlasTexture = generateAtlas();
@@ -199,6 +202,32 @@ bool Renderer::init(int width, int height) {
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, reflDepthRBO);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
+    // Scene framebuffer — the world renders here so the post pass can add
+    // volumetric light shafts. Depth is a texture so the post shader can
+    // reconstruct world positions and bound the ray march.
+    glGenFramebuffers(1, &sceneFBO);
+    glGenTextures(1, &sceneColorTex);
+    glBindTexture(GL_TEXTURE_2D, sceneColorTex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glGenTextures(1, &sceneDepthTex);
+    glBindTexture(GL_TEXTURE_2D, sceneDepthTex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, width, height,
+                 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindFramebuffer(GL_FRAMEBUFFER, sceneFBO);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sceneColorTex, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,  GL_TEXTURE_2D, sceneDepthTex, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    glGenVertexArrays(1, &postVao);   // empty VAO for the fullscreen post pass
+
     return true;
 }
 
@@ -208,17 +237,23 @@ void Renderer::resizeFramebuffers(int width, int height) {
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
     glBindRenderbuffer(GL_RENDERBUFFER, reflDepthRBO);
     glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height);
+    glBindTexture(GL_TEXTURE_2D, sceneColorTex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
+    glBindTexture(GL_TEXTURE_2D, sceneDepthTex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, width, height,
+                 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
 void Renderer::renderSkybox(const glm::mat4& view, const glm::mat4& proj,
-                              float gameTime, float time) {
+                              float gameTime, float time, float weather) {
     glDisable(GL_DEPTH_TEST); glDepthMask(GL_FALSE); glDisable(GL_CULL_FACE);
     skyShader.use();
     skyShader.setMat4("view", glm::mat4(glm::mat3(view)));
     skyShader.setMat4("projection", proj);
     skyShader.setFloat("timeOfDay", gameTime);
     skyShader.setFloat("time", time);
+    skyShader.setFloat("u_weather", weather);
     glBindVertexArray(skyVAO);
     glDrawArrays(GL_TRIANGLES, 0, 36);
     glEnable(GL_DEPTH_TEST); glDepthMask(GL_TRUE);
@@ -235,6 +270,8 @@ void Renderer::renderEditorCharacter(AppContext& ctx, const glm::mat4& model,
     charShader.setLanternLights(0, nullptr, nullptr, nullptr);
     charShader.setFloat("u_alpha", 1.0f);
     charShader.setFloat("u_skyExposure", 1.0f);
+    charShader.setVec3("camPos", glm::vec3(glm::inverse(view)[3]));
+    charShader.setFloat("u_weather", 0.0f);
     // Shadow disabled: map all fragments outside clip-space so calcShadow returns 0
     glm::mat4 editorLSM = glm::mat4(0.0f);
     editorLSM[3][2] = 2.0f;
@@ -263,6 +300,8 @@ void Renderer::renderEditorHouse(AppContext& ctx, const glm::mat4& model,
     charShader.setLanternLights(0, nullptr, nullptr, nullptr);
     charShader.setFloat("u_alpha", 1.0f);
     charShader.setFloat("u_skyExposure", 1.0f);
+    charShader.setVec3("camPos", glm::vec3(glm::inverse(view)[3]));
+    charShader.setFloat("u_weather", 0.0f);
     // Shadow disabled: map all fragments outside clip-space so calcShadow returns 0
     glm::mat4 editorLSM = glm::mat4(0.0f);
     editorLSM[3][2] = 2.0f;
@@ -422,6 +461,14 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     glm::vec3 sunDir = glm::normalize(glm::vec3(
         cosf(sunAngle) * 0.6f, sinf(sunAngle), 0.35f));
 
+    // --- Weather mood (storm-driven) ---
+    // Clear weather keeps the current daytime brightness; as a storm rolls in
+    // the sun dims and the scene floods with cold, flat overcast light.
+    float weather = std::clamp(ctx.weatherIntensity, 0.0f, 1.0f);
+    sunFactor *= 1.0f - 0.66f * weather;
+    glm::vec3 overcastAmb = glm::vec3(0.30f, 0.33f, 0.40f) * (0.32f + 0.68f * dayness);
+    skyAmbient = glm::mix(skyAmbient, overcastAmb, weather * 0.80f);
+
     // --- Lantern ---
     ctx.flickerTime += ctx.deltaTime;
     float flicker = 1.0f
@@ -452,7 +499,7 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
         glBindFramebuffer(GL_FRAMEBUFFER, reflFBO);
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        renderSkybox(reflView, proj, ctx.gameTime, currentTime);
+        renderSkybox(reflView, proj, ctx.gameTime, currentTime, weather);
         glEnable(GL_CULL_FACE); glCullFace(GL_FRONT);
         glEnable(GL_CLIP_DISTANCE0);
         chunkShader.use();
@@ -468,6 +515,7 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
         chunkShader.setVec3("camPos",          reflEye);
         chunkShader.setVec3("u_sunDir",        sunDir);
         bindLanternLights(chunkShader, lanternLights, lightVolOrigin, LIGHTVOL_SIZE, 2);
+        chunkShader.setFloat("u_weather", weather);
         chunkShader.setVec4("u_clipPlane", glm::vec4(0.0f, 1.0f, 0.0f, -WATER_Y));
         ctx.world.drawAll();
         glDisable(GL_CLIP_DISTANCE0); glCullFace(GL_BACK); glEnable(GL_CULL_FACE);
@@ -499,11 +547,12 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glViewport(0, 0, fbW, fbH);
 
-    // --- Main pass ---
+    // --- Main pass (into the scene framebuffer so the post pass can run) ---
+    glBindFramebuffer(GL_FRAMEBUFFER, sceneFBO);
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    renderSkybox(view, proj, ctx.gameTime, currentTime);
+    renderSkybox(view, proj, ctx.gameTime, currentTime, weather);
     glEnable(GL_CULL_FACE);
 
     // Terrain
@@ -520,6 +569,7 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     chunkShader.setVec3("camPos",          eyePos);
     chunkShader.setVec3("u_sunDir",        sunDir);
     bindLanternLights(chunkShader, lanternLights, lightVolOrigin, LIGHTVOL_SIZE, 2);
+    chunkShader.setFloat("u_weather",  weather);
     chunkShader.setVec4("u_clipPlane", glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
     ctx.world.drawAll();
 
@@ -533,6 +583,8 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     charShader.setFloat("sunFactor",      sunFactor);
     charShader.setVec3("skyAmbient",      skyAmbient);
     charShader.setVec3("u_sunDir",        sunDir);
+    charShader.setVec3("camPos",          eyePos);
+    charShader.setFloat("u_weather",      weather);
     bindLanternLights(charShader, lanternLights, lightVolOrigin, LIGHTVOL_SIZE, 2);
     charShader.setFloat("time", currentTime);
     charShader.setFloat("u_alpha", 1.0f);
@@ -566,24 +618,40 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
         glDisable(GL_BLEND);
     }
 
-    // Foliage (alpha-cutout, no back-face culling)
+    // Vegetation — detailed procedural ground cover, two-sided (no culling)
     glDisable(GL_CULL_FACE);
-    chunkShader.use();
-    glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, atlasTexture);
-    glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, shadowMapTex);
-    chunkShader.setMat4("view", view); chunkShader.setMat4("projection", proj);
-    chunkShader.setMat4("lightSpaceMatrix", lightSpaceMat);
-    chunkShader.setFloat("sunFactor", sunFactor);
-    chunkShader.setVec3("skyAmbient", skyAmbient);
-    chunkShader.setVec3("camPos", eyePos);
-    chunkShader.setVec3("u_sunDir", sunDir);
-    bindLanternLights(chunkShader, lanternLights, lightVolOrigin, LIGHTVOL_SIZE, 2);
-    chunkShader.setFloat("time", currentTime);
-    chunkShader.setVec4("u_clipPlane", glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+    vegetationShader.use();
+    vegetationShader.setMat4("view", view);
+    vegetationShader.setMat4("projection", proj);
+    vegetationShader.setFloat("sunFactor", sunFactor);
+    vegetationShader.setVec3("skyAmbient", skyAmbient);
+    vegetationShader.setVec3("camPos", eyePos);
+    vegetationShader.setVec3("u_sunDir", sunDir);
+    vegetationShader.setLanternLights(lanternLights.count, lanternLights.pos,
+                                      lanternLights.intensity, lanternLights.radius);
+    vegetationShader.setFloat("u_weather", weather);
+    vegetationShader.setFloat("time", currentTime);
+    // Players bend nearby vegetation as they move through it.
+    {
+        glm::vec3 disturb[8];
+        int dn = 0;
+        if (ctx.localPlayer) disturb[dn++] = ctx.localPlayer->position;
+        for (const auto& [id, rp] : ctx.remotePlayers) {
+            if (dn >= 8) break;
+            (void)id;
+            disturb[dn++] = rp.position;
+        }
+        vegetationShader.setInt("u_disturbCount", dn);
+        if (dn > 0)
+            glUniform3fv(glGetUniformLocation(vegetationShader.id, "u_disturbPos"),
+                         dn, &disturb[0][0]);
+    }
     ctx.world.drawAllFoliage();
 
-    // Leaf particles — tiny coloured cubes, no culling (already disabled)
+    // Leaf particles — tiny coloured cubes, drawn with the chunk shader
     if (!ctx.leafParticles.empty()) {
+        chunkShader.use();
+        chunkShader.setFloat("time", currentTime);
         static std::vector<Vertex> pv;
         pv.clear();
         pv.reserve(ctx.leafParticles.size() * 36);
@@ -650,6 +718,7 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     glassShader.setVec3("skyAmbient", skyAmbient);
     glassShader.setVec3("camPos",     eyePos);
     glassShader.setVec3("u_sunDir",   sunDir);
+    glassShader.setFloat("u_weather", weather);
     ctx.world.drawAllGlass();
     glDepthMask(GL_TRUE); glDisable(GL_BLEND); glEnable(GL_CULL_FACE);
 
@@ -670,9 +739,86 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     waterShader.setFloat("time",       currentTime);
     waterShader.setFloat("timeOfDay",  ctx.gameTime);
     waterShader.setVec3("u_sunDir",    sunDir);
+    waterShader.setFloat("u_weather",  weather);
     bindLanternLights(waterShader, lanternLights, lightVolOrigin, LIGHTVOL_SIZE, 3);
     ctx.world.drawAllWater();
     glDepthMask(GL_TRUE); glDisable(GL_BLEND); glEnable(GL_CULL_FACE);
+
+    // --- Weather particles (rain / snow) ---
+    if (!ctx.weatherParticles.empty()) {
+        bool snow = (ctx.weatherKind == 1);
+
+        // Billboard axes from the view matrix: rain hangs vertically along
+        // world-up, snow faces the camera fully.
+        glm::vec3 camRight(view[0][0], view[1][0], view[2][0]);
+        glm::vec3 camUp   (view[0][1], view[1][1], view[2][1]);
+        glm::vec3 ax = camRight * (snow ? 0.075f : 0.055f);
+        glm::vec3 ay = (snow ? camUp : glm::vec3(0.0f, 1.0f, 0.0f))
+                     * (snow ? 0.075f : 0.55f);
+
+        static std::vector<Vertex> wv;
+        wv.clear();
+        wv.reserve(ctx.weatherParticles.size() * 6);
+        auto wvtx = [&](const glm::vec3& p, float u, float vv, float a) {
+            wv.push_back({ p.x, p.y, p.z, 0.f, 0.f, 0.f, u, vv, 0.f, a, 0.f, 0.f });
+        };
+        for (const auto& wp : ctx.weatherParticles) {
+            float a = (snow ? 0.85f : 0.60f)
+                    * std::clamp(wp.life * 0.8f, 0.0f, 1.0f);
+            glm::vec3 c  = wp.pos;
+            glm::vec3 bl = c - ax - ay, br = c + ax - ay,
+                      tr = c + ax + ay, tl = c - ax + ay;
+            wvtx(bl, 0.f, 0.f, a); wvtx(br, 1.f, 0.f, a); wvtx(tr, 1.f, 1.f, a);
+            wvtx(bl, 0.f, 0.f, a); wvtx(tr, 1.f, 1.f, a); wvtx(tl, 0.f, 1.f, a);
+        }
+
+        weatherShader.use();
+        weatherShader.setMat4("view",       view);
+        weatherShader.setMat4("projection", proj);
+        weatherShader.setInt("u_kind", snow ? 1 : 0);
+        glm::vec3 base = snow ? glm::vec3(0.95f, 0.97f, 1.00f)
+                              : glm::vec3(0.66f, 0.73f, 0.84f);
+        glm::vec3 tint = base * glm::clamp(skyAmbient * (0.45f + 0.75f * sunFactor),
+                                           0.16f, 1.25f);
+        weatherShader.setVec3("u_tint", tint);
+
+        glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDepthMask(GL_FALSE); glDisable(GL_CULL_FACE);
+        glBindVertexArray(particleVao);
+        glBindBuffer(GL_ARRAY_BUFFER, particleVbo);
+        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(wv.size() * sizeof(Vertex)),
+                     wv.data(), GL_DYNAMIC_DRAW);
+        glDrawArrays(GL_TRIANGLES, 0, (GLsizei)wv.size());
+        glBindVertexArray(0);
+        glDepthMask(GL_TRUE); glDisable(GL_BLEND); glEnable(GL_CULL_FACE);
+    }
+
+    // --- Post-processing: volumetric light shafts + vignette ---
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glViewport(0, 0, fbW, fbH);
+    glDisable(GL_DEPTH_TEST); glDepthMask(GL_FALSE); glDisable(GL_CULL_FACE);
+    postShader.use();
+    glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, sceneColorTex);
+    glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, sceneDepthTex);
+    glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, shadowMapTex);
+    postShader.setInt("u_scene", 0);
+    postShader.setInt("u_depth", 1);
+    postShader.setInt("u_shadowMap", 2);
+    postShader.setMat4("u_invViewProj", glm::inverse(proj * view));
+    postShader.setMat4("u_lightSpace", lightSpaceMat);
+    postShader.setVec3("u_camPos", eyePos);
+    postShader.setVec3("u_sunDir", sunDir);
+    // Warm shaft colour (warmer at dawn/dusk); rays fade out at night and as a
+    // storm's overcast hides the sun.
+    float rayStrength = glm::clamp(sunFactor * 1.05f - 0.05f, 0.0f, 1.0f)
+                      * (1.0f - 0.75f * weather);
+    postShader.setFloat("u_rayStrength", rayStrength);
+    postShader.setVec3("u_rayColor",
+        glm::mix(glm::vec3(1.00f, 0.95f, 0.82f), glm::vec3(1.00f, 0.72f, 0.40f), dawnDusk));
+    glBindVertexArray(postVao);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glBindVertexArray(0);
+    glEnable(GL_DEPTH_TEST); glDepthMask(GL_TRUE); glEnable(GL_CULL_FACE);
 
     // FPS + chunk count in title bar
     {

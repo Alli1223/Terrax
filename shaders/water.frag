@@ -7,6 +7,7 @@ in vec3  WorldPos;
 in vec3  WaveNorm;
 in vec3  FaceNormal;
 in float WaveHeight;
+in float ShoreDist;
 in vec4  v_reflClipPos;
 
 out vec4 FragColor;
@@ -19,6 +20,7 @@ uniform vec3  camPos;
 uniform float time;
 uniform float timeOfDay;
 uniform vec3  u_sunDir;
+uniform float u_weather;   // 0 = clear .. 1 = full storm
 #define MAX_LANTERNS 48
 uniform int   u_lanternCount;
 uniform vec3  u_lanternPos[MAX_LANTERNS];
@@ -116,24 +118,37 @@ void main() {
     vec3 deepColor    = vec3(0.01, 0.12, 0.28);
     vec3 shallowColor = vec3(0.05, 0.52, 0.62);
     vec3 crestColor   = vec3(0.20, 0.80, 0.86);
+    vec3 shoreColor   = vec3(0.16, 0.74, 0.74);   // bright turquoise of the shallows
 
-    float wh       = clamp(WaveHeight / 1.84, -1.0, 1.0);
+    float wh       = clamp(WaveHeight / 2.10, -1.0, 1.0);
     float crestT   = smoothstep(0.20, 0.72, wh);
     vec3  waterBase = mix(deepColor, shallowColor, 0.5 + 0.5 * wh);
     waterBase       = mix(waterBase, crestColor, crestT * 0.55);
+    // Lift the water toward a bright shallow turquoise as it nears land.
+    waterBase       = mix(shoreColor, waterBase, smoothstep(0.05, 0.62, ShoreDist));
 
     // ── Foam ─────────────────────────────────────────────────────────────────
     vec2 foamUV1 = WorldPos.xz * 0.45 + vec2(time * 0.09,  time * 0.06);
     vec2 foamUV2 = WorldPos.xz * 0.70 + vec2(time * -0.07, time * 0.11);
     float fn1 = fbm(foamUV1), fn2 = fbm(foamUV2);
 
-    float crestFoam  = smoothstep(0.30, 0.70, wh + fn1 * 0.30);
+    float crestFoam  = smoothstep(0.26, 0.66, wh + fn1 * 0.32);
     float rippleFoam = smoothstep(0.60, 0.72, fn1 * 0.60 + fn2 * 0.40);
 
-    vec2  shoreUV  = WorldPos.xz * 1.8 + vec2(time * 0.22, time * -0.15);
-    float shoreFoam = smoothstep(0.56, 0.65, fbm(shoreUV)) * (1.0 - abs(wh) * 0.5);
+    // ── Shoreline surf: a foam band that washes up the shore and recedes.
+    // ShoreDist is 0 at land and 1 in open water (~6 blocks out). A drifting
+    // phase makes stretches of coast break at slightly different times rather
+    // than pulsing as one ring.
+    float surfNoise = fbm(WorldPos.xz * 0.55 + vec2(time * 0.06, -time * 0.04));
+    float wash      = sin(time * 1.25 + fbm(WorldPos.xz * 0.035) * 6.2831);
+    float foamReach = mix(0.20, 0.60, 0.5 + 0.5 * wash);
+    float surfBand  = smoothstep(foamReach, foamReach - 0.26,
+                                 ShoreDist + surfNoise * 0.18 - 0.09);
+    float waterline = smoothstep(0.17, 0.015, ShoreDist);   // permanent wet edge
+    float shoreFoam = clamp(max(surfBand, waterline), 0.0, 1.0);
 
-    float totalFoam = clamp(max(crestFoam, max(rippleFoam * 0.65, shoreFoam * 0.50)), 0.0, 1.0);
+    float totalFoam = clamp(max(max(crestFoam, shoreFoam), rippleFoam * 0.6),
+                            0.0, 1.0);
 
     // ── Terrain reflection (planar) ───────────────────────────────────────────
     vec2 reflNDC = v_reflClipPos.xy / v_reflClipPos.w * 0.5 + 0.5;
@@ -178,22 +193,23 @@ void main() {
     result = mix(result, vec3(0.94, 0.97, 1.00) * light, totalFoam);
     result += spec * skyAmbient * 0.90;
 
-    // Saturation boost
+    // Saturation boost — eased back toward grey as a storm sets in.
     float lum = dot(result, vec3(0.299, 0.587, 0.114));
-    result = mix(vec3(lum), result, 1.45);
+    result = mix(vec3(lum), result, mix(1.45, 1.02, u_weather));
 
     // Warm crest sheen
     result = mix(result, result * vec3(1.06, 1.03, 0.96), crestT * sunFactor * 0.35);
 
     // ── Atmospheric fog ───────────────────────────────────────────────────────
-    float dist    = length(camPos - WorldPos);
-    float fogDist = max(dist - 32.0, 0.0);
-    float fog     = exp(-fogDist * 0.0018);
-    vec3  fogCol  = skyAmbient * max(sunFactor, 0.15) * 0.85;
+    float dist     = length(camPos - WorldPos);
+    float fogStart = mix(26.0, 10.0, u_weather);
+    float fogDens  = mix(0.0030, 0.0125, u_weather);
+    float fog      = exp(-max(dist - fogStart, 0.0) * fogDens);
+    vec3  fogCol   = skyAmbient * max(sunFactor, 0.12) * mix(0.90, 0.72, u_weather);
     result = mix(fogCol, result, clamp(fog, 0.0, 1.0));
 
     result = pow(clamp(result, 0.0, 1.0), vec3(1.0 / 2.2));
 
-    float alpha = clamp(0.70 + fresnel * 0.20 + totalFoam * 0.10, 0.60, 0.97);
+    float alpha = clamp(0.72 + fresnel * 0.18 + totalFoam * 0.20, 0.62, 0.98);
     FragColor = vec4(result, alpha);
 }

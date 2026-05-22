@@ -21,6 +21,7 @@ uniform vec3  u_lanternPos[MAX_LANTERNS];
 uniform float u_lanternIntensity[MAX_LANTERNS];
 uniform float u_lanternRadius[MAX_LANTERNS];
 uniform float time;
+uniform float u_weather;             // 0 = clear .. 1 = full storm
 
 uniform sampler3D u_lightVol;        // block opacity around the player (R8)
 uniform vec3      u_lightVolOrigin;  // world position of texel (0,0,0)
@@ -140,24 +141,28 @@ void main() {
 
     vec3 result = base * light;
 
-    // Slight saturation boost (cartoonish punch)
+    // Saturation: punchy in clear weather, washed out under a storm sky.
     float lum = dot(result, vec3(0.299, 0.587, 0.114));
-    result = mix(vec3(lum), result, 1.15);
+    result = mix(vec3(lum), result, mix(1.15, 0.80, u_weather));
 
-    // Atmospheric fog
-    float dist    = length(FragWorldPos - camPos);
-    float fogDist = max(dist - 32.0, 0.0);
-    float fog     = exp(-fogDist * 0.0018);
-    vec3  fogCol  = skyAmbient * max(sunFactor, 0.15) * 0.85;
+    // Atmospheric fog — present even in clear weather, far heavier in storms.
+    float dist     = length(FragWorldPos - camPos);
+    float fogStart = mix(26.0, 10.0, u_weather);
+    float fogDens  = mix(0.0030, 0.0125, u_weather);
+    float fogDist  = max(dist - fogStart, 0.0);
+    float fog      = exp(-fogDist * fogDens);
+    vec3  fogCol   = skyAmbient * max(sunFactor, 0.12) * mix(0.90, 0.72, u_weather);
     result = mix(fogCol, result, clamp(fog, 0.0, 1.0));
 
-    // Valheim-style ground mist: low-lying haze below ~y=36, thickens with distance
-    float mistHeight  = clamp(36.0 - FragWorldPos.y, 0.0, 10.0) / 10.0;
+    // Low-lying ground mist: hangs below the treetops, thickening with distance
+    // and rising higher and denser as a storm sets in.
+    float mistTop     = mix(34.0, 46.0, u_weather);
+    float mistHeight  = clamp(mistTop - FragWorldPos.y, 0.0, 14.0) / 14.0;
     float mistFogDist = max(dist - 8.0, 0.0);
-    float mistDensity = 1.0 - exp(-mistFogDist * 0.012);
+    float mistDensity = 1.0 - exp(-mistFogDist * mix(0.013, 0.024, u_weather));
     float mist        = mistHeight * mistDensity;
     vec3  mistCol     = skyAmbient * max(sunFactor, 0.10) * 1.05;
-    result = mix(result, mistCol, mist * 0.55);
+    result = mix(result, mistCol, mist * mix(0.45, 0.82, u_weather));
 
     // Gamma correction (no Reinhard — avoids washed-out look)
     result = pow(clamp(result, 0.0, 1.0), vec3(1.0 / 2.2));

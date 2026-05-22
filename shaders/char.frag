@@ -19,6 +19,8 @@ uniform float u_lanternRadius[MAX_LANTERNS];
 uniform float time;
 uniform float u_alpha;
 uniform float u_skyExposure;   // 0 = enclosed/indoors, 1 = open sky
+uniform vec3  camPos;
+uniform float u_weather;       // 0 = clear .. 1 = full storm
 
 uniform sampler3D u_lightVol;
 uniform vec3      u_lightVolOrigin;
@@ -119,6 +121,15 @@ void main() {
     light = max(light, vec3(0.013, 0.011, 0.016));
 
     vec3 result = Color.rgb * light;
+
+    // Atmospheric fog — matches the terrain so characters sit in the haze.
+    float fogDist  = length(FragPos - camPos);
+    float fogStart = mix(26.0, 10.0, u_weather);
+    float fogDens  = mix(0.0030, 0.0125, u_weather);
+    float fog      = exp(-max(fogDist - fogStart, 0.0) * fogDens);
+    vec3  fogCol   = skyAmbient * max(sunFactor, 0.12) * mix(0.90, 0.72, u_weather);
+    result = mix(fogCol, result, clamp(fog, 0.0, 1.0));
+
     result = pow(clamp(result, 0.0, 1.0), vec3(1.0 / 2.2));
     FragColor = vec4(result, Color.a * u_alpha);
 }

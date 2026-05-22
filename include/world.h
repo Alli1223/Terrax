@@ -1,6 +1,7 @@
 #pragma once
 #include "gl_loader.h"
 #include "atlas.h"
+#include "vegetation.h"
 #include <glm/glm.hpp>
 #include <unordered_map>
 #include <vector>
@@ -88,7 +89,7 @@ public:
     std::atomic<ChunkState> state{ChunkState::Empty};
     std::vector<Vertex> meshData;
     std::vector<Vertex> waterData;
-    std::vector<Vertex> foliageData;
+    std::vector<VegVertex> foliageData;   // baked procedural vegetation
     std::vector<Vertex> glassData;
     std::mutex meshMutex;
     int neighborsAtMeshTime = 0;

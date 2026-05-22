@@ -13,6 +13,7 @@ uniform float sunFactor;
 uniform vec3  skyAmbient;
 uniform vec3  camPos;
 uniform vec3  u_sunDir;
+uniform float u_weather;   // 0 = clear .. 1 = full storm
 
 void main() {
     vec3 tint = texture(atlas, TexCoord).rgb;
@@ -39,6 +40,14 @@ void main() {
     float fres  = pow(1.0 - max(dot(N, V), 0.0), 3.0);
     result += skyAmbient * fres * (0.25 * sunFactor + 0.05);
     float alpha = mix(0.32, 0.85, fres);
+
+    // Atmospheric fog — keep glass consistent with the terrain haze.
+    float fogDist  = length(FragWorldPos - camPos);
+    float fogStart = mix(26.0, 10.0, u_weather);
+    float fogDens  = mix(0.0030, 0.0125, u_weather);
+    float fog      = exp(-max(fogDist - fogStart, 0.0) * fogDens);
+    vec3  fogCol   = skyAmbient * max(sunFactor, 0.12) * mix(0.90, 0.72, u_weather);
+    result = mix(fogCol, result, clamp(fog, 0.0, 1.0));
 
     result = pow(clamp(result, 0.0, 1.0), vec3(1.0 / 2.2));
     FragColor = vec4(result, alpha);

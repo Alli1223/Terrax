@@ -21,6 +21,7 @@ out vec3  WorldPos;
 out vec3  WaveNorm;
 out vec3  FaceNormal;
 out float WaveHeight;
+out float ShoreDist;
 out vec4  v_reflClipPos;
 
 float hashV(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -65,7 +66,7 @@ void main() {
         float h = hA + hB + hC;
 
         // Shore attenuation + open-water amplitude boost.
-        float waveMask = smoothstep(0.0, 1.0, aShoreDistance) * 2.0;
+        float waveMask = smoothstep(0.0, 1.0, aShoreDistance) * 2.3;
 
         h *= waveMask;
 
@@ -97,6 +98,7 @@ void main() {
     SkyLight        = aSkyLight;
     BlockLight      = aBlockLight;
     FaceNormal      = aNormal;
+    ShoreDist       = aShoreDistance;
 
     v_reflClipPos = u_reflProjView * worldPos4;
     gl_Position   = projection * view * worldPos4;

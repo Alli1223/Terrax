@@ -166,6 +166,8 @@ private:
     std::condition_variable cv;
     std::vector<std::thread> workers;
     bool stopWorkers = false;
+    int  lastUpdateCX = 1 << 30;   // last player chunk; sentinel forces first run
+    int  lastUpdateCZ = 1 << 30;
 
     void workerThread();
 };

@@ -1282,7 +1282,9 @@ void World::fillMapPixels(uint8_t* rgba, int texSize, float cx, float cz, float 
 // ---- World ----
 
 World::World(bool isServer) : isServer(isServer) {
-    int numWorkers = std::max(1u, std::thread::hardware_concurrency());
+    // Leave two cores for the render/main thread and the GL driver so heavy
+    // chunk streaming doesn't starve the frame rate.
+    int numWorkers = std::max(1, (int)std::thread::hardware_concurrency() - 2);
     for (int i = 0; i < numWorkers; i++) {
         workers.emplace_back(&World::workerThread, this);
     }
@@ -1330,7 +1332,7 @@ void World::generate(int cx, int cz) {
     std::cout << "World generation started asynchronously." << std::endl;
 }
 
-static constexpr int MAX_UPLOADS_PER_FRAME = 16;
+static constexpr int MAX_UPLOADS_PER_FRAME = 6;
 
 // Chebyshev distance from player chunk
 static int chunkDist(const ChunkPos& a, int cx, int cz) {
@@ -1338,8 +1340,12 @@ static int chunkDist(const ChunkPos& a, int cx, int cz) {
 }
 
 void World::update(int cx, int cz) {
-    // 1. Discover new chunks
-    {
+    const bool chunkChanged = (cx != lastUpdateCX || cz != lastUpdateCZ);
+    lastUpdateCX = cx;
+    lastUpdateCZ = cz;
+
+    // 1. Discover new chunks — only when the player crosses into a new chunk.
+    if (chunkChanged) {
         std::vector<std::pair<int,Chunk*>> newChunks;
         {
             std::lock_guard<std::mutex> lock(chunksMutex);
@@ -1420,7 +1426,11 @@ void World::update(int cx, int cz) {
         cv.notify_all();
     }
 
-    // 4. Upload meshes on the main thread — capped per frame to avoid spikes
+    // 4. Upload finished meshes on the main thread — only a few per frame, and
+    //    nearest-first, so streaming chunks in never spikes the frame time.
+    std::sort(toUpload.begin(), toUpload.end(), [cx, cz](Chunk* a, Chunk* b) {
+        return chunkDist(a->pos, cx, cz) < chunkDist(b->pos, cx, cz);
+    });
     int uploaded = 0;
     for (auto* c : toUpload) {
         if (uploaded >= MAX_UPLOADS_PER_FRAME) break;
@@ -1428,8 +1438,8 @@ void World::update(int cx, int cz) {
         uploaded++;
     }
 
-    // 5. Unload distant chunks (skip any still being processed)
-    {
+    // 5. Unload distant chunks — only after the player crosses into a new chunk.
+    if (chunkChanged) {
         std::vector<ChunkPos> toRemove;
         std::lock_guard<std::mutex> lock(chunksMutex);
         for (auto& [k, v] : chunks) {

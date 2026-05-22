@@ -377,7 +377,7 @@ void Renderer::updateLightVolume(AppContext& ctx) {
                        (int)floorf(ctx.camera.position.z) - S / 2);
     lightVolTimer += ctx.deltaTime;
     glm::ivec3 d = desired - lightVolOrigin;
-    bool moved = std::abs(d.x) >= 8 || std::abs(d.y) >= 8 || std::abs(d.z) >= 8;
+    bool moved = std::abs(d.x) >= 16 || std::abs(d.y) >= 16 || std::abs(d.z) >= 16;
 
     // A shut door occludes light through its doorway; a change in which doors
     // are shut also forces a rebuild so the leak tracks the swing.

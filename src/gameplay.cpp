@@ -8,6 +8,8 @@
 #include "town.h"
 #include "prop_placement.h"
 #include "vehicle.h"
+#include "npc.h"
+#include "animal.h"
 #include <algorithm>
 #include <vector>
 #include <iostream>
@@ -66,6 +68,170 @@ static void syncFerryObjects(AppContext& ctx) {
         }
     }
     ctx.client->entityUpdates.clear();
+}
+
+// Creates/updates client-side NPC objects from the server's NPCState
+// broadcasts, and times out NPCs the server has stopped sending (their town
+// streamed out of range). The server owns NPC motion/AI; clients interpolate.
+static void syncNPCObjects(AppContext& ctx) {
+    if (!ctx.client) return;
+    double now = glfwGetTime();
+    for (const NPCStatePacket& np : ctx.client->npcUpdates) {
+        GameObject* o = ctx.objectManager.findById(np.entityId);
+        NPC* n = nullptr;
+        if (!o) {
+            auto nn = std::make_unique<NPC>();
+            nn->id             = np.entityId;
+            nn->type           = (NPCType)np.npcType;
+            nn->appearanceSeed = np.appearanceSeed;
+            nn->position       = glm::vec3(np.x, np.y, np.z);
+            nn->yaw            = np.yaw;
+            nn->initClientVisual();
+            n = nn.get();
+            ctx.objectManager.add(std::move(nn));
+        } else if (o->kind == ObjectKind::NPC) {
+            n = static_cast<NPC*>(o);
+        }
+        if (n) {
+            n->targetPos  = glm::vec3(np.x, np.y, np.z);
+            n->targetYaw  = np.yaw;
+            n->velocity   = glm::vec3(np.vx, np.vy, np.vz);
+            n->health     = np.health;
+            n->walking    = (np.flags & 1) != 0;
+            n->attackFlag = (np.flags & 2) != 0;
+            n->dyingFlag  = (np.flags & 4) != 0;
+            n->lastUpdate = now;
+        }
+    }
+    ctx.client->npcUpdates.clear();
+
+    for (auto& o : ctx.objectManager.objects()) {
+        if (o->dead || o->kind != ObjectKind::NPC) continue;
+        if (now - static_cast<NPC*>(o.get())->lastUpdate > 2.0)
+            o->dead = true;
+    }
+}
+
+// Creates/updates client-side Animal objects from the server's AnimalState
+// broadcasts, and times out animals the server has stopped sending.
+static void syncAnimalObjects(AppContext& ctx) {
+    if (!ctx.client) return;
+    double now = glfwGetTime();
+    for (const AnimalStatePacket& ap : ctx.client->animalUpdates) {
+        GameObject* o = ctx.objectManager.findById(ap.entityId);
+        Animal* a = nullptr;
+        if (!o) {
+            auto na = std::make_unique<Animal>();
+            na->id       = ap.entityId;
+            na->species  = (AnimalSpecies)ap.species;
+            na->variant  = ap.variant;
+            na->position = glm::vec3(ap.x, ap.y, ap.z);
+            na->yaw      = ap.yaw;
+            na->initClientVisual();
+            a = na.get();
+            ctx.objectManager.add(std::move(na));
+        } else if (o->kind == ObjectKind::Animal) {
+            a = static_cast<Animal*>(o);
+        }
+        if (a) {
+            a->targetPos  = glm::vec3(ap.x, ap.y, ap.z);
+            a->targetYaw  = ap.yaw;
+            a->velocity   = glm::vec3(ap.vx, ap.vy, ap.vz);
+            a->walking    = (ap.flags & 1) != 0;
+            a->lastUpdate = now;
+        }
+    }
+    ctx.client->animalUpdates.clear();
+
+    for (auto& o : ctx.objectManager.objects()) {
+        if (o->dead || o->kind != ObjectKind::Animal) continue;
+        if (now - static_cast<Animal*>(o.get())->lastUpdate > 2.0)
+            o->dead = true;
+    }
+}
+
+// Finds the villager the player is facing within talk range, drives the talk
+// prompt, and opens the dialogue box when the interact key was pressed.
+static void updateNpcInteraction(AppContext& ctx) {
+    glm::vec3 eye = ctx.camera.position;
+    glm::vec3 fwd = glm::vec3(ctx.camera.front.x, 0.0f, ctx.camera.front.z);
+    if (glm::length(fwd) > 0.001f) fwd = glm::normalize(fwd);
+
+    NPC* best = nullptr;
+    float bestD2 = 4.0f * 4.0f;
+    for (auto& o : ctx.objectManager.objects()) {
+        if (o->dead || o->kind != ObjectKind::NPC) continue;
+        NPC* n = static_cast<NPC*>(o.get());
+        if (n->type != NPCType::Villager) continue;
+        glm::vec3 to = n->position - eye; to.y = 0.0f;
+        float d2 = to.x * to.x + to.z * to.z;
+        if (d2 > bestD2) continue;
+        if (d2 > 0.04f && glm::dot(glm::normalize(to), fwd) < 0.35f) continue;
+        bestD2 = d2;
+        best   = n;
+    }
+
+    if (best) {
+        ctx.talkTargetName = npcName(best->appearanceSeed);
+        ctx.talkTargetSeed = best->appearanceSeed;
+        ctx.talkTargetPos  = best->position;
+    } else {
+        ctx.talkTargetName.clear();
+    }
+
+    if (ctx.interactPressed && best) {
+        ctx.talkName  = npcName(best->appearanceSeed);
+        ctx.talkLine  = npcFlavorLine(best->appearanceSeed, ctx.talkCount);
+        ctx.talkTimer = 6.0f;
+        ctx.talkCount++;
+    }
+    ctx.interactPressed = false;
+    if (ctx.talkTimer > 0.0f) ctx.talkTimer -= ctx.deltaTime;
+}
+
+// The NPC a melee swing should land on — nearest one ahead within reach.
+static NPC* findMeleeTargetNpc(AppContext& ctx) {
+    glm::vec3 eye = ctx.camera.position;
+    glm::vec3 fwd = glm::vec3(ctx.camera.front.x, 0.0f, ctx.camera.front.z);
+    if (glm::length(fwd) > 0.001f) fwd = glm::normalize(fwd);
+    NPC* best = nullptr;
+    float bestD2 = 3.8f * 3.8f;
+    for (auto& o : ctx.objectManager.objects()) {
+        if (o->dead || o->kind != ObjectKind::NPC) continue;
+        NPC* n = static_cast<NPC*>(o.get());
+        glm::vec3 to = n->position - eye; to.y = 0.0f;
+        float d2 = to.x * to.x + to.z * to.z;
+        if (d2 > bestD2) continue;
+        if (d2 > 0.04f && glm::dot(glm::normalize(to), fwd) < 0.3f) continue;
+        bestD2 = d2;
+        best   = n;
+    }
+    return best;
+}
+
+// Applies incoming damage to the player, regenerates health out of combat,
+// and respawns at the spawn town on death.
+static void updatePlayerVitals(AppContext& ctx) {
+    if (ctx.client && ctx.client->pendingSelfDamage > 0.0f) {
+        ctx.playerHealth -= ctx.client->pendingSelfDamage / 100.0f;
+        ctx.client->pendingSelfDamage = 0.0f;
+        ctx.regenDelay = 5.0f;
+    }
+    if (ctx.regenDelay > 0.0f) {
+        ctx.regenDelay -= ctx.deltaTime;
+    } else if (ctx.playerHealth < 1.0f) {
+        ctx.playerHealth = std::min(1.0f, ctx.playerHealth + 0.045f * ctx.deltaTime);
+    }
+    if (ctx.playerHealth <= 0.0f) {
+        // Death — respawn back at the spawn town.
+        ctx.camera.position = glm::vec3((float)ctx.spawnX + 0.5f, 140.0f,
+                                        (float)ctx.spawnZ + 0.5f);
+        ctx.camera.velocity = glm::vec3(0.0f);
+        ctx.playerHealth    = 1.0f;
+        ctx.regenDelay      = 0.0f;
+        ctx.spawnedOnGround = false;
+        ctx.noclip          = true;
+    }
 }
 
 // The ferry the local player is currently standing on (deck test), or null.
@@ -286,12 +452,14 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
         if (!ctx.playerRig->isAttacking) {
             ctx.playerRig->isAttacking = true;
             ctx.playerRig->attackAnim  = 0.0f;
-            PlayerAttackPacket ap { ctx.client->clientID };
+            NPC* target = findMeleeTargetNpc(ctx);
+            PlayerAttackPacket ap { ctx.client->clientID, target ? target->id : 0u };
             ctx.client->send(PacketType::PlayerAttack, &ap, sizeof(ap));
         }
     }
 
     ctx.client->update(ctx.world, ctx.remotePlayers);
+    updatePlayerVitals(ctx);
 
     {
         double now = glfwGetTime();
@@ -409,6 +577,8 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
     // this frame's velocity). ---
     syncRemotePlayerObjects(ctx);
     syncFerryObjects(ctx);
+    syncNPCObjects(ctx);
+    syncAnimalObjects(ctx);
     ctx.objectManager.updateAll(ctx.deltaTime, ctx.world);
     ctx.objectManager.streamProps(ctx.camera.position, 260.0f,
                                   getPropPlacements(), ctx.propLibrary);
@@ -421,6 +591,8 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
         ctx.localPlayer->lanternHeld = ctx.lanternHeld;
         ctx.localPlayer->update(ctx.deltaTime, ctx.world);
     }
+
+    updateNpcInteraction(ctx);
 
     if (ctx.state == GameState::Playing && !ctx.paused)
         updateLeafParticles(ctx);

@@ -42,6 +42,7 @@ struct AppContext {
     bool spawnedOnGround   = false;
     int  spawnX = 8, spawnZ = 8;   // world column the player spawns at
     float playerHealth     = 1.0f;
+    float regenDelay       = 0.0f;   // delay before out-of-combat health regen
 
     // --- Camera / mouse ---
     Camera camera;
@@ -76,9 +77,10 @@ struct AppContext {
     std::unordered_map<uint32_t, RemotePlayer> remotePlayers;
 
     // --- Chat / HUD ---
-    bool chatOpen       = false;
+    bool chatOpen         = false;
     char chatInput[MAX_CHAT_TEXT + 1] = {};
-    bool showPlayerList = false;
+    bool showPlayerList   = false;
+    bool showDebugOverlay = true;    // F3 — session/debug stats overlay
 
     // --- Character / house editor ---
     float editorRotX = 0.0f, editorRotY = 0.0f;
@@ -119,6 +121,16 @@ struct AppContext {
     // --- Leaf particles ---
     std::vector<LeafParticle> leafParticles;
     float leafSpawnTimer = 0.0f;
+
+    // --- NPC interaction ---
+    bool        interactPressed = false;   // E pressed this frame (set by input)
+    std::string talkTargetName;            // villager currently faced ("" = none)
+    uint32_t    talkTargetSeed = 0;
+    glm::vec3   talkTargetPos{0.0f};
+    float       talkTimer = 0.0f;          // dialogue box visible countdown
+    std::string talkName;
+    std::string talkLine;
+    int         talkCount = 0;             // advances the flavour line each talk
 
     AppContext();
     ~AppContext();

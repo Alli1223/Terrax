@@ -4,12 +4,15 @@
 #include "world.h"
 #include "vehicle.h"
 #include "ferry_routes.h"
+#include "npc.h"
+#include "animal.h"
 #include <chrono>
 #include <cmath>
 #include <iostream>
 #include <thread>
 #include <vector>
 #include <memory>
+#include <algorithm>
 
 static std::thread       g_serverThread;
 static std::atomic<bool> g_serverThreadRunning{false};
@@ -17,6 +20,7 @@ static std::atomic<int>  g_serverRenderDistance{DEFAULT_RENDER_DISTANCE};
 static float             g_serverGameTime = 0.3f;
 
 std::atomic<bool> g_serverDayTimeSync{false};
+ServerStats       g_serverStats;
 
 static void serverThreadMain(unsigned short port) {
     std::cout << "Starting Terrax Server on port " << port << "..." << std::endl;
@@ -38,8 +42,15 @@ static void serverThreadMain(unsigned short port) {
         }
     }
 
+    // Server-authoritative NPCs — villagers streamed in and out by proximity.
+    NpcDirector npcDirector;
+
+    // Server-authoritative wildlife — animals roaming around the players.
+    AnimalDirector animalDirector;
+
     auto lastWall = std::chrono::high_resolution_clock::now();
     float accumulator = 0.0f;
+    g_serverStats.running.store(true);
 
     while (g_serverThreadRunning.load()) {
         auto now = std::chrono::high_resolution_clock::now();
@@ -49,6 +60,7 @@ static void serverThreadMain(unsigned short port) {
 
         accumulator += frameDt;
         while (accumulator >= SERVER_TICK_DT) {
+            auto tickT0 = std::chrono::high_resolution_clock::now();
             auto players = g_server->getPlayerStates();
             for (auto& p : players) {
                 int pcx = (int)floorf(p.pos.x / (float)CHUNK_SIZE);
@@ -69,16 +81,90 @@ static void serverThreadMain(unsigned short port) {
                 g_server->broadcast(PacketType::EntityState, &ep, sizeof(ep));
             }
 
+            {
+                std::vector<DirectorPlayer> dirPlayers;
+                dirPlayers.reserve(players.size());
+                for (auto& p : players) dirPlayers.push_back({ p.id, p.pos });
+
+                // Resolve melee hits clients landed on NPCs this tick.
+                for (const NpcHitEvent& hit : g_server->npcHits)
+                    npcDirector.playerHitNpc(hit.attackerId, hit.npcId,
+                                             g_server->getPlayerPosition(hit.attackerId));
+                g_server->npcHits.clear();
+
+                npcDirector.update(SERVER_TICK_DT, dirPlayers, serverWorld, g_serverGameTime);
+
+                // Forward NPC-dealt damage to the affected players.
+                for (const PlayerDamage& d : npcDirector.pendingDamage) {
+                    PlayerHealthPacket hp{ d.playerId, d.amount };
+                    g_server->broadcast(PacketType::PlayerHealth, &hp, sizeof(hp));
+                }
+                npcDirector.pendingDamage.clear();
+
+                for (const auto& n : npcDirector.npcs()) {
+                    NPCStatePacket np{};
+                    np.entityId       = n->id;
+                    np.npcType        = (uint8_t)n->type;
+                    np.flags          = (uint8_t)((n->walking ? 1 : 0)
+                                       | (n->attackAnimTimer > 0.0f ? 2 : 0)
+                                       | (n->dyingTimer > 0.0f ? 4 : 0));
+                    np.appearanceSeed = n->appearanceSeed;
+                    np.x = n->position.x; np.y = n->position.y; np.z = n->position.z;
+                    np.yaw = n->yaw;
+                    np.vx = n->velocity.x; np.vy = n->velocity.y; np.vz = n->velocity.z;
+                    np.health = n->health;
+                    g_server->broadcast(PacketType::NPCState, &np, sizeof(np));
+                }
+            }
+
+            {
+                std::vector<glm::vec3> animalPlayers;
+                animalPlayers.reserve(players.size());
+                for (auto& p : players) animalPlayers.push_back(p.pos);
+                animalDirector.update(SERVER_TICK_DT, animalPlayers, serverWorld);
+                for (const auto& a : animalDirector.animals()) {
+                    AnimalStatePacket ap{};
+                    ap.entityId = a->id;
+                    ap.species  = (uint8_t)a->species;
+                    ap.flags    = (uint8_t)(a->walking ? 1 : 0);
+                    ap.variant  = a->variant;
+                    ap.x = a->position.x; ap.y = a->position.y; ap.z = a->position.z;
+                    ap.yaw = a->yaw;
+                    ap.vx = a->velocity.x; ap.vy = a->velocity.y; ap.vz = a->velocity.z;
+                    g_server->broadcast(PacketType::AnimalState, &ap, sizeof(ap));
+                }
+            }
+
             g_serverGameTime = fmodf(g_serverGameTime + SERVER_TICK_DT / DAY_CYCLE_SECONDS, 1.0f);
             g_serverDayTimeSync.store(true);
             DayTimePacket dt { g_serverGameTime };
             g_server->broadcast(PacketType::DayTime, &dt, sizeof(dt));
+
+            // Publish stats for the in-game debug overlay.
+            {
+                int v = 0, b = 0, gd = 0;
+                for (const auto& n : npcDirector.npcs()) {
+                    if      (n->type == NPCType::Villager) v++;
+                    else if (n->type == NPCType::Enemy)    b++;
+                    else if (n->type == NPCType::Guard)    gd++;
+                }
+                g_serverStats.villagers.store(v);
+                g_serverStats.bandits.store(b);
+                g_serverStats.guards.store(gd);
+                g_serverStats.animals.store((int)animalDirector.animals().size());
+                g_serverStats.ferries.store((int)ferries.size());
+                g_serverStats.players.store((int)players.size());
+                auto tickT1 = std::chrono::high_resolution_clock::now();
+                g_serverStats.tickMs.store(
+                    std::chrono::duration<float, std::milli>(tickT1 - tickT0).count());
+            }
             accumulator -= SERVER_TICK_DT;
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
+    g_serverStats.running.store(false);
     delete g_server;
     g_server = nullptr;
     std::cout << "Terrax Server stopped." << std::endl;

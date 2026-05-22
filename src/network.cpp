@@ -369,6 +369,11 @@ void NetworkServer::update(World& world) {
             }
         } else if (msg.type == PacketType::PlayerAttack) {
             broadcast(PacketType::PlayerAttack, msg.data.data(), msg.data.size(), msg.client);
+            if (msg.data.size() == sizeof(PlayerAttackPacket) && msg.client) {
+                PlayerAttackPacket* ap = (PlayerAttackPacket*)msg.data.data();
+                if (ap->targetNpcId != 0)
+                    npcHits.push_back({ msg.client->id, ap->targetNpcId });
+            }
         } else if (msg.type == PacketType::Chat) {
             if (msg.data.size() == sizeof(ChatPacket) && msg.client) {
                 ChatPacket* cp = (ChatPacket*)msg.data.data();
@@ -766,6 +771,21 @@ void NetworkClient::update(World& world, std::unordered_map<uint32_t, RemotePlay
             if (msg.data.size() == sizeof(EntityStatePacket)) {
                 EntityStatePacket* p = (EntityStatePacket*)msg.data.data();
                 entityUpdates.push_back(*p);
+            }
+        } else if (msg.type == PacketType::NPCState) {
+            if (msg.data.size() == sizeof(NPCStatePacket)) {
+                NPCStatePacket* p = (NPCStatePacket*)msg.data.data();
+                npcUpdates.push_back(*p);
+            }
+        } else if (msg.type == PacketType::PlayerHealth) {
+            if (msg.data.size() == sizeof(PlayerHealthPacket)) {
+                PlayerHealthPacket* p = (PlayerHealthPacket*)msg.data.data();
+                if (p->clientID == clientID) pendingSelfDamage += p->damage;
+            }
+        } else if (msg.type == PacketType::AnimalState) {
+            if (msg.data.size() == sizeof(AnimalStatePacket)) {
+                AnimalStatePacket* p = (AnimalStatePacket*)msg.data.data();
+                animalUpdates.push_back(*p);
             }
         }
     }

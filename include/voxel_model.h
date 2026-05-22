@@ -6,6 +6,7 @@
 #include "gl_loader.h"
 #include "world.h"
 #include <mutex>
+#include <random>
 
 struct Voxel {
     uint8_t r, g, b, a;
@@ -107,13 +108,15 @@ public:
     void setupDefaultHuman(bool male);
     void update(float dt, float velocity) override;
     void applyCustomization();
-    void randomizeAppearance();
+    void randomizeAppearance();                    // uses a shared global RNG
+    void randomizeAppearance(std::mt19937& rng);   // deterministic from a seed
 };
 
 class QuadrupedRig : public CharacterRig {
 public:
     CharacterNode *body, *head, *flLeg, *frLeg, *blLeg, *brLeg, *tail;
     float animTime = 0.0f;
+    float restY    = 0.0f;   // body-centre height above the rig root (feet)
     QuadrupedRig();
     void update(float dt, float velocity) override;
 };

@@ -109,6 +109,7 @@ static void key_callback(GLFWwindow* window, int key, int, int action, int) {
             }
         }
         if (key == GLFW_KEY_N && action == GLFW_PRESS) ctx.noclip = !ctx.noclip;
+        if (key == GLFW_KEY_F3 && action == GLFW_PRESS) ctx.showDebugOverlay = !ctx.showDebugOverlay;
         if (key == GLFW_KEY_H && action == GLFW_PRESS && ctx.houseModel && ctx.client) {
             if (!ctx.housePreviewActive) {
                 ctx.housePreviewActive = true;     // first press: show placement ghost
@@ -124,6 +125,7 @@ static void key_callback(GLFWwindow* window, int key, int, int action, int) {
         if (key == GLFW_KEY_SPACE)      { if(action==GLFW_PRESS) ctx.keyJump=1;   else if(action==GLFW_RELEASE) ctx.keyJump=0; }
         if (key == GLFW_KEY_LEFT_SHIFT) { if(action==GLFW_PRESS) ctx.keySprint=1; else if(action==GLFW_RELEASE) ctx.keySprint=0; }
         if (key == GLFW_KEY_F && action == GLFW_PRESS) ctx.lanternHeld = !ctx.lanternHeld;
+        if (key == GLFW_KEY_E && action == GLFW_PRESS) ctx.interactPressed = true;
     }
 }
 

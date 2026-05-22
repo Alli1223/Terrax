@@ -436,6 +436,10 @@ void BipedalRig::applyCustomization() {
 
 void BipedalRig::randomizeAppearance() {
     static std::mt19937 rng(std::random_device{}());
+    randomizeAppearance(rng);
+}
+
+void BipedalRig::randomizeAppearance(std::mt19937& rng) {
     auto pick = [&](int n) -> int { return std::uniform_int_distribution<int>(0, n - 1)(rng); };
 
     static const Voxel skinPalette[] = {
@@ -477,11 +481,19 @@ QuadrupedRig::QuadrupedRig() {
 
 void QuadrupedRig::update(float dt, float velocity) {
     animTime += dt;
-    body->localPos.y = sinf(animTime * 1.5f) * 0.2f; head->localRot.x = sinf(animTime * 1.5f) * 1.0f;
+    body->localPos.y = restY + sinf(animTime * 1.5f) * 0.2f;
+    head->localRot.x = sinf(animTime * 1.5f) * 1.0f;
     if (velocity > 0.1f) {
         float swing = sinf(animTime * velocity * 0.5f * 5.0f) * 25.0f;
-        flLeg->localRot.x = swing; frLeg->localRot.x = -swing; blLeg->localRot.x = -swing; brLeg->localRot.x = swing;
+        flLeg->localRot.x = swing;  frLeg->localRot.x = -swing;
+        blLeg->localRot.x = -swing; brLeg->localRot.x = swing;
         tail->localRot.y = sinf(animTime * 5.0f) * 20.0f;
+    } else {
+        float k = std::min(1.0f, dt * 8.0f);   // settle the legs when standing
+        flLeg->localRot.x = glm::mix(flLeg->localRot.x, 0.0f, k);
+        frLeg->localRot.x = glm::mix(frLeg->localRot.x, 0.0f, k);
+        blLeg->localRot.x = glm::mix(blLeg->localRot.x, 0.0f, k);
+        brLeg->localRot.x = glm::mix(brLeg->localRot.x, 0.0f, k);
     }
 }
 

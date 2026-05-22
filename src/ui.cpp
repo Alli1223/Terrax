@@ -6,6 +6,7 @@
 #include "game_session.h"
 #include "gameplay.h"
 #include "town.h"
+#include "npc.h"
 #include "graphics_settings.h"
 #include "gl_loader.h"
 #include "imgui.h"
@@ -874,8 +875,128 @@ static void drawNametag(const glm::vec3& worldPos, const std::string& name,
     dl->AddText(pos, IM_COL32(235, 220, 190, 255), name.c_str());
 }
 
+// Draws a small health bar at a world position (used over damaged NPCs).
+static void drawHealthBar(const glm::vec3& worldPos, float frac,
+                          const glm::mat4& view, const glm::mat4& proj,
+                          int fbW, int fbH) {
+    glm::vec4 clip = proj * view * glm::vec4(worldPos, 1.0f);
+    if (clip.w <= 0.01f) return;
+    glm::vec3 ndc = glm::vec3(clip) / clip.w;
+    if (ndc.z < -1.0f || ndc.z > 1.0f) return;
+    float sx = (ndc.x * 0.5f + 0.5f) * (float)fbW;
+    float sy = (1.0f - (ndc.y * 0.5f + 0.5f)) * (float)fbH;
+    frac = std::clamp(frac, 0.0f, 1.0f);
+    const float W = 46.0f, H = 6.0f;
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    dl->AddRectFilled(ImVec2(sx - W * 0.5f - 1, sy - 1),
+                      ImVec2(sx + W * 0.5f + 1, sy + H + 1), IM_COL32(15, 10, 8, 200));
+    dl->AddRectFilled(ImVec2(sx - W * 0.5f, sy),
+                      ImVec2(sx - W * 0.5f + W * frac, sy + H), IM_COL32(200, 45, 40, 255));
+}
+
+// F3 debug / session overlay — performance, world, rendered objects, server.
+static void renderDebugOverlay(AppContext& ctx) {
+    // Tally the live client-side objects by kind.
+    int vill = 0, band = 0, guard = 0, anim = 0, ferry = 0;
+    int door = 0, prop = 0, light = 0, remote = 0;
+    for (auto& o : ctx.objectManager.objects()) {
+        if (o->dead) continue;
+        switch (o->kind) {
+            case ObjectKind::NPC: {
+                NPCType t = static_cast<NPC*>(o.get())->type;
+                if      (t == NPCType::Villager) vill++;
+                else if (t == NPCType::Enemy)    band++;
+                else if (t == NPCType::Guard)    guard++;
+                break;
+            }
+            case ObjectKind::Animal:  anim++;  break;
+            case ObjectKind::Vehicle: ferry++; break;
+            case ObjectKind::Door:    door++;  break;
+            case ObjectKind::Prop: {
+                prop++;
+                PropType pt = static_cast<Prop*>(o.get())->type;
+                if (pt == PropType::Lantern || pt == PropType::StreetLamp) light++;
+                break;
+            }
+            case ObjectKind::Player:
+                if (o->id != 0) remote++;
+                break;
+            default: break;
+        }
+    }
+    int totalObj = (int)ctx.objectManager.objects().size();
+
+    const glm::vec3& cp = ctx.camera.position;
+    int cx = (int)floorf(cp.x / 16.0f), cz = (int)floorf(cp.z / 16.0f);
+    SurfaceSample surf = sampleSurface((int)cp.x, (int)cp.z);
+    static const char* kBiomes[] = { "Plains", "Forest", "Desert", "Mountains",
+                                     "Tundra", "Savanna", "Jungle" };
+    const char* biome = (surf.biome >= 0 && surf.biome < 7) ? kBiomes[surf.biome] : "?";
+    float gt = ctx.gameTime;
+    const char* phase = (gt < 0.23f || gt > 0.77f) ? "Night"
+                      : (gt < 0.30f)               ? "Dawn"
+                      : (gt > 0.70f)               ? "Dusk" : "Day";
+
+    ImGuiIO& io = ImGui::GetIO();
+    static float fpsHist[90] = {};
+    static int   fpsPos = 0;
+    fpsHist[fpsPos] = io.Framerate;
+    fpsPos = (fpsPos + 1) % 90;
+
+    const ImVec4 head(0.62f, 0.86f, 1.0f, 1.0f);
+    ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.62f);
+    ImGui::Begin("Debug", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                 ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoNav |
+                 ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoFocusOnAppearing);
+
+    ImGui::TextColored(ImVec4(1.0f, 0.82f, 0.35f, 1.0f), "TERRAX DEBUG   [F3]");
+    ImGui::Separator();
+
+    ImGui::TextColored(head, "Performance");
+    ImGui::Text("FPS %.0f   frame %.2f ms", io.Framerate,
+                io.Framerate > 0.0f ? 1000.0f / io.Framerate : 0.0f);
+    ImGui::PlotLines("##fps", fpsHist, 90, fpsPos, nullptr, 0.0f, 240.0f,
+                     ImVec2(238, 38));
+
+    ImGui::TextColored(head, "World");
+    ImGui::Text("Pos    %.1f, %.1f, %.1f", cp.x, cp.y, cp.z);
+    ImGui::Text("Chunk  %d, %d   loaded %d", cx, cz, (int)ctx.world.chunks.size());
+    ImGui::Text("Biome  %s   render dist %d", biome, ctx.world.renderDistance);
+    ImGui::Text("Time   %.2f  (%s)", gt, phase);
+
+    ImGui::TextColored(head, "Rendered objects (%d)", totalObj);
+    ImGui::Text("Villagers %d   Bandits %d   Guards %d", vill, band, guard);
+    ImGui::Text("Animals %d   Ferries %d", anim, ferry);
+    ImGui::Text("Doors/houses %d   Props %d  (lights %d)", door, prop, light);
+    ImGui::Text("Remote players %d", remote);
+
+    ImGui::TextColored(head, "Server");
+    if (g_serverStats.running.load()) {
+        int sv = g_serverStats.villagers.load();
+        int sb = g_serverStats.bandits.load();
+        int sg = g_serverStats.guards.load();
+        ImGui::Text("running   tick %.2f ms   players %d",
+                    g_serverStats.tickMs.load(), g_serverStats.players.load());
+        ImGui::Text("NPCs %d  (V %d  B %d  G %d)", sv + sb + sg, sv, sb, sg);
+        ImGui::Text("Animals %d   Ferries %d",
+                    g_serverStats.animals.load(), g_serverStats.ferries.load());
+    } else {
+        ImGui::TextDisabled("not hosting (remote server)");
+    }
+
+    ImGui::TextColored(head, "Camera");
+    ImGui::Text("Yaw %.1f   Pitch %.1f   Noclip %s",
+                ctx.playerYaw, ctx.camera.pitch, ctx.noclip ? "ON" : "off");
+
+    ImGui::End();
+}
+
 void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer) {
     (void)window;
+
+    if (ctx.showDebugOverlay) renderDebugOverlay(ctx);
 
     // Underwater tint
     if (ctx.headUnderwater) {
@@ -919,6 +1040,44 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
         drawNametag(p.position + glm::vec3(0.0f, 2.1f, 0.0f), label,
                     renderer.frameView, renderer.frameProj,
                     renderer.frameFbW, renderer.frameFbH);
+    }
+
+    // NPC interaction — nametag + talk prompt for the villager being faced,
+    // and the dialogue box once a conversation has been started.
+    if (!ctx.talkTargetName.empty()) {
+        drawNametag(ctx.talkTargetPos + glm::vec3(0.0f, 2.1f, 0.0f),
+                    ctx.talkTargetName, renderer.frameView, renderer.frameProj,
+                    renderer.frameFbW, renderer.frameFbH);
+        if (ctx.talkTimer <= 0.0f) {
+            ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH / 2 - 70, WINDOW_HEIGHT / 2 + 36));
+            ImGui::SetNextWindowSize(ImVec2(140, 26));
+            ImGui::Begin("TalkHint", nullptr,
+                         ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground |
+                         ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoInputs);
+            ImGui::TextColored(ImVec4(0.96f, 0.90f, 0.70f, 1.0f), "[E] Talk");
+            ImGui::End();
+        }
+    }
+    if (ctx.talkTimer > 0.0f) {
+        ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH / 2 - 220, WINDOW_HEIGHT - 172));
+        ImGui::SetNextWindowSize(ImVec2(440, 80));
+        ImGui::Begin("NpcDialogue", nullptr,
+                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                     ImGuiWindowFlags_NoInputs);
+        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.45f, 1.0f), "%s", ctx.talkName.c_str());
+        ImGui::Separator();
+        ImGui::TextWrapped("%s", ctx.talkLine.c_str());
+        ImGui::End();
+    }
+
+    // NPC health bars over damaged NPCs.
+    for (auto& o : ctx.objectManager.objects()) {
+        if (o->dead || o->kind != ObjectKind::NPC) continue;
+        NPC* n = static_cast<NPC*>(o.get());
+        if (n->dyingFlag || n->health >= 99.5f) continue;
+        drawHealthBar(n->position + glm::vec3(0.0f, 2.3f, 0.0f), n->health / 100.0f,
+                      renderer.frameView, renderer.frameProj,
+                      renderer.frameFbW, renderer.frameFbH);
     }
 
     // Chat

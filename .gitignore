@@ -1,3 +1,33 @@
+# Linux build
 build/
 terrax
+terrax_tests
 .claude/
+
+# Visual Studio
+.vs/
+*.vcxproj.user
+*.suo
+*.user
+*.aps
+*.VC.db
+*.VC.opendb
+*.db
+*.opendb
+ipch/
+
+# MSBuild output / intermediates
+[Dd]ebug/
+[Rr]elease/
+x64/
+Win32/
+*.obj
+*.exe
+*.pdb
+*.ilk
+*.idb
+*.tlog
+*.log
+
+# vcpkg
+vcpkg_installed/

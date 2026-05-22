@@ -3,9 +3,11 @@
 #include "input.h"
 #include "app_context.h"
 #include "game_session.h"
+#include "gameplay.h"
 #include "network.h"
 #include "imgui.h"
 #include <algorithm>
+#include <cmath>
 #include <glm/glm.hpp>
 
 static void framebuffer_size_callback(GLFWwindow*, int w, int h) {
@@ -66,6 +68,7 @@ static void key_callback(GLFWwindow* window, int key, int, int action, int) {
                 ctx.firstMouse = true;
                 return;
             }
+            if (ctx.housePreviewActive) { ctx.housePreviewActive = false; return; }
             ctx.paused = !ctx.paused;
             ctx.state  = ctx.paused ? GameState::Paused : GameState::Playing;
             glfwSetInputMode(window, GLFW_CURSOR,
@@ -106,6 +109,14 @@ static void key_callback(GLFWwindow* window, int key, int, int action, int) {
             }
         }
         if (key == GLFW_KEY_N && action == GLFW_PRESS) ctx.noclip = !ctx.noclip;
+        if (key == GLFW_KEY_H && action == GLFW_PRESS && ctx.houseModel && ctx.client) {
+            if (!ctx.housePreviewActive) {
+                ctx.housePreviewActive = true;     // first press: show placement ghost
+            } else {
+                sendHousePlacement(ctx);           // second press: confirm + bake
+                ctx.housePreviewActive = false;
+            }
+        }
         if (key == GLFW_KEY_W)     { if(action==GLFW_PRESS) ctx.keyFwd=1;   else if(action==GLFW_RELEASE) ctx.keyFwd=0; }
         if (key == GLFW_KEY_S)     { if(action==GLFW_PRESS) ctx.keyBack=1;  else if(action==GLFW_RELEASE) ctx.keyBack=0; }
         if (key == GLFW_KEY_A)     { if(action==GLFW_PRESS) ctx.keyLeft=1;  else if(action==GLFW_RELEASE) ctx.keyLeft=0; }

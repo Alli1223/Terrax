@@ -35,6 +35,8 @@ enum class PacketType : uint8_t {
     Chat = 9,
     PlayerJoin = 10,
     DayTime = 11,
+    HousePlace = 12,
+    EntityState = 13,
 };
 
 #pragma pack(push, 1)
@@ -101,6 +103,25 @@ struct ChatPacket {
 struct DayTimePacket {
     float gameTime;
 };
+
+// HousePlace payload: this header, followed by dimX*dimY*dimZ bytes of BlockType.
+// Block index order is ((y * dimZ) + z) * dimX + x. The grid is pre-rotated by
+// the client so the server can stamp it axis-aligned at (worldX, baseY, worldZ).
+struct HousePlaceHeader {
+    int worldX, baseY, worldZ;   // world position of the grid's (0,0,0) corner
+    int dimX, dimY, dimZ;        // dimensions of the block grid that follows
+};
+
+// Server -> client state for a non-player object (currently ferries). The
+// server owns the motion; clients interpolate and render.
+struct EntityStatePacket {
+    uint32_t entityId;
+    uint8_t  kind;       // ObjectKind value
+    uint8_t  subType;    // 0 = ferry
+    float    x, y, z;
+    float    yaw;
+    float    vx, vy, vz;
+};
 #pragma pack(pop)
 
 struct ChatMessage {
@@ -154,6 +175,7 @@ struct RemotePlayer {
 class NetworkServer {
 public:
     NetworkServer(unsigned short port);
+    ~NetworkServer();
     void update(World& world);
     void broadcast(PacketType type, const void* data, size_t size, std::shared_ptr<Connection> skip = nullptr);
     void broadcastUDP(const void* data, size_t size);
@@ -181,6 +203,7 @@ private:
     udp::socket udp_socket;
     udp::endpoint remote_endpoint;
     std::vector<uint8_t> udp_buffer;
+    std::thread io_thread;
 
     std::vector<std::shared_ptr<Connection>> clients;
     std::mutex clientsMutex;
@@ -228,6 +251,7 @@ public:
     bool dayTimeUpdated = false;
     std::vector<ChatMessage> chatLog;
     static constexpr size_t MAX_CHAT_LOG = 100;
+    std::vector<EntityStatePacket> entityUpdates;   // drained by gameplay each frame
 
 private:
     void doReceiveUDP();

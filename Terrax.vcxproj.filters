@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c</Extensions>
+    </Filter>
+    <Filter Include="Headers">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hpp</Extensions>
+    </Filter>
+    <Filter Include="Shaders">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>vert;frag;glsl</Extensions>
+    </Filter>
+    <Filter Include="Source\ImGui">
+      <UniqueIdentifier>{B2E5D5A1-3C4D-4F6E-8A9B-0C1D2E3F4A5B}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+
+  <!-- Source files -->
+  <ItemGroup>
+    <ClCompile Include="src\main.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\renderer.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\world.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\town.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\object_manager.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\player_object.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\prop.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\furniture.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\decorations.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\prop_placement.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\vehicles.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\ferry_routes.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\network.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\ui.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\voxel_model.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\shader.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\gameplay.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\game_session.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\input.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\physics.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\camera.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\app_context.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\graphics_settings.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\atlas.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\gl_loader.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="third_party\imgui\imgui.cpp"><Filter>Source\ImGui</Filter></ClCompile>
+    <ClCompile Include="third_party\imgui\imgui_draw.cpp"><Filter>Source\ImGui</Filter></ClCompile>
+    <ClCompile Include="third_party\imgui\imgui_widgets.cpp"><Filter>Source\ImGui</Filter></ClCompile>
+    <ClCompile Include="third_party\imgui\imgui_tables.cpp"><Filter>Source\ImGui</Filter></ClCompile>
+    <ClCompile Include="third_party\imgui\backends\imgui_impl_glfw.cpp"><Filter>Source\ImGui</Filter></ClCompile>
+    <ClCompile Include="third_party\imgui\backends\imgui_impl_opengl3.cpp"><Filter>Source\ImGui</Filter></ClCompile>
+  </ItemGroup>
+
+  <!-- Header files -->
+  <ItemGroup>
+    <ClInclude Include="include\app_context.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\atlas.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\camera.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\game_session.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\game_settings.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\game_types.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\gameplay.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\gl_loader.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\graphics_settings.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\input.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\network.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\physics.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\renderer.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\shader.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\ui.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\town.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\game_object.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\object_manager.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\player_object.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\prop.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\prop_builders.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\prop_placement.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\vehicle.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\ferry_routes.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\voxel_model.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\world.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="src\noise.h"><Filter>Headers</Filter></ClInclude>
+  </ItemGroup>
+
+  <!-- Shader files -->
+  <ItemGroup>
+    <None Include="shaders\chunk.vert"><Filter>Shaders</Filter></None>
+    <None Include="shaders\chunk.frag"><Filter>Shaders</Filter></None>
+    <None Include="shaders\water.vert"><Filter>Shaders</Filter></None>
+    <None Include="shaders\water.frag"><Filter>Shaders</Filter></None>
+    <None Include="shaders\sky.vert"><Filter>Shaders</Filter></None>
+    <None Include="shaders\sky.frag"><Filter>Shaders</Filter></None>
+    <None Include="shaders\char.vert"><Filter>Shaders</Filter></None>
+    <None Include="shaders\char.frag"><Filter>Shaders</Filter></None>
+    <None Include="shaders\shadow.vert"><Filter>Shaders</Filter></None>
+    <None Include="shaders\shadow.frag"><Filter>Shaders</Filter></None>
+    <None Include="Makefile" />
+    <None Include="vcpkg.json" />
+  </ItemGroup>
+</Project>

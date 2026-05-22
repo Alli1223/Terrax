@@ -5,12 +5,17 @@
 #include "physics.h"
 #include "network.h"
 #include "game_session.h"
+#include "town.h"
+#include "prop_placement.h"
+#include "vehicle.h"
 #include <algorithm>
 #include <vector>
 #include <iostream>
 #include <cmath>
+#include <cstring>
 #include <mutex>
 #include <random>
+#include <memory>
 
 static void cleanupRemotePlayers(AppContext& ctx) {
     for (auto& [id, p] : ctx.remotePlayers) {
@@ -20,12 +25,66 @@ static void cleanupRemotePlayers(AppContext& ctx) {
     ctx.remotePlayers.clear();
 }
 
+// Keeps the ObjectManager's remote-player objects in step with the
+// remotePlayers map: drop objects whose player has gone, add objects for
+// newly-seen players. Must run before objectManager.updateAll so a Player
+// never dereferences a freed RemotePlayer record.
+static void syncRemotePlayerObjects(AppContext& ctx) {
+    std::vector<uint32_t> gone;
+    for (auto& o : ctx.objectManager.objects())
+        if (o->kind == ObjectKind::Player && o->id != 0 &&
+            ctx.remotePlayers.find(o->id) == ctx.remotePlayers.end())
+            gone.push_back(o->id);
+    for (uint32_t id : gone) ctx.objectManager.removeById(id);
+
+    for (auto& [id, rp] : ctx.remotePlayers)
+        if (!ctx.objectManager.findById(id))
+            ctx.objectManager.add(std::make_unique<Player>(&rp, id));
+}
+
+// Creates/updates client-side Ferry objects from the server's EntityState
+// broadcasts. The server owns ferry motion; clients only interpolate + render.
+static void syncFerryObjects(AppContext& ctx) {
+    if (!ctx.client) return;
+    for (const EntityStatePacket& ep : ctx.client->entityUpdates) {
+        GameObject* o = ctx.objectManager.findById(ep.entityId);
+        Ferry* f = nullptr;
+        if (!o) {
+            auto nf = std::make_unique<Ferry>();
+            nf->id       = ep.entityId;
+            nf->mesh     = getFerryMesh();
+            nf->position = glm::vec3(ep.x, ep.y, ep.z);
+            nf->yaw      = ep.yaw;
+            f = nf.get();
+            ctx.objectManager.add(std::move(nf));
+        } else if (o->kind == ObjectKind::Vehicle) {
+            f = static_cast<Ferry*>(o);
+        }
+        if (f) {
+            f->targetPos = glm::vec3(ep.x, ep.y, ep.z);
+            f->targetYaw = ep.yaw;
+        }
+    }
+    ctx.client->entityUpdates.clear();
+}
+
+// The ferry the local player is currently standing on (deck test), or null.
+static Ferry* findSupportFerry(AppContext& ctx) {
+    for (auto& o : ctx.objectManager.objects()) {
+        if (o->dead || o->kind != ObjectKind::Vehicle) continue;
+        Ferry* f = static_cast<Ferry*>(o.get());
+        if (f->onDeck(ctx.camera.position)) return f;
+    }
+    return nullptr;
+}
+
 void disconnectFromGame(AppContext& ctx) {
     if (ctx.client) {
         ctx.client->disconnect();
         delete ctx.client;
         ctx.client = nullptr;
     }
+    ctx.objectManager.clear();
     cleanupRemotePlayers(ctx);
     if (ctx.weOwnServer) {
         stopEmbeddedServer();
@@ -39,6 +98,7 @@ void disconnectFromGame(AppContext& ctx) {
     ctx.showPlayerList    = false;
     ctx.spawnedOnGround   = false;
     ctx.keyFwd = ctx.keyBack = ctx.keyLeft = ctx.keyRight = ctx.keyJump = 0;
+    ctx.housePreviewActive = false;
 }
 
 static void updateLeafParticles(AppContext& ctx) {
@@ -95,6 +155,21 @@ static void updateLeafParticles(AppContext& ctx) {
     }
 }
 
+// Keeps the house placement ghost in front of the player, snapped to the
+// ground surface, while a placement is being previewed.
+static void updateHousePreview(AppContext& ctx) {
+    if (!ctx.housePreviewActive) return;
+    glm::vec3 fwd(sinf(glm::radians(ctx.playerYaw)), 0.0f,
+                  cosf(glm::radians(ctx.playerYaw)));
+    glm::vec3 target = ctx.camera.position + fwd * 10.0f;
+    int gx = (int)floorf(target.x), gz = (int)floorf(target.z);
+    int gy = std::min((int)ctx.camera.position.y + 8, CHUNK_HEIGHT - 2);
+    while (gy > 1 && ctx.world.getBlock(gx, gy - 1, gz) == BlockType::Air)
+        gy--;
+    ctx.housePreviewPos = glm::vec3(target.x, (float)gy, target.z);
+    ctx.housePreviewYaw = roundf(ctx.playerYaw / 90.0f) * 90.0f;
+}
+
 void updateGameplay(AppContext& ctx, GLFWwindow* window) {
     if (!ctx.clientInitialized) {
         std::cout << "Connecting to " << ctx.connectHost << ":" << ctx.connectPort << "...\n";
@@ -115,6 +190,34 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
         ctx.joinNameSent      = false;
         ctx.noclip            = true;
         ctx.firstMouse        = true;
+        ctx.propLibrary.buildAll();   // shared furniture/decoration meshes
+
+        // Spawn in the town nearest the world origin. Only host / singleplayer
+        // run in-process with the server, so only there is the town plan (which
+        // is seed-derived) guaranteed to match the server's world.
+        ctx.spawnX = 8;
+        ctx.spawnZ = 8;
+        if (ctx.weOwnServer) {
+            const TownPlan& plan = getTownPlan();
+            const Town* best = nullptr;
+            long long bestD = -1;
+            for (const Town& t : plan.towns) {
+                long long d = (long long)t.center.x * t.center.x
+                            + (long long)t.center.y * t.center.y;
+                if (bestD < 0 || d < bestD) { bestD = d; best = &t; }
+            }
+            if (best) {
+                ctx.spawnX = best->center.x + 12;   // beside the town centre
+                ctx.spawnZ = best->center.y;
+                ctx.camera.position = glm::vec3((float)ctx.spawnX + 0.5f,
+                                                (float)best->baseY + 50.0f,
+                                                (float)ctx.spawnZ + 0.5f);
+                ctx.camera.yaw = 180.0f;            // face back toward the centre
+                ctx.camera.updateVectors();
+                std::cout << "[Spawn] Nearest town to origin at ("
+                          << best->center.x << ", " << best->center.y << ")\n";
+            }
+        }
     }
 
     if (ctx.client && !ctx.client->connected) {
@@ -154,15 +257,23 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
     }
 
     if (!ctx.spawnedOnGround) {
+        auto chunkCoord = [](int w) {
+            return (w < 0 && w % CHUNK_SIZE != 0) ? w / CHUNK_SIZE - 1 : w / CHUNK_SIZE;
+        };
+        int scx = chunkCoord(ctx.spawnX), scz = chunkCoord(ctx.spawnZ);
+        int lx  = ctx.spawnX - scx * CHUNK_SIZE, lz = ctx.spawnZ - scz * CHUNK_SIZE;
         std::lock_guard<std::mutex> lock(ctx.world.chunksMutex);
-        auto it = ctx.world.chunks.find({0, 0});
+        auto it = ctx.world.chunks.find({scx, scz});
         if (it != ctx.world.chunks.end() && it->second->state != ChunkState::Empty) {
             for (int y = CHUNK_HEIGHT - 1; y >= 0; y--) {
-                if (it->second->get(8, y, 8) != BlockType::Air) {
-                    ctx.camera.position = glm::vec3(8.5f, (float)y + 1.0f, 8.5f);
+                if (it->second->get(lx, y, lz) != BlockType::Air) {
+                    ctx.camera.position = glm::vec3((float)ctx.spawnX + 0.5f,
+                                                    (float)y + 1.0f,
+                                                    (float)ctx.spawnZ + 0.5f);
                     ctx.noclip          = false;
                     ctx.spawnedOnGround = true;
-                    std::cout << "[Client] Spawned on ground at Y=" << y << "\n";
+                    std::cout << "[Client] Spawned at (" << ctx.spawnX << ", "
+                              << (y + 1) << ", " << ctx.spawnZ << ")\n";
                     break;
                 }
             }
@@ -227,6 +338,11 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
     }
 
     if (gameplayActive) {
+        // Riding a ferry: carry the player with the deck before block physics.
+        Ferry* supportFerry = findSupportFerry(ctx);
+        if (supportFerry)
+            ctx.camera.position += supportFerry->velocity * ctx.deltaTime;
+
         int wfx = (int)floorf(ctx.camera.position.x);
         int wfz = (int)floorf(ctx.camera.position.z);
         int wfy = (int)floorf(ctx.camera.position.y);
@@ -259,7 +375,7 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
             if (ctx.keyJump)
                 ctx.camera.velocity.y = std::max(ctx.camera.velocity.y + 8.0f * ctx.deltaTime, 4.0f);
             ctx.camera.position += ctx.camera.velocity * ctx.deltaTime;
-            ctx.camera.position  = resolveCollision(ctx.camera.position, ctx.camera, hw, ph, ctx.world);
+            ctx.camera.position  = resolveCollision(ctx.camera.position, ctx.camera, hw, ph, ctx.world, ctx.deltaTime);
             ctx.camera.onGround  = false;
         } else {
             float walkSpeed = ctx.keySprint ? 20.0f : 10.0f;
@@ -267,7 +383,20 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
             ctx.camera.velocity.z = moveDir.z * walkSpeed;
             if (ctx.keyJump && ctx.camera.onGround) ctx.camera.velocity.y = 8.0f;
             ctx.camera.applyGravity(ctx.deltaTime);
-            ctx.camera.position = resolveCollision(ctx.camera.position, ctx.camera, hw, ph, ctx.world);
+            ctx.camera.position = resolveCollision(ctx.camera.position, ctx.camera, hw, ph, ctx.world, ctx.deltaTime);
+        }
+
+        // The ferry deck is an object, not blocks, so settle the player onto
+        // it after the normal block physics has run.
+        if (supportFerry && !ctx.noclip) {
+            float deckY = supportFerry->deckTopY();
+            if (ctx.camera.position.y <= deckY + 0.05f &&
+                ctx.camera.position.y >  deckY - 2.5f &&
+                ctx.camera.velocity.y <= 0.1f) {
+                ctx.camera.position.y = deckY;
+                ctx.camera.velocity.y = 0.0f;
+                ctx.camera.onGround   = true;
+            }
         }
     }
 
@@ -275,6 +404,69 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
     int pcz = (int)floorf(ctx.camera.position.z / (float)CHUNK_SIZE);
     ctx.world.update(pcx, pcz);
 
+    // --- Object system: sync remote players, advance every managed object,
+    // then drive the local-player wrapper (after physics, so the rig sees
+    // this frame's velocity). ---
+    syncRemotePlayerObjects(ctx);
+    syncFerryObjects(ctx);
+    ctx.objectManager.updateAll(ctx.deltaTime, ctx.world);
+    ctx.objectManager.streamProps(ctx.camera.position, 260.0f,
+                                  getPropPlacements(), ctx.propLibrary);
+    ctx.objectManager.streamDoors(ctx.camera.position, 180.0f,
+                                  getDoorPlacements(), ctx.propLibrary,
+                                  &ctx.camera.position);
+    if (ctx.localPlayer) {
+        ctx.localPlayer->position    = ctx.camera.position;
+        ctx.localPlayer->yaw         = ctx.playerYaw;
+        ctx.localPlayer->lanternHeld = ctx.lanternHeld;
+        ctx.localPlayer->update(ctx.deltaTime, ctx.world);
+    }
+
     if (ctx.state == GameState::Playing && !ctx.paused)
         updateLeafParticles(ctx);
+
+    updateHousePreview(ctx);
+}
+
+void sendHousePlacement(AppContext& ctx) {
+    if (!ctx.houseModel || !ctx.client) return;
+    HouseModel* h = ctx.houseModel;
+    glm::ivec3 mn = h->boundMin, mx = h->boundMax;
+    int sx = mx.x - mn.x + 1, sy = mx.y - mn.y + 1, sz = mx.z - mn.z + 1;
+    if (sx <= 0 || sy <= 0 || sz <= 0) return;
+
+    // Rotate the design by the snapped yaw quadrant (matches glm rotateY).
+    int q = ((int)lroundf(ctx.housePreviewYaw / 90.0f)) & 3;
+    int dimX = (q % 2 == 0) ? sx : sz;
+    int dimZ = (q % 2 == 0) ? sz : sx;
+    int dimY = sy;
+
+    std::vector<uint8_t> blocks((size_t)dimX * dimY * dimZ, (uint8_t)BlockType::Air);
+    auto outIdx = [&](int x, int y, int z) {
+        return ((size_t)y * dimZ + z) * dimX + x;
+    };
+    for (int y = 0; y < sy; y++)
+        for (int z = 0; z < sz; z++)
+            for (int x = 0; x < sx; x++) {
+                BlockType bt = h->get(mn.x + x, mn.y + y, mn.z + z);
+                int rx, rz;
+                switch (q) {
+                    case 1:  rx = z;          rz = sx - 1 - x; break;
+                    case 2:  rx = sx - 1 - x; rz = sz - 1 - z; break;
+                    case 3:  rx = sz - 1 - z; rz = x;          break;
+                    default: rx = x;          rz = z;          break;
+                }
+                blocks[outIdx(rx, y, rz)] = (uint8_t)bt;
+            }
+
+    HousePlaceHeader hdr;
+    hdr.worldX = (int)floorf(ctx.housePreviewPos.x) - dimX / 2;
+    hdr.baseY  = (int)floorf(ctx.housePreviewPos.y);
+    hdr.worldZ = (int)floorf(ctx.housePreviewPos.z) - dimZ / 2;
+    hdr.dimX = dimX; hdr.dimY = dimY; hdr.dimZ = dimZ;
+
+    std::vector<uint8_t> packet(sizeof(hdr) + blocks.size());
+    memcpy(packet.data(), &hdr, sizeof(hdr));
+    memcpy(packet.data() + sizeof(hdr), blocks.data(), blocks.size());
+    ctx.client->send(PacketType::HousePlace, packet.data(), packet.size());
 }

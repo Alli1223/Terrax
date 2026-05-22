@@ -4,6 +4,8 @@
 #include "app_context.h"
 #include "game_types.h"
 #include "atlas.h"
+#include "town.h"
+#include "prop_placement.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <cmath>
 #include <vector>
@@ -48,8 +50,8 @@ static void addLantern(LanternLightList& lights, const glm::vec3& feetPos, float
     if (lights.count >= MAX_LANTERNS) return;
     int i = lights.count++;
     lights.pos[i]       = lanternWorldPos(feetPos, yaw, held);
-    lights.intensity[i] = (held ? 1.2f : 0.55f) * flicker;
-    lights.radius[i]    = held ? 14.0f : 6.0f;
+    lights.intensity[i] = (held ? 0.9f : 0.4f) * flicker;
+    lights.radius[i]    = held ? 20.0f : 10.0f;
 }
 
 static void collectLanternLights(const AppContext& ctx, float flicker, LanternLightList& lights) {
@@ -59,10 +61,64 @@ static void collectLanternLights(const AppContext& ctx, float flicker, LanternLi
         (void)id;
         addLantern(lights, p.position, p.yaw, p.lanternHeld, flicker);
     }
+
+    // House lanterns and town street lamps only glow after dark.
+    float sunY        = sunElevation(ctx.gameTime);
+    float nightFactor = 1.0f - smoothstep(-0.08f, 0.12f, sunY);
+    if (nightFactor <= 0.01f) return;
+
+    // Collected nearest-first so distant lights drop off the fixed-size list.
+    const glm::vec3 cam = ctx.camera.position;
+    const float COLLECT2 = 112.0f * 112.0f;
+    struct Cand { glm::vec3 pos; float intensity, radius, d2; };
+    std::vector<Cand> cand;
+
+    for (const PropPlacement& pp : getPropPlacements()) {
+        glm::vec3 lp;
+        float intensity = 0.0f, radius = 0.0f;
+        if (pp.type == PropType::Lantern) {
+            lp        = pp.pos + glm::vec3(0.0f, 0.45f, 0.0f);
+            intensity = 0.78f * flicker * nightFactor;
+            radius    = 24.0f;
+        } else if (pp.type == PropType::StreetLamp) {
+            lp        = pp.pos + glm::vec3(0.0f, 3.15f, 0.0f);
+            intensity = 0.82f * flicker * nightFactor;
+            radius    = 30.0f;
+        } else {
+            continue;
+        }
+        float dx = lp.x - cam.x, dz = lp.z - cam.z;
+        float d2 = dx * dx + dz * dz;
+        if (d2 > COLLECT2) continue;
+        cand.push_back({ lp, intensity, radius, d2 });
+    }
+    // Town campfires glow after dark too.
+    for (const Town& t : getTownPlan().towns) {
+        if (t.centerpiece != TownCenter::Campfire) continue;
+        glm::vec3 lp((float)t.center.x + 0.5f, (float)t.baseY + 2.5f,
+                     (float)t.center.y + 0.5f);
+        float dx = lp.x - cam.x, dz = lp.z - cam.z;
+        float d2 = dx * dx + dz * dz;
+        if (d2 > COLLECT2) continue;
+        cand.push_back({ lp, 0.95f * flicker * nightFactor, 26.0f, d2 });
+    }
+    std::sort(cand.begin(), cand.end(),
+              [](const Cand& a, const Cand& b) { return a.d2 < b.d2; });
+    for (const Cand& c : cand) {
+        if (lights.count >= MAX_LANTERNS) break;
+        int i = lights.count++;
+        lights.pos[i]       = c.pos;
+        lights.intensity[i] = c.intensity;
+        lights.radius[i]    = c.radius;
+    }
 }
 
-static void bindLanternLights(const Shader& shader, const LanternLightList& lights) {
+static void bindLanternLights(const Shader& shader, const LanternLightList& lights,
+                              const glm::ivec3& volOrigin, int volSize, int volTexUnit) {
     shader.setLanternLights(lights.count, lights.pos, lights.intensity, lights.radius);
+    shader.setInt("u_lightVol", volTexUnit);
+    shader.setVec3("u_lightVolOrigin", glm::vec3(volOrigin));
+    shader.setFloat("u_lightVolSize", (float)volSize);
 }
 
 void Renderer::setupSkybox() {
@@ -82,6 +138,7 @@ bool Renderer::init(int width, int height) {
     skyShader    = Shader("shaders/sky.vert",    "shaders/sky.frag");
     charShader   = Shader("shaders/char.vert",   "shaders/char.frag");
     shadowShader = Shader("shaders/shadow.vert", "shaders/shadow.frag");
+    glassShader  = Shader("shaders/glass.vert",  "shaders/glass.frag");
 
     setupSkybox();
     atlasTexture = generateAtlas();
@@ -176,6 +233,8 @@ void Renderer::renderEditorCharacter(AppContext& ctx, const glm::mat4& model,
     charShader.setFloat("sunFactor", 1.0f);
     charShader.setVec3("skyAmbient", glm::vec3(0.85f, 0.90f, 1.00f));
     charShader.setLanternLights(0, nullptr, nullptr, nullptr);
+    charShader.setFloat("u_alpha", 1.0f);
+    charShader.setFloat("u_skyExposure", 1.0f);
     // Shadow disabled: map all fragments outside clip-space so calcShadow returns 0
     glm::mat4 editorLSM = glm::mat4(0.0f);
     editorLSM[3][2] = 2.0f;
@@ -191,14 +250,157 @@ void Renderer::renderEditorCharacter(AppContext& ctx, const glm::mat4& model,
     }
 }
 
+void Renderer::renderEditorHouse(AppContext& ctx, const glm::mat4& model,
+                                  const glm::mat4& view, const glm::mat4& proj) {
+    if (!ctx.houseModel || !ctx.houseModel->volume) return;
+
+    charShader.use();
+    charShader.setMat4("projection", proj);
+    charShader.setMat4("view", view);
+    charShader.setVec3("u_sunDir", glm::normalize(glm::vec3(0.5f, 1.0f, 0.4f)));
+    charShader.setFloat("sunFactor", 1.0f);
+    charShader.setVec3("skyAmbient", glm::vec3(0.85f, 0.90f, 1.00f));
+    charShader.setLanternLights(0, nullptr, nullptr, nullptr);
+    charShader.setFloat("u_alpha", 1.0f);
+    charShader.setFloat("u_skyExposure", 1.0f);
+    // Shadow disabled: map all fragments outside clip-space so calcShadow returns 0
+    glm::mat4 editorLSM = glm::mat4(0.0f);
+    editorLSM[3][2] = 2.0f;
+    editorLSM[3][3] = 1.0f;
+    charShader.setMat4("lightSpaceMatrix", editorLSM);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, shadowMapTex);
+    charShader.setInt("shadowMap", 1);
+
+    ctx.houseModel->volume->updateMesh();
+    glUniformMatrix4fv(glGetUniformLocation(charShader.id, "model"), 1, GL_FALSE, &model[0][0]);
+    ctx.houseModel->volume->draw();
+}
+
+// Model matrix that places the house design at the live placement-preview spot.
+static glm::mat4 housePreviewMatrix(const AppContext& ctx) {
+    const HouseModel* hm = ctx.houseModel;
+    glm::vec3 ctr((hm->boundMin.x + hm->boundMax.x + 1) * 0.5f,
+                  (float)hm->boundMin.y,
+                  (hm->boundMin.z + hm->boundMax.z + 1) * 0.5f);
+    glm::mat4 m = glm::translate(glm::mat4(1.0f),
+        glm::vec3(floorf(ctx.housePreviewPos.x) + 0.5f,
+                  floorf(ctx.housePreviewPos.y),
+                  floorf(ctx.housePreviewPos.z) + 0.5f));
+    m = glm::rotate(m, glm::radians(ctx.housePreviewYaw), glm::vec3(0, 1, 0));
+    m = glm::translate(m, -ctr);
+    return m;
+}
+
+// Casts backward from the player and returns how far the third-person camera
+// can sit before a solid block would come between it and the player.
+static float cameraClipDistance(const World& world, const glm::vec3& base,
+                                const glm::vec3& backDir, float desired) {
+    const float margin  = 0.30f;   // keep the camera off the wall surface
+    const float step    = 0.25f;
+    const float minDist = 0.50f;
+    for (float t = step; t <= desired; t += step) {
+        glm::vec3 sp = base + backDir * t;
+        BlockType b = world.getBlock((int)floorf(sp.x), (int)floorf(sp.y), (int)floorf(sp.z));
+        if (b != BlockType::Air && b != BlockType::Water)
+            return std::max(t - margin, minDist);
+    }
+    return desired;
+}
+
+// Sky-light exposure (0..1) at a character's position — drives how brightly the
+// character is lit, so someone standing inside a house renders dark like the room.
+static float skyExposureAt(const World& world, const glm::vec3& feetPos) {
+    int wx = (int)floorf(feetPos.x);
+    int wy = (int)floorf(feetPos.y) + 1;
+    int wz = (int)floorf(feetPos.z);
+    return world.getSkyLight(wx, wy, wz) / 15.0f;
+}
+
+// Rebuilds the 3D opacity texture of the blocks around the player when needed.
+// The shaders raymarch this so dynamic point lights are blocked by walls.
+void Renderer::updateLightVolume(AppContext& ctx) {
+    const int S = LIGHTVOL_SIZE;
+    if (!lightVolTex) {
+        glGenTextures(1, &lightVolTex);
+        glBindTexture(GL_TEXTURE_3D, lightVolTex);
+        glTexImage3D(GL_TEXTURE_3D, 0, GL_R8, S, S, S, 0,
+                     GL_RED, GL_UNSIGNED_BYTE, nullptr);
+        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+        glBindTexture(GL_TEXTURE_3D, 0);
+    }
+    glm::ivec3 desired((int)floorf(ctx.camera.position.x) - S / 2,
+                       (int)floorf(ctx.camera.position.y) - S / 2,
+                       (int)floorf(ctx.camera.position.z) - S / 2);
+    lightVolTimer += ctx.deltaTime;
+    glm::ivec3 d = desired - lightVolOrigin;
+    bool moved = std::abs(d.x) >= 8 || std::abs(d.y) >= 8 || std::abs(d.z) >= 8;
+
+    // A shut door occludes light through its doorway; a change in which doors
+    // are shut also forces a rebuild so the leak tracks the swing.
+    uint32_t doorSig = 0;
+    for (const auto& o : ctx.objectManager.objects()) {
+        if (o->dead || o->kind != ObjectKind::Door) continue;
+        Door* dr = static_cast<Door*>(o.get());
+        if (dr->blocksLight()) doorSig = doorSig * 31u + dr->placementIndex + 1u;
+    }
+    static uint32_t lastDoorSig = 0;
+    if (!moved && lightVolTimer < 1.5f && doorSig == lastDoorSig) return;
+    lastDoorSig = doorSig;
+
+    lightVolOrigin = desired;
+    lightVolTimer  = 0.0f;
+    static std::vector<unsigned char> buf;
+    buf.resize((size_t)S * S * S);
+    ctx.world.fillOpacityVolume(buf.data(), S, desired.x, desired.y, desired.z);
+
+    // Stamp shut doors opaque so interior light cannot leak past them.
+    for (const auto& o : ctx.objectManager.objects()) {
+        if (o->dead || o->kind != ObjectKind::Door) continue;
+        Door* dr = static_cast<Door*>(o.get());
+        if (!dr->blocksLight()) continue;
+        int by = (int)o->position.y;
+        for (int tt = -1; tt <= 1; tt++) {
+            int wx = dr->wallCell.x + tt * dr->wallDir.x;
+            int wz = dr->wallCell.y + tt * dr->wallDir.y;
+            for (int dyy = 0; dyy < 4; dyy++) {
+                int tx = wx - desired.x, ty = by + dyy - desired.y, tz = wz - desired.z;
+                if (tx < 0 || tx >= S || ty < 0 || ty >= S || tz < 0 || tz >= S) continue;
+                buf[((size_t)tz * S + ty) * S + tx] = 255;
+            }
+        }
+    }
+
+    glBindTexture(GL_TEXTURE_3D, lightVolTex);
+    glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, S, S, S,
+                    GL_RED, GL_UNSIGNED_BYTE, buf.data());
+    glBindTexture(GL_TEXTURE_3D, 0);
+}
+
 void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTime) {
     int fbW, fbH;
     glfwGetFramebufferSize(window, &fbW, &fbH);
     glViewport(0, 0, fbW, fbH);
     float aspect = fbW / (float)fbH;
 
-    glm::mat4 proj   = glm::perspective(glm::radians(ctx.camera.fov), aspect, 0.1f, 1000.0f);
-    glm::vec3 eyePos = ctx.camera.position + glm::vec3(0, 1.6f, 0) - (ctx.camera.front * ctx.camDist);
+    glm::mat4 proj = glm::perspective(glm::radians(ctx.camera.fov), aspect, 0.1f, 1000.0f);
+
+    // Third-person camera with wall clipping: pull the camera in so a solid
+    // block never sits between it and the player. Snap inward immediately,
+    // ease back outward so leaving a tight space isn't jarring.
+    glm::vec3 camBase    = ctx.camera.position + glm::vec3(0, 1.6f, 0);
+    float     targetDist = cameraClipDistance(ctx.world, camBase, -ctx.camera.front, ctx.camDist);
+    if (targetDist < ctx.camDistSmooth)
+        ctx.camDistSmooth = targetDist;
+    else
+        ctx.camDistSmooth += (targetDist - ctx.camDistSmooth)
+                           * std::min(1.0f, ctx.deltaTime * 8.0f);
+
+    glm::vec3 eyePos = camBase - ctx.camera.front * ctx.camDistSmooth;
     glm::mat4 view   = glm::lookAt(eyePos, ctx.camera.position + glm::vec3(0, 1.2f, 0), ctx.camera.worldUp);
 
     // Expose to UI for nametags
@@ -229,44 +431,13 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     LanternLightList lanternLights;
     collectLanternLights(ctx, flicker, lanternLights);
 
-    // --- Build character draw list ---
-    glm::mat4 playerM(1.0f);
-    if (ctx.playerRig) {
-        ctx.playerRig->lanternHeld = ctx.lanternHeld;
-        float velocity = glm::length(ctx.camera.velocity);
-        ctx.playerRig->update(ctx.deltaTime, std::min(velocity * 0.5f, 5.0f));
-        playerM = glm::translate(glm::mat4(1.0f), ctx.camera.position);
-        playerM = glm::rotate(playerM, glm::radians(ctx.playerYaw), glm::vec3(0, 1, 0));
-        playerM = glm::scale(playerM, glm::vec3(0.06f * ctx.playerRig->heightScale));
-    }
+    // Rebuild the occlusion volume and bind it to texture unit 2 for the frame.
+    updateLightVolume(ctx);
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_3D, lightVolTex);
 
-    struct CharEntry { glm::mat4 m; BipedalRig* rig; };
-    std::vector<CharEntry> remoteChars;
-    for (auto& [id, p] : ctx.remotePlayers) {
-        (void)id;
-        if (!p.rig || !p.rig->torso || !p.rig->torso->volume) {
-            if (!p.rig) p.rig = new BipedalRig();
-            p.rig->setupDefaultHuman(true);
-        }
-        float lerpF   = 10.0f * ctx.deltaTime;
-        glm::vec3 lastPos = p.position;
-        p.position = glm::mix(p.position, p.targetPosition, std::min(1.0f, lerpF));
-        p.pitch    = glm::mix(p.pitch, p.targetPitch, std::min(1.0f, lerpF));
-        p.yaw      = glm::mix(p.yaw,   p.targetYaw,   std::min(1.0f, lerpF));
-        float vel  = glm::length(p.position - lastPos) / (ctx.deltaTime > 0 ? ctx.deltaTime : 1.0f);
-        if (p.isAttacking) {
-            p.attackAnim += ctx.deltaTime * 5.0f;
-            if (p.attackAnim > 1.0f) { p.isAttacking = false; p.attackAnim = 0.0f; }
-        }
-        p.rig->lanternHeld   = p.lanternHeld;
-        p.rig->isAttacking = p.isAttacking;
-        p.rig->attackAnim  = p.attackAnim;
-        p.rig->update(ctx.deltaTime, std::min(vel, 10.0f));
-        glm::mat4 pm = glm::translate(glm::mat4(1.0f), p.position);
-        pm = glm::rotate(pm, glm::radians(p.yaw), glm::vec3(0, 1, 0));
-        pm = glm::scale(pm, glm::vec3(0.06f * p.rig->heightScale));
-        remoteChars.push_back({pm, p.rig});
-    }
+    // Characters and other objects are advanced in updateGameplay (the local
+    // player + the ObjectManager); the renderer only draws them.
 
     // --- Reflection pass ---
     {
@@ -296,7 +467,7 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
         chunkShader.setVec3("skyAmbient",      skyAmbient);
         chunkShader.setVec3("camPos",          reflEye);
         chunkShader.setVec3("u_sunDir",        sunDir);
-        bindLanternLights(chunkShader, lanternLights);
+        bindLanternLights(chunkShader, lanternLights, lightVolOrigin, LIGHTVOL_SIZE, 2);
         chunkShader.setVec4("u_clipPlane", glm::vec4(0.0f, 1.0f, 0.0f, -WATER_Y));
         ctx.world.drawAll();
         glDisable(GL_CLIP_DISTANCE0); glCullFace(GL_BACK); glEnable(GL_CULL_FACE);
@@ -321,8 +492,8 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     ctx.world.drawAll();
     {
         GLuint sml = glGetUniformLocation(shadowShader.id, "model");
-        if (ctx.playerRig) ctx.playerRig->draw(playerM, sml);
-        for (auto& ce : remoteChars) ce.rig->draw(ce.m, sml);
+        if (ctx.localPlayer) ctx.localPlayer->draw(sml);
+        ctx.objectManager.drawAll(sml);
     }
     glCullFace(GL_BACK);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -348,7 +519,7 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     chunkShader.setVec3("skyAmbient",      skyAmbient);
     chunkShader.setVec3("camPos",          eyePos);
     chunkShader.setVec3("u_sunDir",        sunDir);
-    bindLanternLights(chunkShader, lanternLights);
+    bindLanternLights(chunkShader, lanternLights, lightVolOrigin, LIGHTVOL_SIZE, 2);
     chunkShader.setVec4("u_clipPlane", glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
     ctx.world.drawAll();
 
@@ -362,12 +533,37 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     charShader.setFloat("sunFactor",      sunFactor);
     charShader.setVec3("skyAmbient",      skyAmbient);
     charShader.setVec3("u_sunDir",        sunDir);
-    bindLanternLights(charShader, lanternLights);
+    bindLanternLights(charShader, lanternLights, lightVolOrigin, LIGHTVOL_SIZE, 2);
     charShader.setFloat("time", currentTime);
+    charShader.setFloat("u_alpha", 1.0f);
     {
-        GLuint ml = glGetUniformLocation(charShader.id, "model");
-        if (ctx.playerRig) ctx.playerRig->draw(playerM, ml);
-        for (auto& ce : remoteChars) ce.rig->draw(ce.m, ml);
+        GLuint ml    = glGetUniformLocation(charShader.id, "model");
+        GLint  seLoc = glGetUniformLocation(charShader.id, "u_skyExposure");
+        if (ctx.localPlayer) {
+            glUniform1f(seLoc, skyExposureAt(ctx.world, ctx.localPlayer->position));
+            ctx.localPlayer->draw(ml);
+        }
+        for (const auto& o : ctx.objectManager.objects()) {
+            if (o->dead) continue;
+            glUniform1f(seLoc, skyExposureAt(ctx.world, o->position));
+            o->draw(ml);
+        }
+    }
+
+    // House placement ghost — translucent preview that follows the player.
+    if (ctx.housePreviewActive && ctx.houseModel && ctx.houseModel->volume) {
+        glm::mat4 ghostM = housePreviewMatrix(ctx);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDepthMask(GL_FALSE);
+        charShader.setFloat("u_alpha", 0.42f);
+        charShader.setFloat("u_skyExposure", 1.0f);
+        glUniformMatrix4fv(glGetUniformLocation(charShader.id, "model"),
+                           1, GL_FALSE, &ghostM[0][0]);
+        ctx.houseModel->volume->draw();
+        charShader.setFloat("u_alpha", 1.0f);
+        glDepthMask(GL_TRUE);
+        glDisable(GL_BLEND);
     }
 
     // Foliage (alpha-cutout, no back-face culling)
@@ -381,7 +577,7 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     chunkShader.setVec3("skyAmbient", skyAmbient);
     chunkShader.setVec3("camPos", eyePos);
     chunkShader.setVec3("u_sunDir", sunDir);
-    bindLanternLights(chunkShader, lanternLights);
+    bindLanternLights(chunkShader, lanternLights, lightVolOrigin, LIGHTVOL_SIZE, 2);
     chunkShader.setFloat("time", currentTime);
     chunkShader.setVec4("u_clipPlane", glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
     ctx.world.drawAllFoliage();
@@ -441,12 +637,29 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
 
     glEnable(GL_CULL_FACE);
 
+    // Glass — translucent block faces, drawn after opaque geometry
+    glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDepthMask(GL_FALSE); glDisable(GL_CULL_FACE);
+    glassShader.use();
+    glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, atlasTexture);
+    glassShader.setInt("atlas", 0);
+    glassShader.setMat4("model",      glm::mat4(1.0f));
+    glassShader.setMat4("view",       view);
+    glassShader.setMat4("projection", proj);
+    glassShader.setFloat("sunFactor", sunFactor);
+    glassShader.setVec3("skyAmbient", skyAmbient);
+    glassShader.setVec3("camPos",     eyePos);
+    glassShader.setVec3("u_sunDir",   sunDir);
+    ctx.world.drawAllGlass();
+    glDepthMask(GL_TRUE); glDisable(GL_BLEND); glEnable(GL_CULL_FACE);
+
     // Water
     glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDepthMask(GL_FALSE); glDisable(GL_CULL_FACE);
     waterShader.use();
     glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, atlasTexture);
     glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, reflColorTex);
+    glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_3D, lightVolTex);
     waterShader.setInt("atlas", 0); waterShader.setInt("u_reflTex", 2);
     waterShader.setMat4("model",       glm::mat4(1.0f));
     waterShader.setMat4("view",        view);
@@ -457,7 +670,7 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     waterShader.setFloat("time",       currentTime);
     waterShader.setFloat("timeOfDay",  ctx.gameTime);
     waterShader.setVec3("u_sunDir",    sunDir);
-    bindLanternLights(waterShader, lanternLights);
+    bindLanternLights(waterShader, lanternLights, lightVolOrigin, LIGHTVOL_SIZE, 3);
     ctx.world.drawAllWater();
     glDepthMask(GL_TRUE); glDisable(GL_BLEND); glEnable(GL_CULL_FACE);
 

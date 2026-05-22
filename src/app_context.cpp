@@ -37,6 +37,10 @@ AppContext::AppContext()
     playerRig->setupDefaultHuman(true);
     playerRig->randomizeAppearance();
 
+    localPlayer = new Player(&camera, playerRig);
+
+    houseModel = new HouseModel();
+
     noclip = true;
     camera.pitch = -20.0f;
     camera.updateVectors();
@@ -44,5 +48,8 @@ AppContext::AppContext()
 
 AppContext::~AppContext() {
     if (mapBuilding && mapFuture.valid()) mapFuture.wait();
+    objectManager.clear();
+    delete localPlayer;
     delete playerRig;
+    delete houseModel;
 }

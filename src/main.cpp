@@ -76,6 +76,13 @@ int main(int argc, char** argv) {
             renderCharacterEditorUI(ctx, window, renderer);
             break;
 
+        case GameState::HouseEditor:
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+            glClearColor(0.2f, 0.2f, 0.25f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            renderHouseEditorUI(ctx, window, renderer);
+            break;
+
         case GameState::Playing:
         case GameState::Paused:
             updateGameplay(ctx, window);

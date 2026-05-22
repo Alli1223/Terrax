@@ -4,6 +4,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include "gl_loader.h"
+#include "world.h"
 #include <mutex>
 
 struct Voxel {
@@ -115,4 +116,39 @@ public:
     float animTime = 0.0f;
     QuadrupedRig();
     void update(float dt, float velocity) override;
+};
+
+// --- House generator ---------------------------------------------------------
+// A customizable building stored as a grid of world BlockTypes (1 voxel = 1
+// world block) so it can be baked straight into the terrain. `volume` is a
+// colour mesh derived from the block grid, used only for editor / ghost display.
+
+static constexpr int HOUSE_VX = 24;
+static constexpr int HOUSE_VY = 32;
+static constexpr int HOUSE_VZ = 24;
+
+// Representative display colour for a block type (editor + placement ghost).
+Voxel houseBlockColor(BlockType t);
+
+// Fills `blocks` (HOUSE_VX*HOUSE_VY*HOUSE_VZ, index ((z*HOUSE_VY)+y)*HOUSE_VX+x)
+// with a procedural house. Shared by the house editor and the town generator.
+void generateHouseGrid(int templateType, int roofType, int material,
+                       std::vector<BlockType>& blocks);
+
+class HouseModel {
+public:
+    VoxelVolume* volume = nullptr;            // display mesh, rebuilt from `blocks`
+    std::vector<BlockType> blocks;            // HOUSE_VX*HOUSE_VY*HOUSE_VZ grid
+    glm::ivec3 boundMin{0, 0, 0};             // tight bounding box of non-air blocks
+    glm::ivec3 boundMax{0, 0, 0};
+    int templateType = 0;   // 0 Bungalow, 1 Two-Story, 2 Cottage, 3 Tower
+    int roofType     = 1;   // 0 Flat, 1 Gabled, 2 Hipped, 3 Pyramid
+    int material     = 0;   // 0 Wood, 1 Stone, 2 Sandstone, 3 Snow
+
+    HouseModel();
+    ~HouseModel();
+    BlockType get(int x, int y, int z) const;
+    void      set(int x, int y, int z, BlockType t);
+    void      rebuild();        // regenerates the block grid from template settings
+    void      refreshMesh();    // recomputes bounds + display mesh from the grid
 };

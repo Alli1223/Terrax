@@ -31,6 +31,8 @@ enum class BlockType : uint8_t {
     LeavesOrange = 14,
     LeavesRed    = 15,
     LeavesPink   = 16,
+    Glass        = 17,
+    PaintFirst   = 18,   // 16 painted-colour blocks: ids 18..33 (see PAINT_PALETTE)
 };
 
 enum class ChunkState {
@@ -78,13 +80,16 @@ public:
     GLuint vao = 0, vbo = 0;
     GLuint waterVao = 0, waterVbo = 0;
     GLuint foliageVao = 0, foliageVbo = 0;
+    GLuint glassVao = 0, glassVbo = 0;
     int vertexCount = 0;
     int waterVertexCount = 0;
     int foliageVertexCount = 0;
+    int glassVertexCount = 0;
     std::atomic<ChunkState> state{ChunkState::Empty};
     std::vector<Vertex> meshData;
     std::vector<Vertex> waterData;
     std::vector<Vertex> foliageData;
+    std::vector<Vertex> glassData;
     std::mutex meshMutex;
     int neighborsAtMeshTime = 0;
 
@@ -111,6 +116,7 @@ public:
     void draw() const;
     void drawWater() const;
     void drawFoliage() const;
+    void drawGlass() const;
 };
 
 class World {
@@ -130,9 +136,11 @@ public:
     void drawAll() const;
     void drawAllWater() const;
     void drawAllFoliage() const;
+    void drawAllGlass() const;
 
     BlockType getBlock(int wx, int wy, int wz) const;
     BlockType getBlockInternal(int wx, int wy, int wz) const;
+    uint8_t   getSkyLight(int wx, int wy, int wz) const;   // 0-15; 15 for unloaded
     void setBlock(int wx, int wy, int wz, BlockType t);
     void relightAt(int wx, int wy, int wz);
 
@@ -144,6 +152,11 @@ public:
     // (cx, cz) is the world-space centre; worldRadius is the half-extent covered.
     // Safe to call from a background thread.
     void fillMapPixels(uint8_t* rgba, int texSize, float cx, float cz, float worldRadius) const;
+
+    // Fill an R8 (size^3) buffer with block opacity for the dynamic-light
+    // raymarch: 255 = opaque to light, 0 = transparent (air/water/glass/unloaded).
+    // (ox,oy,oz) is the world position of texel (0,0,0). Background-thread safe.
+    void fillOpacityVolume(uint8_t* out, int size, int ox, int oy, int oz) const;
 
 private:
     std::queue<Chunk*> generationQueue;
@@ -157,3 +170,17 @@ private:
 };
 
 void setWorldSeed(unsigned int seed);
+
+// --- Terrain oracle ----------------------------------------------------------
+// Surface height + biome at any world XZ, as a pure function of the world seed
+// (no chunk generation required). Used by the procedural town planner.
+static constexpr int WORLD_SEA_LEVEL = 64;
+
+struct SurfaceSample { int height; int biome; };
+SurfaceSample sampleSurface(int wx, int wz);
+
+// The real top-solid block Y at a column (replays the 3D density crossing,
+// unlike sampleSurface, which returns only the blended target height).
+int sampleSurfaceSolid(int wx, int wz);
+
+unsigned int  worldSeed();

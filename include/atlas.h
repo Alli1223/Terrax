@@ -1,12 +1,45 @@
 #pragma once
 #include "gl_loader.h"
 
-// Texture atlas layout: 4 columns × 6 rows, each tile 64×64 px → 256×384 atlas.
+// Texture atlas layout: 4 columns × 12 rows, each tile 64×64 px → 256×768 atlas.
 static constexpr int ATLAS_COLS   = 4;
-static constexpr int ATLAS_ROWS   = 6;
+static constexpr int ATLAS_ROWS   = 12;
 static constexpr int TILE_PX      = 64;
 static constexpr int ATLAS_PX     = ATLAS_COLS * TILE_PX; // 256 (width)
-static constexpr int ATLAS_HEIGHT = ATLAS_ROWS * TILE_PX; // 384 (height)
+static constexpr int ATLAS_HEIGHT = ATLAS_ROWS * TILE_PX; // 768 (height)
+
+// 24-colour painted-block palette — a designer-style spread of muted, richer
+// tones. Painted blocks let houses be any of these colours; the atlas, world
+// meshing and house editor all index this table.
+struct RGB8 { unsigned char r, g, b; };
+static constexpr int  PAINT_COUNT = 24;
+static constexpr RGB8 PAINT_PALETTE[PAINT_COUNT] = {
+    {238, 240, 243},  //  0 White
+    {235, 224, 193},  //  1 Cream
+    {178, 184, 192},  //  2 Light Gray
+    {110, 120, 132},  //  3 Slate Gray
+    { 56,  60,  68},  //  4 Charcoal
+    { 28,  29,  34},  //  5 Black
+    {197, 109,  78},  //  6 Terracotta
+    {165,  67,  55},  //  7 Brick Red
+    {146,  40,  50},  //  8 Crimson
+    {205, 112,  44},  //  9 Rust Orange
+    {228, 168,  66},  // 10 Amber
+    {198, 165,  70},  // 11 Mustard
+    {118,  73,  45},  // 12 Chestnut
+    {215, 189, 139},  // 13 Sand
+    {124, 127,  71},  // 14 Olive
+    {150, 171, 129},  // 15 Sage
+    { 52, 102,  60},  // 16 Forest Green
+    {159, 207, 181},  // 17 Mint
+    {124, 179, 223},  // 18 Sky Blue
+    { 56, 149, 149},  // 19 Teal
+    { 44,  60, 106},  // 20 Navy
+    { 95, 123, 157},  // 21 Steel Blue
+    {116,  73, 117},  // 22 Plum
+    {199, 143, 151},  // 23 Dusty Rose
+};
+static constexpr RGB8 GLASS_TINT = {200, 225, 238};
 
 enum class TileID : int {
     GrassTop   = 0,  // col 0, row 0
@@ -32,6 +65,8 @@ enum class TileID : int {
     LeavesOrange = 20, // col 0, row 5 — autumn orange
     LeavesRed    = 21, // col 1, row 5 — deep autumn red
     LeavesPink   = 22, // col 2, row 5 — spring blossom pink
+    Glass        = 23, // col 3, row 5 — window glass
+    PaintFirst   = 24, // 16 solid painted-colour tiles, ids 24..39 (rows 6..9)
 };
 
 // Returns atlas UV corners for a tile (with half-texel inset to prevent bleeding).

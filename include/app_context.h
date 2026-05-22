@@ -6,6 +6,9 @@
 #include "world.h"
 #include "network.h"
 #include "voxel_model.h"
+#include "object_manager.h"
+#include "player_object.h"
+#include "prop.h"
 #include <glm/glm.hpp>
 #include <string>
 #include <unordered_map>
@@ -17,6 +20,7 @@ struct LeafParticle {
     float     life = 0.0f, maxLife = 1.0f;
     uint8_t   leafBT = 0;
 };
+
 
 struct AppContext {
     // --- State ---
@@ -32,9 +36,11 @@ struct AppContext {
 
     // --- Player ---
     BipedalRig* playerRig  = nullptr;
+    Player*     localPlayer = nullptr;   // GameObject wrapper over camera + rig
     char playerName[MAX_PLAYER_NAME + 1] = {};
     float playerYaw        = 0.0f;
     bool spawnedOnGround   = false;
+    int  spawnX = 8, spawnZ = 8;   // world column the player spawns at
     float playerHealth     = 1.0f;
 
     // --- Camera / mouse ---
@@ -56,6 +62,10 @@ struct AppContext {
     // --- World ---
     World world;
 
+    // --- Objects (remote players, props, vehicles) ---
+    ObjectManager objectManager;
+    PropLibrary   propLibrary;   // shared furniture/decoration meshes
+
     // --- Network ---
     NetworkClient* client          = nullptr;
     bool weOwnServer               = false;
@@ -70,7 +80,7 @@ struct AppContext {
     char chatInput[MAX_CHAT_TEXT + 1] = {};
     bool showPlayerList = false;
 
-    // --- Character editor ---
+    // --- Character / house editor ---
     float editorRotX = 0.0f, editorRotY = 0.0f;
     bool  wasEditorClick   = false;
     bool  isEditorRotating = false;
@@ -78,7 +88,15 @@ struct AppContext {
     glm::vec4 editorColor  = glm::vec4(1.0f);
     EditorTool editorTool  = EditorTool::Paint;
     float camDist          = 10.0f;
+    float camDistSmooth    = 10.0f;   // wall-clipped third-person distance (gameplay)
     int   editorCharType   = 0;
+    int   editorBlock      = 0;   // selected build-block index in the house editor
+
+    // --- House generator ---
+    HouseModel* houseModel        = nullptr;
+    bool        housePreviewActive = false;   // H once = preview, H again = confirm
+    glm::vec3   housePreviewPos    = glm::vec3(0.0f);
+    float       housePreviewYaw    = 0.0f;
 
     // --- Gameplay state (updated each frame by gameplay system) ---
     bool  headUnderwater = false;

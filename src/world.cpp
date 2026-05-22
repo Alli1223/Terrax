@@ -1,4 +1,5 @@
 #include "world.h"
+#include "town.h"
 #include "noise.h"
 #include <cstring>
 #include <cmath>
@@ -12,14 +13,18 @@ static PerlinNoise gTempNoise(54321);
 static PerlinNoise gHumidNoise(98765);
 static PerlinNoise gRiverNoise(11111);
 static PerlinNoise gContinentalNoise(77777);
+static unsigned int g_worldSeed = 12345;
 
 void setWorldSeed(unsigned int seed) {
+    g_worldSeed        = seed;
     gNoise             = PerlinNoise(seed);
     gTempNoise         = PerlinNoise(seed + 11111);
     gHumidNoise        = PerlinNoise(seed + 22222);
     gRiverNoise        = PerlinNoise(seed + 33333);
     gContinentalNoise  = PerlinNoise(seed + 44444);
 }
+
+unsigned int worldSeed() { return g_worldSeed; }
 
 // ---- Chunk ----
 
@@ -67,7 +72,8 @@ void Chunk::computeLight() {
         for (int z = 0; z < CHUNK_SIZE; z++) {
             for (int y = CHUNK_HEIGHT - 1; y >= 0; y--) {
                 BlockType bt = get(x, y, z);
-                if (bt != BlockType::Air && bt != BlockType::Water) break;
+                if (bt != BlockType::Air && bt != BlockType::Water &&
+                    bt != BlockType::Glass) break;
                 setSkyLight(x, y, z, 15);
                 q.push({(uint8_t)x, (uint8_t)y, (uint8_t)z, 15u});
             }
@@ -98,7 +104,8 @@ void Chunk::computeLight() {
             int bx = (int)nx + d[0], by = (int)ny + d[1], bz = (int)nz + d[2];
             if (bx < 0 || bx >= CHUNK_SIZE || by < 0 || by >= CHUNK_HEIGHT || bz < 0 || bz >= CHUNK_SIZE) continue;
             BlockType nb = get(bx, by, bz);
-            if (nb != BlockType::Air && nb != BlockType::Water) continue;
+            if (nb != BlockType::Air && nb != BlockType::Water &&
+                nb != BlockType::Glass) continue;
             uint8_t cur = isBlock ? getBlockLight(bx,by,bz) : getSkyLight(bx,by,bz);
             if (next > cur) {
                 isBlock ? setBlockLight(bx,by,bz,next) : setSkyLight(bx,by,bz,next);
@@ -113,6 +120,7 @@ Chunk::~Chunk() {
         if (vao)        { glDeleteVertexArrays(1, &vao);        glDeleteBuffers(1, &vbo);        }
         if (waterVao)   { glDeleteVertexArrays(1, &waterVao);   glDeleteBuffers(1, &waterVbo);   }
         if (foliageVao) { glDeleteVertexArrays(1, &foliageVao); glDeleteBuffers(1, &foliageVbo); }
+        if (glassVao)   { glDeleteVertexArrays(1, &glassVao);   glDeleteBuffers(1, &glassVbo);   }
     }
 }
 
@@ -127,7 +135,9 @@ void Chunk::set(int x, int y, int z, BlockType t) {
     blocks[y * CHUNK_SIZE * CHUNK_SIZE + z * CHUNK_SIZE + x] = t;
 }
 
-static bool isOpaque(BlockType b) { return b != BlockType::Air && b != BlockType::Water; }
+static bool isOpaque(BlockType b) {
+    return b != BlockType::Air && b != BlockType::Water && b != BlockType::Glass;
+}
 static bool isAnyLeaves(BlockType b) {
     return b == BlockType::Leaves || b == BlockType::LeavesOrange ||
            b == BlockType::LeavesRed || b == BlockType::LeavesPink;
@@ -156,15 +166,23 @@ static TileID getTile(BlockType bt, int face) {
         case BlockType::Ice:       return TileID::Ice;
         case BlockType::Glowstone: return TileID::Glowstone;
         case BlockType::Water:     return TileID::Water;
-        default:                   return TileID::Stone;
+        case BlockType::Glass:     return TileID::Glass;
+        default: {
+            int pidx = (int)bt - (int)BlockType::PaintFirst;
+            if (pidx >= 0 && pidx < PAINT_COUNT)
+                return (TileID)((int)TileID::PaintFirst + pidx);
+            return TileID::Stone;
+        }
     }
 }
 
 void Chunk::buildMesh(World* world) {
     std::vector<Vertex> verts;
     std::vector<Vertex> wverts;
+    std::vector<Vertex> gverts;
     verts.reserve(4096);
     wverts.reserve(512);
+    gverts.reserve(256);
 
     struct NeighborData {
         ChunkPos pos;
@@ -269,6 +287,7 @@ void Chunk::buildMesh(World* world) {
                 int wx = pos.x * CHUNK_SIZE + x;
                 int wz = pos.z * CHUNK_SIZE + z;
                 bool isWater = (bt == BlockType::Water);
+                bool isGlass = (bt == BlockType::Glass);
 
                 for (int face = 0; face < 6; face++) {
                     int ax = wx + FDX[face], ay = y + FDY[face], az = wz + FDZ[face];
@@ -278,6 +297,9 @@ void Chunk::buildMesh(World* world) {
                         // Water: only expose faces adjacent to Air; skip bottom face
                         if (face == 3) continue; // bottom face (–Y): never seen
                         if (adj != BlockType::Air) continue;
+                    } else if (isGlass) {
+                        // Glass: hide faces shared with other glass or behind solids
+                        if (adj == BlockType::Glass || isOpaque(adj)) continue;
                     } else {
                         // Opaque: expose faces adjacent to Air OR Water so seafloor shows through
                         if (isOpaque(adj)) continue;
@@ -305,7 +327,7 @@ void Chunk::buildMesh(World* world) {
                             (float)bt, skyL, blockL, sd
                         };
                     }
-                    pushQuad(isWater ? wverts : verts, quad);
+                    pushQuad(isWater ? wverts : (isGlass ? gverts : verts), quad);
                 }
             }
         }
@@ -377,6 +399,7 @@ void Chunk::buildMesh(World* world) {
         meshData     = std::move(verts);
         waterData    = std::move(wverts);
         foliageData  = std::move(fverts);
+        glassData    = std::move(gverts);
     }
     neighborsAtMeshTime = (int)neighbors.size();
     state = ChunkState::MeshReady;
@@ -432,6 +455,19 @@ void Chunk::uploadMesh() {
         foliageData.clear();
     }
 
+    // Glass mesh
+    if (!glassData.empty()) {
+        if (!glassVao) { glGenVertexArrays(1, &glassVao); glGenBuffers(1, &glassVbo); }
+        glBindVertexArray(glassVao);
+        glBindBuffer(GL_ARRAY_BUFFER, glassVbo);
+        glBufferData(GL_ARRAY_BUFFER, glassData.size() * sizeof(Vertex), glassData.data(), GL_STATIC_DRAW);
+        setupVertexAttribs();
+        glassVertexCount = (int)glassData.size();
+        glassData.clear();
+    } else {
+        glassVertexCount = 0;
+    }
+
     glBindVertexArray(0);
     state = ChunkState::Ready;
 }
@@ -454,6 +490,13 @@ void Chunk::drawFoliage() const {
     if (isServer || state != ChunkState::Ready || foliageVertexCount == 0) return;
     glBindVertexArray(foliageVao);
     glDrawArrays(GL_TRIANGLES, 0, foliageVertexCount);
+    glBindVertexArray(0);
+}
+
+void Chunk::drawGlass() const {
+    if (isServer || state != ChunkState::Ready || glassVertexCount == 0) return;
+    glBindVertexArray(glassVao);
+    glDrawArrays(GL_TRIANGLES, 0, glassVertexCount);
     glBindVertexArray(0);
 }
 
@@ -525,18 +568,48 @@ static ColumnInfo computeColumn(float wx, float wz) {
         float h = gNoise.octave(wx * BIOMES[i].freq, wz * BIOMES[i].freq, BIOMES[i].octaves, BIOMES[i].persistence, 2.0f);
         blendH += w * h * BIOMES[i].amplitude;
     }
-    float ridgeN = std::abs(gRiverNoise.octave(wx * 0.006f + 777.0f, wz * 0.006f + 777.0f, 3, 0.5f, 2.0f));
-    if (ridgeN < 0.13f && blendH > (float)(SEA_LEVEL + 1)) {
-        float depth = (0.13f - ridgeN) / 0.13f;
-        blendH -= depth * depth * 30.0f;
+    // Ravine rivers — kept infrequent, with smooth (not cliff-like) valley
+    // walls: a lower noise frequency widens each valley, a narrower threshold
+    // makes them rarer, and a smoothstep profile gives gentle rims and floors.
+    float ridgeN = std::abs(gRiverNoise.octave(wx * 0.0045f + 777.0f, wz * 0.0045f + 777.0f, 3, 0.5f, 2.0f));
+    if (ridgeN < 0.065f && blendH > (float)(SEA_LEVEL + 1)) {
+        float t     = (0.065f - ridgeN) / 0.065f;        // 0 at the rim, 1 at the centre
+        float carve = t * t * (3.0f - 2.0f * t);         // smoothstep — gentle rim and floor
+        blendH -= carve * 13.0f;
         blendH = std::max(blendH, (float)(SEA_LEVEL - 3));
     }
     float riverN = gRiverNoise.octave(wx * 0.005f, wz * 0.005f, 2, 0.5f, 2.0f);
-    if (std::abs(riverN) < 0.045f && blendH > SEA_LEVEL - 6 && blendH < SEA_LEVEL + 50) {
-        float riverDepth = (0.045f - std::abs(riverN)) / 0.045f;
+    if (std::abs(riverN) < 0.035f && blendH > SEA_LEVEL - 6 && blendH < SEA_LEVEL + 50) {
+        float riverDepth = (0.035f - std::abs(riverN)) / 0.035f;
         blendH = std::min(blendH, (float)(SEA_LEVEL - 1) - riverDepth * 4.0f);
     }
+    // Level the land under settlements (no-op until the town plan is built).
+    blendH = townFlattenedHeight(wx, wz, blendH);
     return { blendH, (Biome)domIdx };
+}
+
+// Terrain oracle exposed for the town planner — surface height + biome at any
+// world XZ, with no chunk generation.
+SurfaceSample sampleSurface(int wx, int wz) {
+    ColumnInfo ci = computeColumn((float)wx, (float)wz);
+    return { (int)ci.surfH, (int)ci.biome };
+}
+
+// The actual top-solid block Y at a column. computeColumn() yields only the
+// blended target height; Pass 1's 3D density field shifts the real surface
+// several blocks off it. Replaying that crossing lets props rest on the
+// ground instead of on the predicted height.
+int sampleSurfaceSolid(int wx, int wz) {
+    float surfH = computeColumn((float)wx, (float)wz).surfH;
+    int hi = std::min(CHUNK_HEIGHT - 1, (int)surfH + 24);
+    int lo = std::max(1, (int)surfH - 24);
+    for (int y = hi; y >= lo; y--) {
+        float d3   = gNoise.octave((float)wx * 0.012f * 2.0f, (float)y * 0.05f,
+                                   (float)wz * 0.012f * 2.0f, 4, 0.5f, 2.0f);
+        float bias = (surfH - (float)y) * 0.10f;
+        if (d3 + bias > 0.0f) return y;
+    }
+    return (int)surfH;
 }
 
 // ---- Decorator helpers ----
@@ -869,6 +942,10 @@ static void generateChunk(Chunk* c) {
     const int ox = c->pos.x * CHUNK_SIZE;
     const int oz = c->pos.z * CHUNK_SIZE;
 
+    // Build the town plan before Pass 0 so the terrain oracle flattens the land
+    // under settlements while the chunk's heightmap is computed.
+    getTownPlan();
+
     // Pass 0: per-column biome weights → blended surface height + dominant biome
     float surfH_f[CHUNK_SIZE][CHUNK_SIZE];
     Biome dominant[CHUNK_SIZE][CHUNK_SIZE];
@@ -1072,6 +1149,9 @@ static void generateChunk(Chunk* c) {
     }
     c->surfaceReady = true;
 
+    // Pass 5: stamp procedural town / village features that fall in this chunk.
+    stampTownChunk(c);
+
     c->computeLight();
     c->state = ChunkState::Generated;
 }
@@ -1125,6 +1205,37 @@ static void biomeToMapRGB(Biome bm, float surfH, uint8_t& r, uint8_t& g, uint8_t
     r = (uint8_t)std::clamp((int)(ri * (1.0f + shade)), 0, 255);
     g = (uint8_t)std::clamp((int)(gi * (1.0f + shade)), 0, 255);
     b = (uint8_t)std::clamp((int)(bi * (1.0f + shade)), 0, 255);
+}
+
+void World::fillOpacityVolume(uint8_t* out, int size, int ox, int oy, int oz) const {
+    std::fill(out, out + (size_t)size * size * size, (uint8_t)0);
+    std::lock_guard<std::mutex> lock(chunksMutex);
+    for (const auto& kv : chunks) {
+        const ChunkPos& cp = kv.first;
+        Chunk* c = kv.second.get();
+        if (!c) continue;
+        ChunkState st = c->state.load();
+        if (st == ChunkState::Empty || st == ChunkState::Generating) continue;
+        int cwx = cp.x * CHUNK_SIZE, cwz = cp.z * CHUNK_SIZE;
+        if (cwx + CHUNK_SIZE <= ox || cwx >= ox + size) continue;
+        if (cwz + CHUNK_SIZE <= oz || cwz >= oz + size) continue;
+        for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+            int tx = cwx + lx - ox;
+            if (tx < 0 || tx >= size) continue;
+            for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+                int tz = cwz + lz - oz;
+                if (tz < 0 || tz >= size) continue;
+                for (int ty = 0; ty < size; ty++) {
+                    int wy = oy + ty;
+                    if (wy < 0 || wy >= CHUNK_HEIGHT) continue;
+                    BlockType b = c->get(lx, wy, lz);
+                    if (b != BlockType::Air && b != BlockType::Water &&
+                        b != BlockType::Glass)
+                        out[((size_t)tz * size + ty) * size + tx] = 255;
+                }
+            }
+        }
+    }
 }
 
 void World::fillMapPixels(uint8_t* rgba, int texSize, float cx, float cz, float worldRadius) const {
@@ -1357,6 +1468,11 @@ void World::drawAllFoliage() const {
     for (auto& [k, c] : chunks) c->drawFoliage();
 }
 
+void World::drawAllGlass() const {
+    std::lock_guard<std::mutex> lock(chunksMutex);
+    for (auto& [k, c] : chunks) c->drawGlass();
+}
+
 BlockType World::getBlockInternal(int wx, int wy, int wz) const {
     if (wy < 0 || wy >= CHUNK_HEIGHT) return BlockType::Air;
     int cx = (wx < 0 && wx % CHUNK_SIZE != 0) ? wx/CHUNK_SIZE - 1 : wx/CHUNK_SIZE;
@@ -1370,6 +1486,19 @@ BlockType World::getBlockInternal(int wx, int wy, int wz) const {
 
 BlockType World::getBlock(int wx, int wy, int wz) const {
     return getBlockInternal(wx, wy, wz);
+}
+
+uint8_t World::getSkyLight(int wx, int wy, int wz) const {
+    if (wy < 0 || wy >= CHUNK_HEIGHT) return 15;
+    int cx = (wx < 0 && wx % CHUNK_SIZE != 0) ? wx / CHUNK_SIZE - 1 : wx / CHUNK_SIZE;
+    int cz = (wz < 0 && wz % CHUNK_SIZE != 0) ? wz / CHUNK_SIZE - 1 : wz / CHUNK_SIZE;
+
+    std::lock_guard<std::mutex> lock(chunksMutex);
+    auto it = chunks.find({cx, cz});
+    if (it == chunks.end() || it->second->state == ChunkState::Empty ||
+        it->second->state == ChunkState::Generating)
+        return 15;
+    return it->second->getSkyLight(wx - cx * CHUNK_SIZE, wy, wz - cz * CHUNK_SIZE);
 }
 
 void World::setBlock(int wx, int wy, int wz, BlockType t) {

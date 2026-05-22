@@ -1,12 +1,23 @@
 #include "physics.h"
 #include "world.h"
 #include "camera.h"
+#include <algorithm>
 #include <cmath>
 
-static constexpr float SKIN        = 0.001f;
-static constexpr float STEP_HEIGHT = 1.0f;
+static constexpr float SKIN = 0.001f;
 
-static bool isSolid(BlockType bt) { return bt != BlockType::Air && bt != BlockType::Water; }
+static bool isSolid(BlockType bt) {
+    return bt != BlockType::Air && bt != BlockType::Water;
+}
+
+// True if any solid block sits under the player's footprint at world layer `by`.
+static bool footprintSolid(float px, int by, float pz, float hw, const World& w) {
+    if (by < 0 || by >= CHUNK_HEIGHT) return false;
+    for (int bx = (int)floorf(px - hw); bx <= (int)floorf(px + hw - SKIN); bx++)
+    for (int bz = (int)floorf(pz - hw); bz <= (int)floorf(pz + hw - SKIN); bz++)
+        if (isSolid(w.getBlock(bx, by, bz))) return true;
+    return false;
+}
 
 static bool hitFaceX(float px, float py, float pz, float hw, float ph, const World& w, bool posDir) {
     int bx = posDir ? (int)floorf(px + hw) : (int)floorf(px - hw - SKIN);
@@ -24,6 +35,7 @@ static bool hitFaceZ(float px, float py, float pz, float hw, float ph, const Wor
     return false;
 }
 
+// True if the player's whole AABB (feet at py) is free of solid blocks.
 static bool aabbClear(float px, float py, float pz, float hw, float ph, const World& w) {
     for (int bx = (int)floorf(px - hw); bx <= (int)floorf(px + hw - SKIN); bx++)
     for (int by = (int)floorf(py);      by <= (int)floorf(py + ph - SKIN); by++)
@@ -33,87 +45,68 @@ static bool aabbClear(float px, float py, float pz, float hw, float ph, const Wo
 }
 
 glm::vec3 resolveCollision(const glm::vec3& pos, Camera& camera,
-                            float hw, float ph, const World& w) {
+                            float hw, float ph, const World& w, float dt) {
     glm::vec3 p = pos;
     camera.onGround = false;
 
-    if (camera.velocity.y <= 0.0f) {
-        int yFeet = (int)floorf(p.y);
-        for (int by = yFeet + 3; by >= yFeet; by--) {
-            if (by < 0) {
-                p.y = SKIN; camera.velocity.y = 0.0f; camera.onGround = true; break;
-            }
-            bool hit = false;
-            for (int bx = (int)floorf(p.x - hw); bx <= (int)floorf(p.x + hw - SKIN) && !hit; bx++)
-            for (int bz = (int)floorf(p.z - hw); bz <= (int)floorf(p.z + hw - SKIN) && !hit; bz++)
-                if (isSolid(w.getBlock(bx, by, bz))) hit = true;
-            if (hit) {
-                float top = (float)(by + 1);
-                if (p.y < top) {
-                    p.y = top + SKIN;
-                    camera.velocity.y = 0.0f;
-                    camera.onGround   = true;
-                }
-                break;
-            }
-        }
-    } else {
+    // --- Vertical ---
+    if (camera.velocity.y > 0.0f) {
+        // Rising — stop at a ceiling.
         int byHead = (int)floorf(p.y + ph);
-        bool hit = false;
-        for (int bx = (int)floorf(p.x - hw); bx <= (int)floorf(p.x + hw - SKIN) && !hit; bx++)
-        for (int bz = (int)floorf(p.z - hw); bz <= (int)floorf(p.z + hw - SKIN) && !hit; bz++)
-            if (isSolid(w.getBlock(bx, byHead, bz))) hit = true;
-        if (hit) {
+        if (footprintSolid(p.x, byHead, p.z, hw, w)) {
             p.y = (float)byHead - ph - SKIN;
             camera.velocity.y = 0.0f;
         }
-    }
-
-    if (!camera.onGround) {
-        int byBelow = (int)floorf(p.y - SKIN);
-        if (byBelow >= 0) {
-            bool found = false;
-            for (int bx = (int)floorf(p.x - hw); bx <= (int)floorf(p.x + hw - SKIN) && !found; bx++)
-            for (int bz = (int)floorf(p.z - hw); bz <= (int)floorf(p.z + hw - SKIN) && !found; bz++)
-                if (isSolid(w.getBlock(bx, byBelow, bz))) found = true;
-            camera.onGround = found;
+    } else {
+        // Falling or standing — settle onto the highest surface the player can
+        // actually stand on. A surface is reachable only if it is at most one
+        // block above the feet (a single step-up), plus however far the player
+        // fell this frame, and the player's whole body fits when resting there.
+        // This lets the player walk up one cell but never climb a taller wall,
+        // tree or hillside — to get any higher they must jump.
+        float fallDist = (camera.velocity.y < 0.0f) ? -camera.velocity.y * dt : 0.0f;
+        float reach    = fallDist + 1.0f;
+        int   scanTop  = (int)floorf(p.y + fallDist) + 1;
+        for (int by = scanTop; by >= 0 && by >= scanTop - 6; by--) {
+            if (!footprintSolid(p.x, by, p.z, hw, w)) continue;
+            float top = (float)(by + 1);
+            if (top > p.y + reach + SKIN) continue;             // too high to step / land on
+            if (top < p.y - SKIN) break;                        // not reached this surface yet
+            if (!aabbClear(p.x, top, p.z, hw, ph, w)) continue; // no room to stand here
+            p.y = top;
+            camera.velocity.y = 0.0f;
+            camera.onGround   = true;
+            break;
         }
     }
 
-    float savedVx = camera.velocity.x;
-    float savedVz = camera.velocity.z;
-    bool blockedX = false, blockedZ = false;
-
+    // --- Horizontal: stop at walls along each axis ---
     if (camera.velocity.x != 0.0f) {
         bool posX = camera.velocity.x > 0.0f;
         if (hitFaceX(p.x, p.y, p.z, hw, ph, w, posX)) {
-            blockedX = true;
             p.x = posX ? floorf(p.x + hw) - hw - SKIN
                        : floorf(p.x - hw - SKIN) + 1.0f + hw + SKIN;
             camera.velocity.x = 0.0f;
         }
     }
-
     if (camera.velocity.z != 0.0f) {
         bool posZ = camera.velocity.z > 0.0f;
         if (hitFaceZ(p.x, p.y, p.z, hw, ph, w, posZ)) {
-            blockedZ = true;
             p.z = posZ ? floorf(p.z + hw) - hw - SKIN
                        : floorf(p.z - hw - SKIN) + 1.0f + hw + SKIN;
             camera.velocity.z = 0.0f;
         }
     }
 
-    if ((blockedX || blockedZ) && camera.onGround) {
-        float tryX = blockedX ? pos.x : p.x;
-        float tryZ = blockedZ ? pos.z : p.z;
-        float tryY = p.y + STEP_HEIGHT;
-        if (aabbClear(tryX, tryY, tryZ, hw, ph, w)) {
-            p = { tryX, tryY, tryZ };
-            camera.velocity.x = savedVx;
-            camera.velocity.z = savedVz;
+    // Re-check footing after being pushed clear of a wall.
+    if (!camera.onGround && camera.velocity.y <= 0.0f) {
+        int by = (int)floorf(p.y - 0.05f);
+        if (by >= 0 && p.y <= (float)(by + 1) + 0.05f &&
+            footprintSolid(p.x, by, p.z, hw, w)) {
+            camera.onGround = true;
         }
     }
 
+    if (p.y < 0.0f) { p.y = 0.0f; camera.velocity.y = 0.0f; camera.onGround = true; }
     return p;
 }

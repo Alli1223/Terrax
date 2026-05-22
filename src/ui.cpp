@@ -5,6 +5,7 @@
 #include "renderer.h"
 #include "game_session.h"
 #include "gameplay.h"
+#include "town.h"
 #include "graphics_settings.h"
 #include "gl_loader.h"
 #include "imgui.h"
@@ -202,8 +203,8 @@ void renderMenuUI(AppContext& ctx, GLFWwindow* window, Renderer* renderer) {
         return;
     }
     if (ctx.state == GameState::MainMenu) {
-        ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH / 2 - 160, WINDOW_HEIGHT / 2 - 180));
-        ImGui::SetNextWindowSize(ImVec2(320, 400));
+        ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH / 2 - 160, WINDOW_HEIGHT / 2 - 230));
+        ImGui::SetNextWindowSize(ImVec2(320, 468));
         ImGui::Begin("Main Menu", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove);
 
         ImGui::Text("TERRAX");
@@ -236,6 +237,12 @@ void renderMenuUI(AppContext& ctx, GLFWwindow* window, Renderer* renderer) {
         }
         if (ImGui::Button("Character Editor", ImVec2(-1, 36))) {
             ctx.state = GameState::CharacterEditor;
+        }
+        if (ImGui::Button("House Editor", ImVec2(-1, 36))) {
+            ctx.state      = GameState::HouseEditor;
+            ctx.editorRotX = -18.0f;
+            ctx.editorRotY = 35.0f;
+            ctx.camDist    = 16.0f;
         }
         if (ImGui::Button("Settings", ImVec2(-1, 36))) {
             ctx.state = GameState::SettingsMenu;
@@ -454,6 +461,149 @@ void renderCharacterEditorUI(AppContext& ctx, GLFWwindow* window, Renderer& rend
 }
 
 // ---------------------------------------------------------------------------
+// House editor UI
+// ---------------------------------------------------------------------------
+
+// Blocks the player can build a house from (parallel to the combo labels below).
+// First the structural blocks, then every painted-palette colour.
+static std::vector<BlockType> makeHouseBuildBlocks() {
+    std::vector<BlockType> v = {
+        BlockType::Wood, BlockType::Stone, BlockType::Glass,
+        BlockType::Glowstone, BlockType::Leaves,
+    };
+    for (int i = 0; i < PAINT_COUNT; i++)
+        v.push_back((BlockType)((int)BlockType::PaintFirst + i));
+    return v;
+}
+static const std::vector<BlockType> kHouseBuildBlocks = makeHouseBuildBlocks();
+static const char* kHouseBuildBlockLabels =
+    "Wood\0Stone\0Glass\0Glowstone\0Leaves\0"
+    "White\0Cream\0Light Gray\0Slate Gray\0Charcoal\0Black\0"
+    "Terracotta\0Brick Red\0Crimson\0Rust Orange\0Amber\0Mustard\0"
+    "Chestnut\0Sand\0Olive\0Sage\0Forest Green\0Mint\0"
+    "Sky Blue\0Teal\0Navy\0Steel Blue\0Plum\0Dusty Rose\0";
+
+void renderHouseEditorUI(AppContext& ctx, GLFWwindow* window, Renderer& renderer) {
+    int fbW, fbH;
+    glfwGetFramebufferSize(window, &fbW, &fbH);
+    glViewport(0, 0, fbW, fbH);
+
+    HouseModel* house = ctx.houseModel;
+
+    glm::mat4 proj  = glm::perspective(glm::radians(45.0f), fbW / (float)fbH, 0.1f, 1000.0f);
+    glm::vec3 center(HOUSE_VX * 0.5f, 12.0f, HOUSE_VZ * 0.5f);
+    glm::mat4 model = glm::rotate(glm::mat4(1.0f), glm::radians(ctx.editorRotY), glm::vec3(0, 1, 0));
+    model = glm::rotate(model, glm::radians(ctx.editorRotX), glm::vec3(1, 0, 0));
+    model = glm::scale(model, glm::vec3(0.28f));
+    model = glm::translate(model, -center);
+    glm::mat4 view  = glm::lookAt(glm::vec3(0, 0, ctx.camDist),
+                                  glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
+
+    renderer.renderEditorHouse(ctx, model, view, proj);
+
+    // ImGui panel
+    ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(300, (float)fbH), ImGuiCond_Always);
+    ImGui::Begin("House Editor", nullptr,
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus);
+
+    if (ImGui::Button("Back to Menu", ImVec2(-1, 0))) ctx.state = GameState::MainMenu;
+    ImGui::Separator();
+
+    if (house) {
+        ImGui::Text("Template");
+        if (ImGui::Combo("##template", &house->templateType,
+                "Bungalow\0Two-Story\0Cottage\0Tower\0Cabin\0"
+                "Longhouse\0Townhouse\0Manor\0Hall\0Keep\0"))
+            house->rebuild();
+        if (ImGui::Combo("Roof", &house->roofType,
+                "Flat\0Gabled\0Hipped\0Pyramid\0"))
+            house->rebuild();
+        if (ImGui::Combo("Material", &house->material,
+                "Timber\0Cottage\0Stone\0Manor\0Cabin\0"
+                "Sandstone\0Forest\0Coastal\0Autumn\0Plum\0"))
+            house->rebuild();
+
+        ImGui::Separator();
+        if (ImGui::Button("Reset to Template", ImVec2(-1, 0)))
+            house->rebuild();
+    }
+
+    ImGui::Separator();
+    ImGui::Text("Edit Tools");
+    if (ImGui::RadioButton("Paint", ctx.editorTool == EditorTool::Paint))
+        ctx.editorTool = EditorTool::Paint;
+    if (ImGui::RadioButton("Add",   ctx.editorTool == EditorTool::Add))
+        ctx.editorTool = EditorTool::Add;
+    if (ImGui::RadioButton("Erase", ctx.editorTool == EditorTool::Erase))
+        ctx.editorTool = EditorTool::Erase;
+
+    ImGui::Separator();
+    ImGui::Text("Build Block");
+    ImGui::Combo("##buildblock", &ctx.editorBlock, kHouseBuildBlockLabels);
+
+    ImGui::Separator();
+    ImGui::TextWrapped("Drag empty space to rotate, scroll to zoom. "
+                       "Drag the house to paint/add/erase blocks.");
+    ImGui::TextWrapped("The house is built from real world blocks, so it has full "
+                       "collision once placed.");
+    ImGui::Spacing();
+    ImGui::TextWrapped("In game: press H to preview placement, H again to build it, "
+                       "Esc to cancel.");
+
+    ImGui::End();
+
+    // Mouse: rotation or block editing
+    if (house && house->volume &&
+        glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS) {
+        double mx, my;
+        glfwGetCursorPos(window, &mx, &my);
+        if (!ImGui::GetIO().WantCaptureMouse) {
+            float rx = (2.0f * (float)mx) / fbW - 1.0f;
+            float ry = 1.0f - (2.0f * (float)my) / fbH;
+            glm::vec4 clip(rx, ry, -1.0f, 1.0f);
+            glm::vec4 eye = glm::inverse(proj) * clip;
+            eye.z = -1.0f; eye.w = 0.0f;
+            glm::vec3 rd = glm::normalize(glm::vec3(glm::inverse(view) * eye));
+            glm::vec3 ro = glm::vec3(glm::inverse(view) * glm::vec4(0, 0, 0, 1));
+
+            glm::mat4 invM = glm::inverse(model);
+            glm::vec3 lro  = glm::vec3(invM * glm::vec4(ro, 1.0f));
+            glm::vec3 lrd  = glm::normalize(glm::vec3(invM * glm::vec4(rd, 0.0f)));
+            glm::ivec3 hv, hn;
+
+            if (!ctx.wasEditorClick) {
+                ctx.isEditorRotating = !house->volume->raycast(lro, lrd, 500.0f, hv, hn);
+                ctx.wasEditorClick   = true;
+            }
+
+            if (ctx.isEditorRotating) {
+                ctx.editorRotY += (float)(mx - ctx.lastEditorX) * 0.5f;
+                ctx.editorRotX += (float)(my - ctx.lastEditorY) * 0.5f;
+                ctx.editorRotX  = std::clamp(ctx.editorRotX, -89.0f, 89.0f);
+            } else if (house->volume->raycast(lro, lrd, 500.0f, hv, hn)) {
+                const int blockCount = (int)kHouseBuildBlocks.size();
+                BlockType placeB = kHouseBuildBlocks[std::clamp(ctx.editorBlock, 0, blockCount - 1)];
+                if (ctx.editorTool == EditorTool::Paint) {
+                    house->set(hv.x, hv.y, hv.z, placeB);
+                } else if (ctx.editorTool == EditorTool::Add) {
+                    glm::ivec3 ap = hv + hn;
+                    house->set(ap.x, ap.y, ap.z, placeB);
+                } else {
+                    house->set(hv.x, hv.y, hv.z, BlockType::Air);
+                }
+                house->refreshMesh();
+            }
+        }
+        ctx.lastEditorX = mx;
+        ctx.lastEditorY = my;
+    } else {
+        ctx.wasEditorClick = false;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // World map
 // ---------------------------------------------------------------------------
 
@@ -593,12 +743,65 @@ static void renderMapUI(AppContext& ctx) {
     float texCX = ctx.mapBuiltCX + ctx.mapPanX;
     float texCZ = ctx.mapBuiltCZ + ctx.mapPanZ;
 
+    // Right-click (a click, not a rotate-drag) teleports the player there.
+    if (hovered && ImGui::IsMouseReleased(ImGuiMouseButton_Right)) {
+        ImVec2 dd = ImGui::GetMouseDragDelta(ImGuiMouseButton_Right);
+        if (dd.x * dd.x + dd.y * dd.y < 36.0f) {
+            ImVec2 mp = ImGui::GetIO().MousePos;
+            float lx = mp.x - mc.x, ly = mp.y - mc.y;
+            if (lx * lx + ly * ly < h * h) {          // inside the map disc
+                float wdx =  lx * cr + ly * sr;       // undo the map rotation
+                float wdz = -lx * sr + ly * cr;
+                float wx  = texCX + wdx / h * worldRadius;
+                float wz  = texCZ + wdz / h * worldRadius;
+                ctx.spawnX = (int)floorf(wx);
+                ctx.spawnZ = (int)floorf(wz);
+                int gy = sampleSurfaceSolid(ctx.spawnX, ctx.spawnZ);
+                ctx.camera.position = glm::vec3((float)ctx.spawnX + 0.5f,
+                                                (float)(gy + 2), (float)ctx.spawnZ + 0.5f);
+                ctx.camera.velocity = glm::vec3(0.0f);
+                ctx.spawnedOnGround = false;          // re-grounds when the chunk loads
+                ctx.mapPanX = 0.0f;
+                ctx.mapPanZ = 0.0f;
+                ctx.mapNeedsRebuild = true;
+            }
+        }
+    }
+
     auto worldToMap = [&](float wx, float wz) -> ImVec2 {
         float dx = (wx - texCX) / worldRadius * h;
         float dz = (wz - texCZ) / worldRadius * h;
         return { mc.x + dx * cr - dz * sr,
                  mc.y + dx * sr + dz * cr };
     };
+
+    // ── Towns: settlement markers + names ────────────────────────────────────
+    {
+        const TownPlan& plan = getTownPlan();
+        bool showNames = worldRadius < 1100.0f;   // hide labels when far zoomed out
+        for (const Town& t : plan.towns) {
+            ImVec2 sp = worldToMap((float)t.center.x, (float)t.center.y);
+            float  d2 = (sp.x - mc.x) * (sp.x - mc.x) + (sp.y - mc.y) * (sp.y - mc.y);
+            if (d2 >= h * h) continue;
+
+            ImU32 col;
+            switch (t.type) {
+                case TownType::Coastal:  col = IM_COL32( 90, 170, 230, 235); break;
+                case TownType::Mountain: col = IM_COL32(205, 205, 210, 235); break;
+                default:                 col = IM_COL32(120, 200, 110, 235); break;
+            }
+            dl->AddRectFilled({ sp.x - 4, sp.y - 4 }, { sp.x + 4, sp.y + 4 }, col, 1.0f);
+            dl->AddRect({ sp.x - 4, sp.y - 4 }, { sp.x + 4, sp.y + 4 },
+                        IM_COL32(0, 0, 0, 190), 1.0f, 0, 1.5f);
+
+            if (showNames && !t.name.empty()) {
+                ImVec2 ts = ImGui::CalcTextSize(t.name.c_str());
+                ImVec2 tp = { sp.x - ts.x * 0.5f, sp.y + 6.0f };
+                dl->AddText({ tp.x + 1, tp.y + 1 }, IM_COL32(0, 0, 0, 210), t.name.c_str());
+                dl->AddText(tp, IM_COL32(245, 235, 200, 245), t.name.c_str());
+            }
+        }
+    }
 
     // Local player: white triangle pointing in facing direction
     {
@@ -638,7 +841,7 @@ static void renderMapUI(AppContext& ctx) {
 
     // ── Controls hint ─────────────────────────────────────────────────────────
     ImGui::Spacing();
-    ImGui::TextDisabled("LMB drag: Pan   |   RMB drag: Rotate   |   Scroll: Zoom   |   M / Esc: Close");
+    ImGui::TextDisabled("LMB drag: Pan   |   RMB drag: Rotate   |   RMB click: Teleport   |   Scroll: Zoom   |   M / Esc: Close");
 
     ImGui::End();
 

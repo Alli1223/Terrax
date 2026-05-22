@@ -597,6 +597,17 @@ glm::ivec2 placeDock(TownPlan& plan, glm::ivec2 landW, glm::ivec2 waterW) {
         if (std::abs(o.root.x - x) + std::abs(o.root.y - z) < 14)
             return o.root;
 
+    // No jetties around a non-coastal settlement — a dock looks out of place
+    // where a highway merely grazes water near an inland or mountain town.
+    for (const Town& t : plan.towns) {
+        if (t.type == TownType::Coastal) continue;
+        long long dx = (long long)x - t.center.x;
+        long long dz = (long long)z - t.center.y;
+        long long r  = (long long)t.radius + 90;
+        if (dx * dx + dz * dz < r * r)
+            return glm::ivec2(x, z);                        // road still meets the shore
+    }
+
     TownDock dk;
     dk.root = glm::ivec2(x, z);
     dk.dx = sx; dk.dz = sz;

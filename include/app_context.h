@@ -27,6 +27,16 @@ struct WeatherParticle {
     float     seed = 0.0f;   // per-particle phase offset for drift
 };
 
+struct AmbientParticle {
+    glm::vec3 pos{0.0f}, vel{0.0f};
+    glm::vec3 color{1.0f};
+    float     life     = 0.0f;
+    float     maxLife  = 1.0f;
+    float     size     = 0.08f;
+    float     seed     = 0.0f;   // phase offset for bobbing / pulsing
+    uint8_t   kind     = 0;      // 0 = pollen, 1 = firefly, 2 = campfire ember
+};
+
 
 struct AppContext {
     // --- State ---
@@ -134,6 +144,10 @@ struct AppContext {
     float weatherTimer     = 5.0f;   // seconds until the next weather phase
     int   weatherKind      = 0;      // 0 = rain biome, 1 = snow biome
     std::vector<WeatherParticle> weatherParticles;
+
+    // --- Ambient atmosphere particles (pollen, fireflies, embers) ---
+    std::vector<AmbientParticle> ambientParticles;
+    float ambientSpawnTimer = 0.0f;
 
     // --- NPC interaction ---
     bool        interactPressed = false;   // E pressed this frame (set by input)

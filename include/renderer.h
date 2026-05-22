@@ -38,7 +38,7 @@ private:
     static constexpr float WATER_Y    = 29.0f;
 
     Shader chunkShader, waterShader, skyShader, charShader, shadowShader, glassShader;
-    Shader weatherShader, postShader, vegetationShader;
+    Shader weatherShader, postShader, vegetationShader, ambientShader;
 
     GLuint skyVAO = 0, skyVBO = 0;
     GLuint atlasTexture = 0;

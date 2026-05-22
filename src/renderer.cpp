@@ -142,6 +142,7 @@ bool Renderer::init(int width, int height) {
     weatherShader = Shader("shaders/weather.vert", "shaders/weather.frag");
     postShader    = Shader("shaders/post.vert",    "shaders/post.frag");
     vegetationShader = Shader("shaders/vegetation.vert", "shaders/vegetation.frag");
+    ambientShader = Shader("shaders/ambient.vert", "shaders/ambient.frag");
 
     setupSkybox();
     atlasTexture = generateAtlas();
@@ -791,6 +792,67 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
         glDrawArrays(GL_TRIANGLES, 0, (GLsizei)wv.size());
         glBindVertexArray(0);
         glDepthMask(GL_TRUE); glDisable(GL_BLEND); glEnable(GL_CULL_FACE);
+    }
+
+    // --- Ambient particles (pollen by day, fireflies + embers by night) ---
+    if (!ctx.ambientParticles.empty()) {
+        glm::vec3 camRight(view[0][0], view[1][0], view[2][0]);
+        glm::vec3 camUp   (view[0][1], view[1][1], view[2][1]);
+
+        static std::vector<Vertex> av;
+        av.clear();
+        av.reserve(ctx.ambientParticles.size() * 6);
+        // Vertex packing: position in xyz, colour in the normal slot,
+        // billboard UV in u/v, per-particle alpha in skyLight.
+        auto avtx = [&](const glm::vec3& p, const glm::vec3& col,
+                        float u, float vv, float a) {
+            av.push_back({ p.x, p.y, p.z, col.r, col.g, col.b,
+                           u, vv, 0.f, a, 0.f, 0.f });
+        };
+        for (const auto& ap : ctx.ambientParticles) {
+            float t = (ap.maxLife - ap.life) + ap.seed;
+            float fadeIn  = std::min((ap.maxLife - ap.life) / 0.8f, 1.0f);
+            float fadeOut = std::min(ap.life / 1.5f, 1.0f);
+            float fade    = std::max(0.0f, std::min(1.0f, fadeIn * fadeOut));
+            float baseA   = 0.45f;
+            float pulse   = 1.0f;
+            if (ap.kind == 1) {
+                baseA = 0.95f;
+                pulse = 0.55f + 0.45f * (0.5f + 0.5f * sinf(t * 4.2f));
+            } else if (ap.kind == 2) {
+                baseA = 0.95f;
+                pulse = 1.0f - (ap.maxLife - ap.life) / ap.maxLife * 0.65f;
+                if (pulse < 0.0f) pulse = 0.0f;
+            }
+            float alpha = baseA * pulse * fade;
+            if (alpha <= 0.0f) continue;
+            glm::vec3 ax = camRight * ap.size;
+            glm::vec3 ay = camUp    * ap.size;
+            glm::vec3 c  = ap.pos;
+            glm::vec3 bl = c - ax - ay, br = c + ax - ay,
+                      tr = c + ax + ay, tl = c - ax + ay;
+            avtx(bl, ap.color, 0.f, 0.f, alpha);
+            avtx(br, ap.color, 1.f, 0.f, alpha);
+            avtx(tr, ap.color, 1.f, 1.f, alpha);
+            avtx(bl, ap.color, 0.f, 0.f, alpha);
+            avtx(tr, ap.color, 1.f, 1.f, alpha);
+            avtx(tl, ap.color, 0.f, 1.f, alpha);
+        }
+        if (!av.empty()) {
+            ambientShader.use();
+            ambientShader.setMat4("view",       view);
+            ambientShader.setMat4("projection", proj);
+            glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+            glDepthMask(GL_FALSE); glDisable(GL_CULL_FACE);
+            glBindVertexArray(particleVao);
+            glBindBuffer(GL_ARRAY_BUFFER, particleVbo);
+            glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(av.size() * sizeof(Vertex)),
+                         av.data(), GL_DYNAMIC_DRAW);
+            glDrawArrays(GL_TRIANGLES, 0, (GLsizei)av.size());
+            glBindVertexArray(0);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glDepthMask(GL_TRUE); glDisable(GL_BLEND); glEnable(GL_CULL_FACE);
+        }
     }
 
     // --- Post-processing: volumetric light shafts + vignette ---

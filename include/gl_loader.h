@@ -65,6 +65,7 @@ typedef unsigned char  GLubyte;
 #define GL_CLAMP_TO_BORDER      0x812D
 #define GL_TEXTURE_BORDER_COLOR 0x1004
 #define GL_BLEND                0x0BE2
+#define GL_ONE                  1
 #define GL_SRC_ALPHA            0x0302
 #define GL_ONE_MINUS_SRC_ALPHA  0x0303
 #define GL_TEXTURE1             0x84C1

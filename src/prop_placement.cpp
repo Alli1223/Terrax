@@ -211,17 +211,11 @@ void placeFenceRun(const TownPlan& plan, const std::vector<glm::ivec2>& pts,
     }
 }
 
-// Fences a fraction of town paths and the town-adjacent end of highways.
+// Fences line the countryside ends of highways nearest each settlement —
+// they're no longer placed along town interior paths, which cluttered the
+// centres.
 void placeFences(const TownPlan& plan) {
     std::mt19937 hrng(worldSeed() ^ 0x0FE0CE5Bu);
-    for (const Town& t : plan.towns) {
-        std::mt19937 trng(worldSeed()
-                          ^ (uint32_t)(t.center.x * 83492791)
-                          ^ (uint32_t)(t.center.y * 22695477) ^ 0xFE0Cu);
-        for (const TownRoad& path : t.paths)
-            if (trng() % 6 == 0)
-                placeFenceRun(plan, path.pts, trng, false);
-    }
     for (const TownRoad& h : plan.highways)
         if (hrng() % 12 == 0)
             placeFenceRun(plan, h.pts, hrng, true);

@@ -416,6 +416,105 @@ static void updateWeatherParticles(AppContext& ctx) {
     }
 }
 
+// Drifting atmosphere particles — pale pollen motes by day (lovely catching
+// the volumetric light shafts), glowing fireflies near the ground at night,
+// and warm embers rising from nearby town campfires after dark.
+static void updateAmbientParticles(AppContext& ctx) {
+    static std::mt19937 aRng(std::random_device{}());
+    std::uniform_real_distribution<float> u01(0.0f, 1.0f);
+    const int       MAX_AMB = 300;
+    const glm::vec3 cam     = ctx.camera.position;
+
+    // Day vs night from the sun's elevation (gameTime is 0..1).
+    float sunY = sinf((ctx.gameTime - 0.25f) * 6.2831853f);
+    bool  day   = sunY >  0.05f;
+    bool  night = sunY < -0.05f;
+
+    // Advance and recycle existing particles.
+    for (int i = (int)ctx.ambientParticles.size() - 1; i >= 0; i--) {
+        AmbientParticle& p = ctx.ambientParticles[i];
+        p.life -= ctx.deltaTime;
+        float t = (p.maxLife - p.life) + p.seed;
+        if (p.kind == 1) {                  // firefly: gentle bob and wander
+            p.pos.x += sinf(t * 1.7f) * 0.45f * ctx.deltaTime;
+            p.pos.y += sinf(t * 2.3f) * 0.30f * ctx.deltaTime;
+            p.pos.z += cosf(t * 1.5f + p.seed) * 0.45f * ctx.deltaTime;
+        } else if (p.kind == 2) {           // ember: rises with horizontal wobble
+            p.pos.x += sinf(t * 3.1f) * 0.30f * ctx.deltaTime;
+            p.pos.z += cosf(t * 2.7f) * 0.30f * ctx.deltaTime;
+            p.pos.y += p.vel.y * ctx.deltaTime;
+            p.vel.y *= 0.985f;
+        } else {                             // pollen: slow drift in still air
+            p.pos.x += sinf(t * 0.7f) * 0.20f * ctx.deltaTime;
+            p.pos.z += cosf(t * 0.5f + p.seed) * 0.20f * ctx.deltaTime;
+            p.pos.y += (-0.06f + sinf(t * 0.9f) * 0.10f) * ctx.deltaTime;
+        }
+        float dx = p.pos.x - cam.x, dz = p.pos.z - cam.z;
+        if (p.life <= 0.0f || (dx * dx + dz * dz) > 28.0f * 28.0f) {
+            ctx.ambientParticles[i] = ctx.ambientParticles.back();
+            ctx.ambientParticles.pop_back();
+        }
+    }
+
+    if ((int)ctx.ambientParticles.size() >= MAX_AMB) return;
+    ctx.ambientSpawnTimer -= ctx.deltaTime;
+    if (ctx.ambientSpawnTimer > 0.0f) return;
+    ctx.ambientSpawnTimer = 0.13f + u01(aRng) * 0.10f;
+
+    auto spawn = [&](glm::vec3 p, glm::vec3 col, float maxLife, float size,
+                     uint8_t kind, glm::vec3 vel) {
+        if ((int)ctx.ambientParticles.size() >= MAX_AMB) return;
+        AmbientParticle a;
+        a.pos = p; a.vel = vel; a.color = col;
+        a.maxLife = maxLife; a.life = maxLife;
+        a.seed = u01(aRng) * 6.2831853f;
+        a.size = size; a.kind = kind;
+        ctx.ambientParticles.push_back(a);
+    };
+
+    if (day) {
+        // A pair of pollen motes drifting somewhere in a column around the camera.
+        for (int s = 0; s < 2; s++) {
+            float a = u01(aRng) * 6.2831853f;
+            float r = sqrtf(u01(aRng)) * 22.0f;
+            glm::vec3 p(cam.x + cosf(a) * r,
+                        cam.y - 1.0f + u01(aRng) * 7.5f,
+                        cam.z + sinf(a) * r);
+            glm::vec3 col = glm::vec3(1.00f, 0.93f, 0.72f)
+                          * (0.50f + u01(aRng) * 0.35f);
+            spawn(p, col, 7.0f + u01(aRng) * 5.0f,
+                  0.06f + u01(aRng) * 0.04f, 0, glm::vec3(0.0f));
+        }
+    } else if (night) {
+        // One firefly low around the camera.
+        {
+            float a = u01(aRng) * 6.2831853f;
+            float r = sqrtf(u01(aRng)) * 18.0f;
+            glm::vec3 p(cam.x + cosf(a) * r,
+                        cam.y - 1.4f + u01(aRng) * 2.6f,
+                        cam.z + sinf(a) * r);
+            spawn(p, glm::vec3(0.95f, 0.95f, 0.30f),
+                  9.0f + u01(aRng) * 6.0f,
+                  0.075f + u01(aRng) * 0.03f, 1, glm::vec3(0.0f));
+        }
+        // Embers from any nearby campfire-centerpiece town.
+        const TownPlan& plan = getTownPlan();
+        for (const Town& t : plan.towns) {
+            if (t.centerpiece != TownCenter::Campfire) continue;
+            float dx = (float)t.center.x - cam.x;
+            float dz = (float)t.center.y - cam.z;
+            if (dx * dx + dz * dz > 48.0f * 48.0f) continue;
+            glm::vec3 p((float)t.center.x + 0.5f + (u01(aRng) - 0.5f) * 0.4f,
+                        (float)t.baseY + 1.6f,
+                        (float)t.center.y + 0.5f + (u01(aRng) - 0.5f) * 0.4f);
+            glm::vec3 col(1.0f, 0.55f + u01(aRng) * 0.25f, 0.14f);
+            spawn(p, col, 2.2f + u01(aRng) * 0.8f,
+                  0.05f + u01(aRng) * 0.03f, 2,
+                  glm::vec3(0.0f, 0.7f + u01(aRng) * 0.6f, 0.0f));
+        }
+    }
+}
+
 // Keeps the house placement ghost in front of the player, snapped to the
 // ground surface, while a placement is being previewed.
 static void updateHousePreview(AppContext& ctx) {
@@ -693,6 +792,7 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
         updateLeafParticles(ctx);
         updateWeather(ctx);
         updateWeatherParticles(ctx);
+        updateAmbientParticles(ctx);
     }
 
     updateHousePreview(ctx);

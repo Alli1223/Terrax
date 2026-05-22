@@ -782,6 +782,11 @@ void NetworkClient::update(World& world, std::unordered_map<uint32_t, RemotePlay
                 PlayerHealthPacket* p = (PlayerHealthPacket*)msg.data.data();
                 if (p->clientID == clientID) pendingSelfDamage += p->damage;
             }
+        } else if (msg.type == PacketType::AnimalState) {
+            if (msg.data.size() == sizeof(AnimalStatePacket)) {
+                AnimalStatePacket* p = (AnimalStatePacket*)msg.data.data();
+                animalUpdates.push_back(*p);
+            }
         }
     }
 }

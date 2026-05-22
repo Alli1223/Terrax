@@ -5,6 +5,7 @@
 #include "vehicle.h"
 #include "ferry_routes.h"
 #include "npc.h"
+#include "animal.h"
 #include <chrono>
 #include <cmath>
 #include <iostream>
@@ -19,6 +20,7 @@ static std::atomic<int>  g_serverRenderDistance{DEFAULT_RENDER_DISTANCE};
 static float             g_serverGameTime = 0.3f;
 
 std::atomic<bool> g_serverDayTimeSync{false};
+ServerStats       g_serverStats;
 
 static void serverThreadMain(unsigned short port) {
     std::cout << "Starting Terrax Server on port " << port << "..." << std::endl;
@@ -43,8 +45,12 @@ static void serverThreadMain(unsigned short port) {
     // Server-authoritative NPCs — villagers streamed in and out by proximity.
     NpcDirector npcDirector;
 
+    // Server-authoritative wildlife — animals roaming around the players.
+    AnimalDirector animalDirector;
+
     auto lastWall = std::chrono::high_resolution_clock::now();
     float accumulator = 0.0f;
+    g_serverStats.running.store(true);
 
     while (g_serverThreadRunning.load()) {
         auto now = std::chrono::high_resolution_clock::now();
@@ -54,6 +60,7 @@ static void serverThreadMain(unsigned short port) {
 
         accumulator += frameDt;
         while (accumulator >= SERVER_TICK_DT) {
+            auto tickT0 = std::chrono::high_resolution_clock::now();
             auto players = g_server->getPlayerStates();
             for (auto& p : players) {
                 int pcx = (int)floorf(p.pos.x / (float)CHUNK_SIZE);
@@ -110,16 +117,54 @@ static void serverThreadMain(unsigned short port) {
                 }
             }
 
+            {
+                std::vector<glm::vec3> animalPlayers;
+                animalPlayers.reserve(players.size());
+                for (auto& p : players) animalPlayers.push_back(p.pos);
+                animalDirector.update(SERVER_TICK_DT, animalPlayers, serverWorld);
+                for (const auto& a : animalDirector.animals()) {
+                    AnimalStatePacket ap{};
+                    ap.entityId = a->id;
+                    ap.species  = (uint8_t)a->species;
+                    ap.flags    = (uint8_t)(a->walking ? 1 : 0);
+                    ap.variant  = a->variant;
+                    ap.x = a->position.x; ap.y = a->position.y; ap.z = a->position.z;
+                    ap.yaw = a->yaw;
+                    ap.vx = a->velocity.x; ap.vy = a->velocity.y; ap.vz = a->velocity.z;
+                    g_server->broadcast(PacketType::AnimalState, &ap, sizeof(ap));
+                }
+            }
+
             g_serverGameTime = fmodf(g_serverGameTime + SERVER_TICK_DT / DAY_CYCLE_SECONDS, 1.0f);
             g_serverDayTimeSync.store(true);
             DayTimePacket dt { g_serverGameTime };
             g_server->broadcast(PacketType::DayTime, &dt, sizeof(dt));
+
+            // Publish stats for the in-game debug overlay.
+            {
+                int v = 0, b = 0, gd = 0;
+                for (const auto& n : npcDirector.npcs()) {
+                    if      (n->type == NPCType::Villager) v++;
+                    else if (n->type == NPCType::Enemy)    b++;
+                    else if (n->type == NPCType::Guard)    gd++;
+                }
+                g_serverStats.villagers.store(v);
+                g_serverStats.bandits.store(b);
+                g_serverStats.guards.store(gd);
+                g_serverStats.animals.store((int)animalDirector.animals().size());
+                g_serverStats.ferries.store((int)ferries.size());
+                g_serverStats.players.store((int)players.size());
+                auto tickT1 = std::chrono::high_resolution_clock::now();
+                g_serverStats.tickMs.store(
+                    std::chrono::duration<float, std::milli>(tickT1 - tickT0).count());
+            }
             accumulator -= SERVER_TICK_DT;
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
+    g_serverStats.running.store(false);
     delete g_server;
     g_server = nullptr;
     std::cout << "Terrax Server stopped." << std::endl;

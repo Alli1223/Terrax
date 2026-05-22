@@ -15,7 +15,7 @@ SRCS := src/main.cpp src/shader.cpp src/camera.cpp src/world.cpp src/town.cpp \
         src/renderer.cpp src/gameplay.cpp src/ui.cpp src/graphics_settings.cpp \
         src/object_manager.cpp src/player_object.cpp src/prop.cpp \
         src/furniture.cpp src/decorations.cpp src/prop_placement.cpp \
-        src/vehicles.cpp src/ferry_routes.cpp src/npc.cpp
+        src/vehicles.cpp src/ferry_routes.cpp src/npc.cpp src/animal.cpp
 OBJS := $(SRCS:src/%.cpp=build/%.o)
 
 DEPS := $(OBJS:.o=.d) $(IMGUI_OBJS:.o=.d) $(IMGUI_BACKEND_OBJS:.o=.d)

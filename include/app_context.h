@@ -77,9 +77,10 @@ struct AppContext {
     std::unordered_map<uint32_t, RemotePlayer> remotePlayers;
 
     // --- Chat / HUD ---
-    bool chatOpen       = false;
+    bool chatOpen         = false;
     char chatInput[MAX_CHAT_TEXT + 1] = {};
-    bool showPlayerList = false;
+    bool showPlayerList   = false;
+    bool showDebugOverlay = true;    // F3 — session/debug stats overlay
 
     // --- Character / house editor ---
     float editorRotX = 0.0f, editorRotY = 0.0f;

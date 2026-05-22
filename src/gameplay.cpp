@@ -9,6 +9,7 @@
 #include "prop_placement.h"
 #include "vehicle.h"
 #include "npc.h"
+#include "animal.h"
 #include <algorithm>
 #include <vector>
 #include <iostream>
@@ -107,6 +108,44 @@ static void syncNPCObjects(AppContext& ctx) {
     for (auto& o : ctx.objectManager.objects()) {
         if (o->dead || o->kind != ObjectKind::NPC) continue;
         if (now - static_cast<NPC*>(o.get())->lastUpdate > 2.0)
+            o->dead = true;
+    }
+}
+
+// Creates/updates client-side Animal objects from the server's AnimalState
+// broadcasts, and times out animals the server has stopped sending.
+static void syncAnimalObjects(AppContext& ctx) {
+    if (!ctx.client) return;
+    double now = glfwGetTime();
+    for (const AnimalStatePacket& ap : ctx.client->animalUpdates) {
+        GameObject* o = ctx.objectManager.findById(ap.entityId);
+        Animal* a = nullptr;
+        if (!o) {
+            auto na = std::make_unique<Animal>();
+            na->id       = ap.entityId;
+            na->species  = (AnimalSpecies)ap.species;
+            na->variant  = ap.variant;
+            na->position = glm::vec3(ap.x, ap.y, ap.z);
+            na->yaw      = ap.yaw;
+            na->initClientVisual();
+            a = na.get();
+            ctx.objectManager.add(std::move(na));
+        } else if (o->kind == ObjectKind::Animal) {
+            a = static_cast<Animal*>(o);
+        }
+        if (a) {
+            a->targetPos  = glm::vec3(ap.x, ap.y, ap.z);
+            a->targetYaw  = ap.yaw;
+            a->velocity   = glm::vec3(ap.vx, ap.vy, ap.vz);
+            a->walking    = (ap.flags & 1) != 0;
+            a->lastUpdate = now;
+        }
+    }
+    ctx.client->animalUpdates.clear();
+
+    for (auto& o : ctx.objectManager.objects()) {
+        if (o->dead || o->kind != ObjectKind::Animal) continue;
+        if (now - static_cast<Animal*>(o.get())->lastUpdate > 2.0)
             o->dead = true;
     }
 }
@@ -539,6 +578,7 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
     syncRemotePlayerObjects(ctx);
     syncFerryObjects(ctx);
     syncNPCObjects(ctx);
+    syncAnimalObjects(ctx);
     ctx.objectManager.updateAll(ctx.deltaTime, ctx.world);
     ctx.objectManager.streamProps(ctx.camera.position, 260.0f,
                                   getPropPlacements(), ctx.propLibrary);

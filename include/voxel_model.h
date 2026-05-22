@@ -116,6 +116,7 @@ class QuadrupedRig : public CharacterRig {
 public:
     CharacterNode *body, *head, *flLeg, *frLeg, *blLeg, *brLeg, *tail;
     float animTime = 0.0f;
+    float restY    = 0.0f;   // body-centre height above the rig root (feet)
     QuadrupedRig();
     void update(float dt, float velocity) override;
 };

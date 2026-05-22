@@ -38,6 +38,7 @@ enum class PacketType : uint8_t {
     HousePlace = 12,
     EntityState = 13,
     NPCState = 14,
+    AnimalState = 15,
 };
 
 #pragma pack(push, 1)
@@ -137,6 +138,17 @@ struct NPCStatePacket {
     float    yaw;
     float    vx, vy, vz;
     float    health;
+};
+
+// Server -> client state for one wild animal.
+struct AnimalStatePacket {
+    uint32_t entityId;
+    uint8_t  species;        // AnimalSpecies value
+    uint8_t  flags;          // bit 0 = walking
+    uint32_t variant;        // per-individual size / colour variation
+    float    x, y, z;
+    float    yaw;
+    float    vx, vy, vz;
 };
 #pragma pack(pop)
 
@@ -278,6 +290,7 @@ public:
     static constexpr size_t MAX_CHAT_LOG = 100;
     std::vector<EntityStatePacket> entityUpdates;   // drained by gameplay each frame
     std::vector<NPCStatePacket>    npcUpdates;      // drained by gameplay each frame
+    std::vector<AnimalStatePacket> animalUpdates;   // drained by gameplay each frame
     float pendingSelfDamage = 0.0f;                 // damage dealt to us, drained by gameplay
 
 private:

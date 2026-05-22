@@ -105,6 +105,7 @@
     <ClCompile Include="src\vehicles.cpp" />
     <ClCompile Include="src\ferry_routes.cpp" />
     <ClCompile Include="src\npc.cpp" />
+    <ClCompile Include="src\animal.cpp" />
     <ClCompile Include="src\network.cpp" />
     <ClCompile Include="src\ui.cpp" />
     <ClCompile Include="src\voxel_model.cpp" />
@@ -155,6 +156,7 @@
     <ClInclude Include="include\vehicle.h" />
     <ClInclude Include="include\ferry_routes.h" />
     <ClInclude Include="include\npc.h" />
+    <ClInclude Include="include\animal.h" />
     <ClInclude Include="include\voxel_model.h" />
     <ClInclude Include="include\world.h" />
     <ClInclude Include="src\noise.h" />

@@ -33,6 +33,7 @@
     <ClCompile Include="src\vehicles.cpp"><Filter>Source</Filter></ClCompile>
     <ClCompile Include="src\ferry_routes.cpp"><Filter>Source</Filter></ClCompile>
     <ClCompile Include="src\npc.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\animal.cpp"><Filter>Source</Filter></ClCompile>
     <ClCompile Include="src\network.cpp"><Filter>Source</Filter></ClCompile>
     <ClCompile Include="src\ui.cpp"><Filter>Source</Filter></ClCompile>
     <ClCompile Include="src\voxel_model.cpp"><Filter>Source</Filter></ClCompile>
@@ -81,6 +82,7 @@
     <ClInclude Include="include\vehicle.h"><Filter>Headers</Filter></ClInclude>
     <ClInclude Include="include\ferry_routes.h"><Filter>Headers</Filter></ClInclude>
     <ClInclude Include="include\npc.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\animal.h"><Filter>Headers</Filter></ClInclude>
     <ClInclude Include="include\voxel_model.h"><Filter>Headers</Filter></ClInclude>
     <ClInclude Include="include\world.h"><Filter>Headers</Filter></ClInclude>
     <ClInclude Include="src\noise.h"><Filter>Headers</Filter></ClInclude>

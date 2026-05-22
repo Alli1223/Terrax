@@ -4,12 +4,14 @@
 #include "world.h"
 #include "vehicle.h"
 #include "ferry_routes.h"
+#include "npc.h"
 #include <chrono>
 #include <cmath>
 #include <iostream>
 #include <thread>
 #include <vector>
 #include <memory>
+#include <algorithm>
 
 static std::thread       g_serverThread;
 static std::atomic<bool> g_serverThreadRunning{false};
@@ -37,6 +39,9 @@ static void serverThreadMain(unsigned short port) {
             ferries.push_back(std::move(f));
         }
     }
+
+    // Server-authoritative NPCs — villagers streamed in and out by proximity.
+    NpcDirector npcDirector;
 
     auto lastWall = std::chrono::high_resolution_clock::now();
     float accumulator = 0.0f;
@@ -67,6 +72,42 @@ static void serverThreadMain(unsigned short port) {
                 ep.yaw = f->yaw;
                 ep.vx = f->velocity.x; ep.vy = f->velocity.y; ep.vz = f->velocity.z;
                 g_server->broadcast(PacketType::EntityState, &ep, sizeof(ep));
+            }
+
+            {
+                std::vector<DirectorPlayer> dirPlayers;
+                dirPlayers.reserve(players.size());
+                for (auto& p : players) dirPlayers.push_back({ p.id, p.pos });
+
+                // Resolve melee hits clients landed on NPCs this tick.
+                for (const NpcHitEvent& hit : g_server->npcHits)
+                    npcDirector.playerHitNpc(hit.attackerId, hit.npcId,
+                                             g_server->getPlayerPosition(hit.attackerId));
+                g_server->npcHits.clear();
+
+                npcDirector.update(SERVER_TICK_DT, dirPlayers, serverWorld, g_serverGameTime);
+
+                // Forward NPC-dealt damage to the affected players.
+                for (const PlayerDamage& d : npcDirector.pendingDamage) {
+                    PlayerHealthPacket hp{ d.playerId, d.amount };
+                    g_server->broadcast(PacketType::PlayerHealth, &hp, sizeof(hp));
+                }
+                npcDirector.pendingDamage.clear();
+
+                for (const auto& n : npcDirector.npcs()) {
+                    NPCStatePacket np{};
+                    np.entityId       = n->id;
+                    np.npcType        = (uint8_t)n->type;
+                    np.flags          = (uint8_t)((n->walking ? 1 : 0)
+                                       | (n->attackAnimTimer > 0.0f ? 2 : 0)
+                                       | (n->dyingTimer > 0.0f ? 4 : 0));
+                    np.appearanceSeed = n->appearanceSeed;
+                    np.x = n->position.x; np.y = n->position.y; np.z = n->position.z;
+                    np.yaw = n->yaw;
+                    np.vx = n->velocity.x; np.vy = n->velocity.y; np.vz = n->velocity.z;
+                    np.health = n->health;
+                    g_server->broadcast(PacketType::NPCState, &np, sizeof(np));
+                }
             }
 
             g_serverGameTime = fmodf(g_serverGameTime + SERVER_TICK_DT / DAY_CYCLE_SECONDS, 1.0f);

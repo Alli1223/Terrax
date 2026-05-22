@@ -436,6 +436,10 @@ void BipedalRig::applyCustomization() {
 
 void BipedalRig::randomizeAppearance() {
     static std::mt19937 rng(std::random_device{}());
+    randomizeAppearance(rng);
+}
+
+void BipedalRig::randomizeAppearance(std::mt19937& rng) {
     auto pick = [&](int n) -> int { return std::uniform_int_distribution<int>(0, n - 1)(rng); };
 
     static const Voxel skinPalette[] = {

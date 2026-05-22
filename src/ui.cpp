@@ -6,6 +6,7 @@
 #include "game_session.h"
 #include "gameplay.h"
 #include "town.h"
+#include "npc.h"
 #include "graphics_settings.h"
 #include "gl_loader.h"
 #include "imgui.h"
@@ -874,6 +875,25 @@ static void drawNametag(const glm::vec3& worldPos, const std::string& name,
     dl->AddText(pos, IM_COL32(235, 220, 190, 255), name.c_str());
 }
 
+// Draws a small health bar at a world position (used over damaged NPCs).
+static void drawHealthBar(const glm::vec3& worldPos, float frac,
+                          const glm::mat4& view, const glm::mat4& proj,
+                          int fbW, int fbH) {
+    glm::vec4 clip = proj * view * glm::vec4(worldPos, 1.0f);
+    if (clip.w <= 0.01f) return;
+    glm::vec3 ndc = glm::vec3(clip) / clip.w;
+    if (ndc.z < -1.0f || ndc.z > 1.0f) return;
+    float sx = (ndc.x * 0.5f + 0.5f) * (float)fbW;
+    float sy = (1.0f - (ndc.y * 0.5f + 0.5f)) * (float)fbH;
+    frac = std::clamp(frac, 0.0f, 1.0f);
+    const float W = 46.0f, H = 6.0f;
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    dl->AddRectFilled(ImVec2(sx - W * 0.5f - 1, sy - 1),
+                      ImVec2(sx + W * 0.5f + 1, sy + H + 1), IM_COL32(15, 10, 8, 200));
+    dl->AddRectFilled(ImVec2(sx - W * 0.5f, sy),
+                      ImVec2(sx - W * 0.5f + W * frac, sy + H), IM_COL32(200, 45, 40, 255));
+}
+
 void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer) {
     (void)window;
 
@@ -919,6 +939,44 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
         drawNametag(p.position + glm::vec3(0.0f, 2.1f, 0.0f), label,
                     renderer.frameView, renderer.frameProj,
                     renderer.frameFbW, renderer.frameFbH);
+    }
+
+    // NPC interaction — nametag + talk prompt for the villager being faced,
+    // and the dialogue box once a conversation has been started.
+    if (!ctx.talkTargetName.empty()) {
+        drawNametag(ctx.talkTargetPos + glm::vec3(0.0f, 2.1f, 0.0f),
+                    ctx.talkTargetName, renderer.frameView, renderer.frameProj,
+                    renderer.frameFbW, renderer.frameFbH);
+        if (ctx.talkTimer <= 0.0f) {
+            ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH / 2 - 70, WINDOW_HEIGHT / 2 + 36));
+            ImGui::SetNextWindowSize(ImVec2(140, 26));
+            ImGui::Begin("TalkHint", nullptr,
+                         ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground |
+                         ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoInputs);
+            ImGui::TextColored(ImVec4(0.96f, 0.90f, 0.70f, 1.0f), "[E] Talk");
+            ImGui::End();
+        }
+    }
+    if (ctx.talkTimer > 0.0f) {
+        ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH / 2 - 220, WINDOW_HEIGHT - 172));
+        ImGui::SetNextWindowSize(ImVec2(440, 80));
+        ImGui::Begin("NpcDialogue", nullptr,
+                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                     ImGuiWindowFlags_NoInputs);
+        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.45f, 1.0f), "%s", ctx.talkName.c_str());
+        ImGui::Separator();
+        ImGui::TextWrapped("%s", ctx.talkLine.c_str());
+        ImGui::End();
+    }
+
+    // NPC health bars over damaged NPCs.
+    for (auto& o : ctx.objectManager.objects()) {
+        if (o->dead || o->kind != ObjectKind::NPC) continue;
+        NPC* n = static_cast<NPC*>(o.get());
+        if (n->dyingFlag || n->health >= 99.5f) continue;
+        drawHealthBar(n->position + glm::vec3(0.0f, 2.3f, 0.0f), n->health / 100.0f,
+                      renderer.frameView, renderer.frameProj,
+                      renderer.frameFbW, renderer.frameFbH);
     }
 
     // Chat

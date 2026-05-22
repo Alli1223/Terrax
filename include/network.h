@@ -37,6 +37,7 @@ enum class PacketType : uint8_t {
     DayTime = 11,
     HousePlace = 12,
     EntityState = 13,
+    NPCState = 14,
 };
 
 #pragma pack(push, 1)
@@ -59,11 +60,13 @@ struct PlayerModelHeader {
 
 struct PlayerAttackPacket {
     uint32_t clientID;
+    uint32_t targetNpcId;   // NPC the swing landed on, 0 = none
 };
 
+// Server -> client: damage an NPC dealt to a player.
 struct PlayerHealthPacket {
     uint32_t clientID;
-    float health;
+    float    damage;
 };
 
 struct ChunkRequestPacket {
@@ -122,7 +125,26 @@ struct EntityStatePacket {
     float    yaw;
     float    vx, vy, vz;
 };
+
+// Server -> client state for one NPC. Like EntityStatePacket the server owns
+// the simulation; clients create one NPC per id, interpolate and render it.
+struct NPCStatePacket {
+    uint32_t entityId;
+    uint8_t  npcType;        // NPCType value
+    uint8_t  flags;          // bit 0 = walking
+    uint32_t appearanceSeed; // seed for deterministic procedural appearance
+    float    x, y, z;
+    float    yaw;
+    float    vx, vy, vz;
+    float    health;
+};
 #pragma pack(pop)
+
+// A melee hit a client landed on an NPC; the server game loop resolves it.
+struct NpcHitEvent {
+    uint32_t attackerId;
+    uint32_t npcId;
+};
 
 struct ChatMessage {
     uint32_t senderID = 0;
@@ -190,6 +212,9 @@ public:
     glm::vec3 getPlayerPosition(uint32_t clientId);
     std::string getPlayerName(uint32_t clientId);
 
+    // Melee hits clients landed on NPCs this frame; drained by the game loop.
+    std::vector<NpcHitEvent> npcHits;
+
     static bool isAllowedBlockType(BlockType t);
     static bool validateBlockUpdate(const BlockUpdatePacket& pkt, const glm::vec3& playerPos, World& world);
 
@@ -252,6 +277,8 @@ public:
     std::vector<ChatMessage> chatLog;
     static constexpr size_t MAX_CHAT_LOG = 100;
     std::vector<EntityStatePacket> entityUpdates;   // drained by gameplay each frame
+    std::vector<NPCStatePacket>    npcUpdates;      // drained by gameplay each frame
+    float pendingSelfDamage = 0.0f;                 // damage dealt to us, drained by gameplay
 
 private:
     void doReceiveUDP();

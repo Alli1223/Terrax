@@ -1,4 +1,5 @@
 #include "voxel_model.h"
+#include "building.h"
 #include <iostream>
 #include <algorithm>
 #include <random>
@@ -546,7 +547,37 @@ void HouseModel::set(int x, int y, int z, BlockType t) {
     blocks[((size_t)z * HOUSE_VY + y) * HOUSE_VX + x] = t;
 }
 
+// Delegates to the polymorphic HouseBuilding generator and stamps the result
+// (which is tight-cropped) into the fixed-size HOUSE_VX*VY*VZ grid the editor
+// uses for display. Centred in X/Z so rotations look sensible.
 void generateHouseGrid(int templateType, int roofType, int material,
+                       std::vector<BlockType>& blocks) {
+    blocks.assign((size_t)HOUSE_VX * HOUSE_VY * HOUSE_VZ, BlockType::Air);
+
+    HouseBuilding gen(templateType, roofType, material);
+    std::vector<uint8_t> raw;
+    std::vector<Room>    rooms;
+    int sx = 0, sy = 0, sz = 0, dx = 0, dz = -1;
+    gen.generate(0, raw, rooms, sx, sy, sz, dx, dz);
+    if (sx <= 0 || sy <= 0 || sz <= 0) return;
+
+    const int ox = std::max(0, (HOUSE_VX - sx) / 2);
+    const int oz = std::max(0, (HOUSE_VZ - sz) / 2);
+    const int copyX = std::min(sx, HOUSE_VX - ox);
+    const int copyY = std::min(sy, HOUSE_VY);
+    const int copyZ = std::min(sz, HOUSE_VZ - oz);
+    for (int y = 0; y < copyY; y++)
+        for (int z = 0; z < copyZ; z++)
+            for (int x = 0; x < copyX; x++) {
+                uint8_t b = raw[((size_t)y * sz + z) * sx + x];
+                blocks[((size_t)(oz + z) * HOUSE_VY + y) * HOUSE_VX + (ox + x)]
+                    = (BlockType)b;
+            }
+}
+
+// Legacy in-place generator (kept available but no longer used; preserved so
+// future direct callers can opt into it without going through HouseBuilding).
+[[maybe_unused]] void generateHouseGridLegacy(int templateType, int roofType, int material,
                        std::vector<BlockType>& blocks) {
     blocks.assign((size_t)HOUSE_VX * HOUSE_VY * HOUSE_VZ, BlockType::Air);
     auto set = [&](int x, int y, int z, BlockType t) {

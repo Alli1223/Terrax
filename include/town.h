@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include <glm/glm.hpp>
+#include "building.h"
 
 class Chunk;
 
@@ -19,14 +20,17 @@ enum class TownCenter : unsigned char { Well, Market, Campfire, Statue };
 
 // One stamped structure — a pre-rotated block grid placed at a fixed world
 // position. `blocks` holds BlockType values, index ((y*dimZ)+z)*dimX+x.
-// kind: 0 = well, 1 = house, 2 = farm.
+// `kind` matches the BuildingKind enum (cast to int for legacy comparisons).
+// `rooms` is empty for non-residential kinds and used by the furniture placer
+// for kinds that have an interior (House, Pub, Blacksmith, MageTower).
 struct TownBuilding {
     int wx = 0, wz = 0;          // world XZ of the grid's (0,0) corner
     int baseY = 0;               // world Y of the grid's y=0 (the plot floor)
     int dimX = 0, dimY = 0, dimZ = 0;
-    int kind = 1;
+    int kind = 1;                // BuildingKind cast to int (Centerpiece=0, House=1, ...)
     int doorDX = 0, doorDZ = 0;   // outward facing of the front door (houses only)
     std::vector<uint8_t> blocks;
+    std::vector<Room>    rooms;   // semantic interior partitions (rotated to match `blocks`)
 };
 
 // A gravel road or path — a polyline of world-XZ waypoints laid on the terrain.

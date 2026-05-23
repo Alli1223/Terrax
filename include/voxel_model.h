@@ -126,9 +126,12 @@ public:
 // world block) so it can be baked straight into the terrain. `volume` is a
 // colour mesh derived from the block grid, used only for editor / ghost display.
 
-static constexpr int HOUSE_VX = 24;
-static constexpr int HOUSE_VY = 32;
-static constexpr int HOUSE_VZ = 24;
+// Buildings are emitted into a fixed-size voxel grid before being tight-cropped
+// to their non-air bounds. The grid has to be large enough for the biggest
+// concrete Building subclass (currently the Manor template + a steep roof).
+static constexpr int HOUSE_VX = 32;
+static constexpr int HOUSE_VY = 40;
+static constexpr int HOUSE_VZ = 32;
 
 // Representative display colour for a block type (editor + placement ghost).
 Voxel houseBlockColor(BlockType t);

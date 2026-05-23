@@ -295,7 +295,10 @@ void NpcDirector::populateTown(int ti) {
     int local = 0;
     for (int bi = 0; bi < (int)t.buildings.size(); bi++) {
         const TownBuilding& b = t.buildings[bi];
-        if (b.kind != 1) continue;   // houses only
+        // Spawn villagers in any building that has interior rooms — houses,
+        // pubs, blacksmiths and mage towers all qualify. Centrepieces and
+        // farms have empty rooms and are skipped.
+        if (b.rooms.empty()) continue;
 
         float cx = (float)b.wx + b.dimX * 0.5f;
         float cz = (float)b.wz + b.dimZ * 0.5f;

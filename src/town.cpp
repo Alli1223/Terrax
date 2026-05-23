@@ -1,6 +1,7 @@
 #include "town.h"
 #include "world.h"
 #include "voxel_model.h"
+#include "building.h"
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -147,52 +148,40 @@ int doorQuadrant(int fx, int fz, int tx, int tz) {
     return (dz < 0) ? 0 : 2;
 }
 
-// Generates a house, tight-crops it and rotates it by quadrant `q`, storing the
-// world-oriented block grid in `b`.
-void bakeHouse(TownBuilding& b, int templ, int roof, int mat, int q) {
-    b.kind = 1;
-    std::vector<BlockType> g;
-    generateHouseGrid(templ, roof, mat, g);
+// Builds a Building through the polymorphic generator, tight-crops the result
+// and rotates it by quadrant `q` into `b`. Used for every building kind that
+// has rooms (House, Pub, Blacksmith, MageTower); each is identified by the
+// kind() method on the Building subclass.
+void bakeBuilding(TownBuilding& b, Building& gen, int q) {
+    b.kind = (int)gen.kind();
+    std::vector<uint8_t> raw;
+    std::vector<Room>    rawRooms;
+    int sx = 0, sy = 0, sz = 0, dx = 0, dz = -1;
+    uint32_t seed = worldSeed() ^ 0xB1D14A11u;
+    gen.generate(seed, raw, rawRooms, sx, sy, sz, dx, dz);
+    if (sx <= 0 || sy <= 0 || sz <= 0) { b.dimX = b.dimY = b.dimZ = 0; return; }
 
-    int mnx = HOUSE_VX, mny = HOUSE_VY, mnz = HOUSE_VZ, mxx = -1, mxy = -1, mxz = -1;
-    for (int z = 0; z < HOUSE_VZ; z++)
-        for (int y = 0; y < HOUSE_VY; y++)
-            for (int x = 0; x < HOUSE_VX; x++)
-                if (g[((size_t)z * HOUSE_VY + y) * HOUSE_VX + x] != BlockType::Air) {
-                    mnx = std::min(mnx, x); mxx = std::max(mxx, x);
-                    mny = std::min(mny, y); mxy = std::max(mxy, y);
-                    mnz = std::min(mnz, z); mxz = std::max(mxz, z);
-                }
-    if (mxx < 0) { b.dimX = b.dimY = b.dimZ = 0; return; }
-
-    int sx = mxx - mnx + 1, sy = mxy - mny + 1, sz = mxz - mnz + 1;
-    q &= 3;
-    b.dimX = (q % 2 == 0) ? sx : sz;
-    b.dimZ = (q % 2 == 0) ? sz : sx;
     b.dimY = sy;
-    b.blocks.assign((size_t)b.dimX * b.dimY * b.dimZ, (uint8_t)BlockType::Air);
-    for (int y = 0; y < sy; y++)
-        for (int z = 0; z < sz; z++)
-            for (int x = 0; x < sx; x++) {
-                BlockType bt = g[((size_t)(mnz + z) * HOUSE_VY + (mny + y)) * HOUSE_VX
-                                 + (mnx + x)];
-                int rx, rz;
-                switch (q) {
-                    case 1:  rx = z;          rz = sx - 1 - x; break;
-                    case 2:  rx = sx - 1 - x; rz = sz - 1 - z; break;
-                    case 3:  rx = sz - 1 - z; rz = x;          break;
-                    default: rx = x;          rz = z;          break;
-                }
-                b.blocks[((size_t)y * b.dimZ + rz) * b.dimX + rx] = (uint8_t)bt;
-            }
+    rotateBuilding(sx, sy, sz, raw, rawRooms, q, b.blocks, b.rooms,
+                   b.dimX, b.dimZ);
 
-    // The front door faces the rotated front wall (q = 0 faces -Z).
-    switch (q) {
-        case 1:  b.doorDX = -1; b.doorDZ =  0; break;
-        case 2:  b.doorDX =  0; b.doorDZ =  1; break;
-        case 3:  b.doorDX =  1; b.doorDZ =  0; break;
-        default: b.doorDX =  0; b.doorDZ = -1; break;
+    // Pre-rotation the front door faces -Z; rotate that normal alongside the
+    // grid so the rotated outward normal stays correct.
+    int rdx, rdz;
+    switch (q & 3) {
+        case 1:  rdx = -dz; rdz =  dx; break;
+        case 2:  rdx = -dx; rdz = -dz; break;
+        case 3:  rdx =  dz; rdz = -dx; break;
+        default: rdx =  dx; rdz =  dz; break;
     }
+    b.doorDX = rdx;
+    b.doorDZ = rdz;
+}
+
+// Backwards-compatible wrapper for the existing house-placement code paths.
+void bakeHouse(TownBuilding& b, int templ, int roof, int mat, int q) {
+    HouseBuilding gen(templ, roof, mat);
+    bakeBuilding(b, gen, q);
 }
 
 // A small village well — stone rim, water pool, four posts and a pyramid roof.
@@ -404,6 +393,25 @@ bool tryPlaceFarm(Town& t, std::mt19937& rng, int px, int pz) {
     return true;
 }
 
+// Stamps a single specialised Building (pub / blacksmith / mage tower) facing
+// the town centre. Acts like tryPlaceHouse but takes a polymorphic generator
+// so the caller picks the kind/material per town and type bias.
+bool tryPlaceSpecial(Town& t, Building& gen, int px, int pz) {
+    int q = doorQuadrant(px, pz, t.center.x, t.center.y);
+    TownBuilding b;
+    bakeBuilding(b, gen, q);
+    if (b.dimX == 0) return false;
+    b.wx = px - b.dimX / 2;
+    b.wz = pz - b.dimZ / 2;
+    for (const TownBuilding& o : t.buildings)
+        if (boxesOverlap(b.wx - 3, b.wz - 3, b.dimX + 6, b.dimZ + 6,
+                         o.wx, o.wz, o.dimX, o.dimZ))
+            return false;
+    b.baseY = t.baseY;
+    t.buildings.push_back(std::move(b));
+    return true;
+}
+
 // Houses arranged in concentric rings facing the town centre. `scattered`
 // loosens the spacing for mountain villages (which also terrace naturally,
 // since each house takes its own ground height).
@@ -459,6 +467,54 @@ void layoutTown(Town& t) {
 
     const bool big = (t.size == TownSize::Town);
     static const int ROOFS[] = { 1, 2, 3 };   // gabled, hipped, pyramid
+
+    // --- Specialised buildings (pub / blacksmith / mage tower) ------------
+    // One pub and one blacksmith per town (every settlement has both — this
+    // is a hand-wave, but it gives every village a familiar set of services).
+    // A mage tower is rarer and biased toward mountain towns.
+    auto placeSpecial = [&](Building& gen, float baseAngle, int innerR) {
+        for (int attempt = 0; attempt < 8; attempt++) {
+            float ang = baseAngle + frand(rng, -0.2f, 0.2f);
+            int   rr  = innerR + (int)frand(rng, -2.0f, 6.0f);
+            int   px  = t.center.x + (int)(cosf(ang) * rr);
+            int   pz  = t.center.y + (int)(sinf(ang) * rr);
+            if (tryPlaceSpecial(t, gen, px, pz)) return true;
+            baseAngle += 0.6f;   // try a different sector
+        }
+        return false;
+    };
+
+    {
+        // Pub — material picked by town type so it blends in with the houses.
+        int pubMat;
+        switch (t.type) {
+            case TownType::Coastal:  pubMat = 7;  break;   // coastal palette
+            case TownType::Mountain: pubMat = 4;  break;   // cabin
+            default:                 pubMat = 1;  break;   // cottage
+        }
+        PubBuilding pub(pubMat, /*roof=*/1);
+        placeSpecial(pub, frand(rng, 0.0f, 6.2832f), 18);
+    }
+    {
+        // Blacksmith — usually stone walls; mountain villages get hipped roof
+        // to handle snow load.
+        int smithMat = (t.type == TownType::Mountain) ? 2 : 4;
+        int smithRoof = (t.type == TownType::Mountain) ? 2 : 1;
+        BlacksmithBuilding smith(smithMat, smithRoof);
+        placeSpecial(smith, frand(rng, 0.0f, 6.2832f) + 2.094f, 18);  // +120°
+    }
+    {
+        // Mage tower — common in mountain settlements (mages like remote
+        // peaks), rare elsewhere.
+        const int towerChance =
+            (t.type == TownType::Mountain) ? 60 :
+            (t.type == TownType::Coastal)  ? 25 : 35;
+        if ((int)(rng() % 100) < (big ? towerChance + 15 : towerChance)) {
+            int towerMat = (t.type == TownType::Mountain) ? 2 : 3;
+            MageTowerBuilding tower(towerMat, big ? 4 : 3);
+            placeSpecial(tower, frand(rng, 0.0f, 6.2832f) + 4.189f, 20);  // +240°
+        }
+    }
 
     if (t.type == TownType::Coastal) {
         static const int T[] = { 0, 1, 2, 4, 5 };   // bungalow/two-story/cottage/cabin/longhouse
@@ -541,7 +597,9 @@ void routeTownPaths(Town& t) {
 
     for (size_t bi = 0; bi < t.buildings.size(); bi++) {
         const TownBuilding& b = t.buildings[bi];
-        if (b.kind != 1) continue;                          // paths originate at houses only
+        // Paths originate at every building that has rooms (houses, pubs,
+        // blacksmiths, mage towers) — centrepieces and farms are skipped.
+        if (b.rooms.empty()) continue;
         int hcx = b.wx + b.dimX / 2, hcz = b.wz + b.dimZ / 2;
         glm::ivec2 hC = w2c(hcx, hcz);
         int self = (int)bi;
@@ -1096,11 +1154,11 @@ void stampBuilding(Chunk* c, const TownBuilding& b) {
         }
 }
 
-// Builds a descending stone staircase from a house's front door down to the
-// terrain, so a house on raised ground stays reachable from the street. The
-// steps run toward the town centre and are clipped to chunk `c`.
+// Builds a descending stone staircase from a building's front door down to
+// the terrain, so a building on raised ground stays reachable from the
+// street. The steps run toward the town centre and are clipped to chunk `c`.
 void stampHouseSteps(Chunk* c, const TownBuilding& b) {
-    if (b.kind != 1) return;                          // houses only
+    if (b.rooms.empty()) return;                      // any kind with a front door
     if (b.doorDX == 0 && b.doorDZ == 0) return;
     const int ox = c->pos.x * CHUNK_SIZE, oz = c->pos.z * CHUNK_SIZE;
 

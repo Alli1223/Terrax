@@ -25,78 +25,220 @@ inline bool solidAt(const TownBuilding& b, int x, int y, int z) {
     return b.blocks[hidx(b, x, y, z)] != (uint8_t)BlockType::Air;
 }
 
-// Scatters furniture across the interior floors of one baked house.
+// Room-aware furniture placement.
+//
+// Each `RoomType` has its own list of weighted "wall" and "open-floor" props
+// chosen by `furnitureForRoom`. The placer walks every Room emitted by the
+// building generator, scans only the cells inside that room's bounds for
+// valid spots, and draws from the room-specific pools — so kitchens get sinks
+// and cookers, bedrooms get beds and wardrobes, studies get bookshelves, etc.
+namespace {
+
+struct FurnitureRule {
+    std::vector<PropType> wallPicks;      // pieces placed against a wall
+    std::vector<PropType> openPicks;      // pieces placed in the middle of the room
+    int  wallLanternEvery = 5;            // 1-in-N wall spots become a lit lantern
+    int  capMin = 4, capMax = 9;          // furniture pieces per room
+    bool allowTableTopper = true;         // crockery/lantern on top of placed Tables
+};
+
+FurnitureRule furnitureForRoom(RoomType t) {
+    FurnitureRule r;
+    switch (t) {
+        case RoomType::Kitchen:
+            r.wallPicks  = { PropType::Cooker, PropType::Sink, PropType::KitchenCounter,
+                             PropType::KitchenCounter, PropType::Crockery };
+            r.openPicks  = { PropType::Table, PropType::Chair };
+            r.capMin = 4; r.capMax = 7;
+            r.wallLanternEvery = 6;
+            break;
+        case RoomType::Bedroom:
+            r.wallPicks  = { PropType::Bed, PropType::Wardrobe, PropType::SideTable,
+                             PropType::SideTable, PropType::Bookshelf };
+            r.openPicks  = { PropType::Chair };
+            r.capMin = 4; r.capMax = 6;
+            r.wallLanternEvery = 5;
+            r.allowTableTopper = false;
+            break;
+        case RoomType::Study:
+            r.wallPicks  = { PropType::Bookshelf, PropType::Bookshelf, PropType::Bookshelf,
+                             PropType::Desk, PropType::Desk };
+            r.openPicks  = { PropType::Chair, PropType::Chair };
+            r.capMin = 4; r.capMax = 7;
+            r.wallLanternEvery = 4;
+            break;
+        case RoomType::DiningHall:
+            r.wallPicks  = { PropType::Bookshelf, PropType::Cooker, PropType::BarCounter };
+            r.openPicks  = { PropType::Table, PropType::Table, PropType::Table,
+                             PropType::Chair, PropType::Chair, PropType::Chair };
+            r.capMin = 6; r.capMax = 10;
+            r.wallLanternEvery = 3;
+            break;
+        case RoomType::BarArea:
+            r.wallPicks  = { PropType::BarCounter, PropType::BarCounter,
+                             PropType::Bookshelf, PropType::Cooker };
+            r.openPicks  = { PropType::BarStool, PropType::BarStool };
+            r.capMin = 4; r.capMax = 8;
+            r.wallLanternEvery = 3;
+            r.allowTableTopper = false;
+            break;
+        case RoomType::Forge:
+            r.wallPicks  = { PropType::Forge, PropType::Anvil, PropType::KitchenCounter };
+            r.openPicks  = { PropType::Anvil };
+            r.capMin = 3; r.capMax = 5;
+            r.wallLanternEvery = 3;
+            r.allowTableTopper = false;
+            break;
+        case RoomType::Workshop:
+            r.wallPicks  = { PropType::Bookshelf, PropType::KitchenCounter, PropType::Desk };
+            r.openPicks  = { PropType::Table, PropType::Chair };
+            r.capMin = 4; r.capMax = 7;
+            r.wallLanternEvery = 4;
+            break;
+        case RoomType::AlchemyLab:
+            r.wallPicks  = { PropType::AlchemyTable, PropType::AlchemyTable,
+                             PropType::Bookshelf, PropType::Bookshelf };
+            r.openPicks  = { PropType::Cauldron, PropType::Table, PropType::Chair };
+            r.capMin = 4; r.capMax = 7;
+            r.wallLanternEvery = 4;
+            r.allowTableTopper = false;
+            break;
+        case RoomType::Library:
+            r.wallPicks  = { PropType::Bookshelf, PropType::Bookshelf, PropType::Bookshelf,
+                             PropType::Bookshelf, PropType::Desk };
+            r.openPicks  = { PropType::Chair, PropType::Table };
+            r.capMin = 5; r.capMax = 9;
+            r.wallLanternEvery = 5;
+            break;
+        case RoomType::Hallway:
+            r.wallPicks  = { PropType::Bookshelf };
+            r.openPicks  = {};
+            r.capMin = 0; r.capMax = 2;
+            r.wallLanternEvery = 2;
+            r.allowTableTopper = false;
+            break;
+        case RoomType::LivingRoom:
+        default:
+            r.wallPicks  = { PropType::Couch, PropType::Bookshelf, PropType::Bookshelf,
+                             PropType::SideTable };
+            r.openPicks  = { PropType::Table, PropType::Chair, PropType::Chair };
+            r.capMin = 5; r.capMax = 9;
+            r.wallLanternEvery = 5;
+            break;
+    }
+    return r;
+}
+
+// Returns true if a piece of furniture of the given PropType should be placed
+// against a wall (yaw orientation derived from the adjacent wall direction).
+bool prefersWall(PropType t) {
+    switch (t) {
+        case PropType::Bed: case PropType::Bookshelf: case PropType::Wardrobe:
+        case PropType::Cooker: case PropType::Sink: case PropType::KitchenCounter:
+        case PropType::SideTable: case PropType::Couch: case PropType::Desk:
+        case PropType::BarCounter: case PropType::Forge: case PropType::AlchemyTable:
+            return true;
+        default:
+            return false;
+    }
+}
+
+} // namespace
+
+// Scatters furniture across every Room of a building, picking from a room-
+// specific weighted pool so kitchens get cookers, studies get bookshelves, etc.
 void placeFurniture(const TownBuilding& b) {
-    if (b.dimX < 7 || b.dimZ < 7 || b.dimY < 5) return;
+    if (b.dimX < 5 || b.dimZ < 5 || b.dimY < 5) return;
+    if (b.rooms.empty()) return;
+
     std::mt19937 rng(worldSeed()
                      ^ (uint32_t)(b.wx * 73856093)
                      ^ (uint32_t)(b.wz * 19349663) ^ 0xF0A1u);
 
     struct Spot { int x, y, z; bool wall; float yaw; };
-    std::vector<Spot> spots;
-    for (int x = 2; x <= b.dimX - 3; x++)
-        for (int z = 2; z <= b.dimZ - 3; z++) {
-            int colTop = -1;
-            for (int y = b.dimY - 1; y >= 0; y--)
-                if (solidAt(b, x, y, z)) { colTop = y; break; }
-            if (colTop < 4) continue;
-            for (int y = 0; y + 2 < colTop; y++) {
-                if (!solidAt(b, x, y, z)) continue;            // need a floor
-                if (solidAt(b, x, y + 1, z) || solidAt(b, x, y + 2, z))
-                    continue;                                  // need headroom
-                Spot s{ x, y, z, true, 0.0f };
-                if      (solidAt(b, x - 1, y + 1, z)) s.yaw = 90.0f;
-                else if (solidAt(b, x + 1, y + 1, z)) s.yaw = 270.0f;
-                else if (solidAt(b, x, y + 1, z - 1)) s.yaw = 0.0f;
-                else if (solidAt(b, x, y + 1, z + 1)) s.yaw = 180.0f;
+
+    for (const Room& room : b.rooms) {
+        FurnitureRule rule = furnitureForRoom(room.type);
+        if (rule.wallPicks.empty() && rule.openPicks.empty() &&
+            rule.wallLanternEvery <= 0) continue;
+
+        std::vector<Spot> spots;
+        const int x0 = std::max(0, room.x0);
+        const int x1 = std::min(b.dimX - 1, room.x1);
+        const int z0 = std::max(0, room.z0);
+        const int z1 = std::min(b.dimZ - 1, room.z1);
+        const int y  = room.floorY;
+        const int yHead = std::min(b.dimY - 1, room.ceilingY);
+
+        for (int x = x0; x <= x1; x++)
+            for (int z = z0; z <= z1; z++) {
+                if (y - 1 < 0 || !solidAt(b, x, y - 1, z)) continue;
+                if (solidAt(b, x, y, z) || solidAt(b, x, y + 1, z)) continue;
+                if (yHead > y && solidAt(b, x, yHead, z) == false) {
+                    // Ceiling can be partly open at stair wells — that's fine,
+                    // we still place pieces on solid floor cells with headroom.
+                }
+                Spot s{ x, y - 1, z, true, 0.0f };
+                if      (solidAt(b, x - 1, y, z)) s.yaw = 90.0f;
+                else if (solidAt(b, x + 1, y, z)) s.yaw = 270.0f;
+                else if (solidAt(b, x, y, z - 1)) s.yaw = 0.0f;
+                else if (solidAt(b, x, y, z + 1)) s.yaw = 180.0f;
                 else { s.wall = false; s.yaw = (float)((rng() % 4) * 90); }
                 spots.push_back(s);
             }
-        }
-    if (spots.empty()) return;
+        if (spots.empty()) continue;
 
-    for (size_t i = spots.size(); i > 1; i--)                  // deterministic shuffle
-        std::swap(spots[i - 1], spots[rng() % i]);
+        for (size_t i = spots.size(); i > 1; i--)
+            std::swap(spots[i - 1], spots[rng() % i]);
 
-    int cap = 6 + (int)(rng() % 7);                            // 6..12 pieces
-    int placed = 0;
-    std::vector<glm::ivec3> used;
-    for (const Spot& s : spots) {
-        if (placed >= cap) break;
-        bool tooClose = false;
-        for (const glm::ivec3& u : used)
-            if (u.y == s.y && std::abs(u.x - s.x) < 3 && std::abs(u.z - s.z) < 3) {
-                tooClose = true; break;
-            }
-        if (tooClose) continue;
+        int cap = rule.capMin + (int)(rng() % std::max(1, rule.capMax - rule.capMin + 1));
+        int placed = 0;
+        std::vector<glm::ivec3> used;
+        int wallSeen = 0;
+        for (const Spot& s : spots) {
+            if (placed >= cap) break;
 
-        PropType t;
-        bool wallLantern = false;
-        if (s.wall) {
-            if (rng() % 4 == 0) {                              // a wall-mounted lantern
-                t = PropType::Lantern;
-                wallLantern = true;
+            bool tooClose = false;
+            for (const glm::ivec3& u : used)
+                if (u.y == s.y && std::abs(u.x - s.x) < 3 && std::abs(u.z - s.z) < 3) {
+                    tooClose = true; break;
+                }
+            if (tooClose) continue;
+
+            PropType t;
+            bool wallLantern = false;
+            if (s.wall) {
+                wallSeen++;
+                if (rule.wallLanternEvery > 0 &&
+                    (wallSeen % rule.wallLanternEvery) == 0) {
+                    t = PropType::Lantern;
+                    wallLantern = true;
+                } else if (!rule.wallPicks.empty()) {
+                    t = rule.wallPicks[rng() % rule.wallPicks.size()];
+                } else continue;
             } else {
-                static const PropType WALL[] = { PropType::Bookshelf, PropType::Bookshelf,
-                                                 PropType::Bed, PropType::Cooker };
-                t = WALL[rng() % 4];
+                if (rule.openPicks.empty()) continue;
+                t = rule.openPicks[rng() % rule.openPicks.size()];
             }
-        } else {
-            static const PropType OPEN[] = { PropType::Table, PropType::Table,
-                                             PropType::Chair };
-            t = OPEN[rng() % 3];
+
+            // Skip pieces that need a wall when placed at a floating spot, and
+            // vice versa, so big wall units don't sit awkwardly in the middle.
+            if (!s.wall && prefersWall(t)) continue;
+
+            glm::vec3 pos((float)(b.wx + s.x) + 0.5f,
+                          (float)(b.baseY + s.y + 1) + (wallLantern ? 3.0f : 0.0f),
+                          (float)(b.wz + s.z) + 0.5f);
+            g_placements.push_back({ t, pos, s.yaw, rng() });
+
+            if (rule.allowTableTopper && t == PropType::Table) {
+                glm::vec3 cp = pos; cp.y += TABLE_TOP_H;
+                PropType on = (rng() % 5 == 0) ? PropType::Crockery : PropType::Lantern;
+                g_placements.push_back({ on, cp, s.yaw, rng() });
+            }
+
+            used.push_back(glm::ivec3(s.x, s.y, s.z));
+            placed++;
         }
-        glm::vec3 pos((float)(b.wx + s.x) + 0.5f,
-                      (float)(b.baseY + s.y + 1) + (wallLantern ? 3.0f : 0.0f),
-                      (float)(b.wz + s.z) + 0.5f);
-        g_placements.push_back({ t, pos, s.yaw, rng() });
-        if (t == PropType::Table) {                            // a lantern (or crockery) on top
-            glm::vec3 cp = pos; cp.y += TABLE_TOP_H;
-            PropType on = (rng() % 5 == 0) ? PropType::Crockery : PropType::Lantern;
-            g_placements.push_back({ on, cp, s.yaw, rng() });
-        }
-        used.push_back(glm::ivec3(s.x, s.y, s.z));
-        placed++;
     }
 }
 
@@ -225,7 +367,7 @@ void build() {
     const TownPlan& plan = getTownPlan();
     for (const Town& t : plan.towns) {
         for (const TownBuilding& b : t.buildings)
-            if (b.kind == 1) placeFurniture(b);
+            if (!b.rooms.empty()) placeFurniture(b);
         placeStreetLampProps(t);
         placeDecorations(t);
     }
@@ -250,7 +392,10 @@ void buildDoors() {
     };
     for (const Town& t : plan.towns)
         for (const TownBuilding& b : t.buildings) {
-            if (b.kind != 1 || (b.doorDX == 0 && b.doorDZ == 0)) continue;
+            // Every residential or special building has a door direction set
+            // by its generator. Centrepieces (well/market/etc) and farms leave
+            // doorDX/doorDZ at zero and are skipped here.
+            if ((b.doorDX == 0 && b.doorDZ == 0) || b.rooms.empty()) continue;
 
             auto solid = [&](int x, int y, int z) {
                 if (x < 0 || x >= b.dimX || y < 0 || y >= b.dimY ||

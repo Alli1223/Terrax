@@ -32,18 +32,30 @@ void PropLibrary::destroy() {
 
 void PropLibrary::buildAll() {
     if (isBuilt) return;
-    volumes[(int)PropType::Bookshelf]   = buildBookshelf();
-    volumes[(int)PropType::Bed]         = buildBed();
-    volumes[(int)PropType::Lantern]     = buildLanternProp();
-    volumes[(int)PropType::Cooker]      = buildCooker();
-    volumes[(int)PropType::Table]       = buildTable();
-    volumes[(int)PropType::Chair]       = buildChair();
-    volumes[(int)PropType::Crockery]    = buildCrockery();
-    volumes[(int)PropType::StreetLamp]  = buildStreetLamp();
-    volumes[(int)PropType::PottedPlant] = buildPottedPlant();
-    volumes[(int)PropType::Bush]        = buildBush();
-    volumes[(int)PropType::Bench]       = buildBench();
-    volumes[(int)PropType::Fence]       = buildFenceSection();
+    volumes[(int)PropType::Bookshelf]      = buildBookshelf();
+    volumes[(int)PropType::Bed]            = buildBed();
+    volumes[(int)PropType::Lantern]        = buildLanternProp();
+    volumes[(int)PropType::Cooker]         = buildCooker();
+    volumes[(int)PropType::Table]          = buildTable();
+    volumes[(int)PropType::Chair]          = buildChair();
+    volumes[(int)PropType::Crockery]       = buildCrockery();
+    volumes[(int)PropType::StreetLamp]     = buildStreetLamp();
+    volumes[(int)PropType::PottedPlant]    = buildPottedPlant();
+    volumes[(int)PropType::Bush]           = buildBush();
+    volumes[(int)PropType::Bench]          = buildBench();
+    volumes[(int)PropType::Fence]          = buildFenceSection();
+    volumes[(int)PropType::Sink]           = buildSink();
+    volumes[(int)PropType::KitchenCounter] = buildKitchenCounter();
+    volumes[(int)PropType::Wardrobe]       = buildWardrobe();
+    volumes[(int)PropType::Desk]           = buildDesk();
+    volumes[(int)PropType::Couch]          = buildCouch();
+    volumes[(int)PropType::SideTable]      = buildSideTable();
+    volumes[(int)PropType::Anvil]          = buildAnvil();
+    volumes[(int)PropType::Forge]          = buildForge();
+    volumes[(int)PropType::BarCounter]     = buildBarCounter();
+    volumes[(int)PropType::BarStool]       = buildBarStool();
+    volumes[(int)PropType::Cauldron]       = buildCauldron();
+    volumes[(int)PropType::AlchemyTable]   = buildAlchemyTable();
     for (int i = 0; i < DOOR_VARIANTS; i++) doorVolumes[i] = buildDoor(i);
     for (auto* v : volumes)
         if (v) v->updateMesh();

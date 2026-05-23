@@ -9,9 +9,17 @@ class VoxelVolume;
 static constexpr float PROP_SCALE = 0.06f;
 
 // Furniture and town decorations. The order matters: PropLibrary indexes by it.
+// New entries should be appended just before Count so existing PropType ids
+// stay stable (the furniture builders in furniture.cpp are looked up by id).
 enum class PropType : uint8_t {
-    Bookshelf = 0, Bed, Lantern, Cooker, Table, Chair, Crockery,   // furniture
-    StreetLamp, PottedPlant, Bush, Bench, Fence,                   // decorations
+    // Generic / living-room furniture
+    Bookshelf = 0, Bed, Lantern, Cooker, Table, Chair, Crockery,
+    // Decorations
+    StreetLamp, PottedPlant, Bush, Bench, Fence,
+    // Room-specific furniture (Phase 2)
+    Sink, KitchenCounter, Wardrobe, Desk, Couch, SideTable,
+    // Special-building furniture (Phase 3)
+    Anvil, Forge, BarCounter, BarStool, Cauldron, AlchemyTable,
     Count
 };
 

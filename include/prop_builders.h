@@ -15,6 +15,22 @@ VoxelVolume* buildTable();
 VoxelVolume* buildChair();
 VoxelVolume* buildCrockery();
 
+// Phase 2: room-specific furniture.
+VoxelVolume* buildSink();
+VoxelVolume* buildKitchenCounter();
+VoxelVolume* buildWardrobe();
+VoxelVolume* buildDesk();
+VoxelVolume* buildCouch();
+VoxelVolume* buildSideTable();
+
+// Phase 3: special-building furniture.
+VoxelVolume* buildAnvil();
+VoxelVolume* buildForge();
+VoxelVolume* buildBarCounter();
+VoxelVolume* buildBarStool();
+VoxelVolume* buildCauldron();
+VoxelVolume* buildAlchemyTable();
+
 // Decoration builders (decorations.cpp).
 VoxelVolume* buildStreetLamp();
 VoxelVolume* buildPottedPlant();

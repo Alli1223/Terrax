@@ -48,6 +48,7 @@ AppContext::AppContext()
 
 AppContext::~AppContext() {
     if (mapBuilding && mapFuture.valid()) mapFuture.wait();
+    if (loadingThread.joinable()) loadingThread.join();
     objectManager.clear();
     delete localPlayer;
     delete playerRig;

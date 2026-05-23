@@ -95,7 +95,8 @@ void ObjectManager::streamDoors(const glm::vec3& center, float radius,
         float dx = dp.hinge.x - center.x, dz = dp.hinge.z - center.z;
         if (dx * dx + dz * dz > in2) continue;
         auto door = std::make_unique<Door>(dp.hinge, dp.closedYaw, dp.wallCell,
-                                           dp.wallDir, dp.variant, &lib, playerPos);
+                                           dp.wallDir, dp.variant, &lib, playerPos,
+                                           this);
         door->placementIndex = idx;
         objs.push_back(std::move(door));
         liveDoors.insert(idx);

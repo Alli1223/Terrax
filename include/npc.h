@@ -61,6 +61,9 @@ public:
     glm::vec2 homePos{0.0f};            // villager: door approach / enemy: camp centre
     glm::vec2 doorPos{0.0f};            // on-axis point right at the doorway
     glm::vec2 insidePos{0.0f};          // spot just inside the house, through the door
+    glm::vec2 bedPos{0.0f};             // sleep spot deep inside the house (ground-floor
+                                        // Bedroom centre if present, otherwise a point
+                                        // a few blocks further past insidePos)
     float     groundY = 65.0f;          // standing height, snapped to the surface
     std::vector<glm::vec2> path;        // current route, world XZ
     size_t    pathIndex = 0;

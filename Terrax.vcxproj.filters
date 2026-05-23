@@ -35,6 +35,7 @@
     <ClCompile Include="src\npc.cpp"><Filter>Source</Filter></ClCompile>
     <ClCompile Include="src\animal.cpp"><Filter>Source</Filter></ClCompile>
     <ClCompile Include="src\vegetation.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\building.cpp"><Filter>Source</Filter></ClCompile>
     <ClCompile Include="src\network.cpp"><Filter>Source</Filter></ClCompile>
     <ClCompile Include="src\ui.cpp"><Filter>Source</Filter></ClCompile>
     <ClCompile Include="src\voxel_model.cpp"><Filter>Source</Filter></ClCompile>
@@ -86,6 +87,8 @@
     <ClInclude Include="include\animal.h"><Filter>Headers</Filter></ClInclude>
     <ClInclude Include="include\vegetation.h"><Filter>Headers</Filter></ClInclude>
     <ClInclude Include="include\voxel_model.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\building.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\interactable.h"><Filter>Headers</Filter></ClInclude>
     <ClInclude Include="include\world.h"><Filter>Headers</Filter></ClInclude>
     <ClInclude Include="src\noise.h"><Filter>Headers</Filter></ClInclude>
   </ItemGroup>

@@ -1,6 +1,8 @@
 #include "prop.h"
 #include "prop_builders.h"
 #include "voxel_model.h"
+#include "object_manager.h"
+#include "game_object.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 
@@ -32,18 +34,34 @@ void PropLibrary::destroy() {
 
 void PropLibrary::buildAll() {
     if (isBuilt) return;
-    volumes[(int)PropType::Bookshelf]   = buildBookshelf();
-    volumes[(int)PropType::Bed]         = buildBed();
-    volumes[(int)PropType::Lantern]     = buildLanternProp();
-    volumes[(int)PropType::Cooker]      = buildCooker();
-    volumes[(int)PropType::Table]       = buildTable();
-    volumes[(int)PropType::Chair]       = buildChair();
-    volumes[(int)PropType::Crockery]    = buildCrockery();
-    volumes[(int)PropType::StreetLamp]  = buildStreetLamp();
-    volumes[(int)PropType::PottedPlant] = buildPottedPlant();
-    volumes[(int)PropType::Bush]        = buildBush();
-    volumes[(int)PropType::Bench]       = buildBench();
-    volumes[(int)PropType::Fence]       = buildFenceSection();
+    volumes[(int)PropType::Bookshelf]      = buildBookshelf();
+    volumes[(int)PropType::Bed]            = buildBed();
+    volumes[(int)PropType::Lantern]        = buildLanternProp();
+    volumes[(int)PropType::Cooker]         = buildCooker();
+    volumes[(int)PropType::Table]          = buildTable();
+    volumes[(int)PropType::Chair]          = buildChair();
+    volumes[(int)PropType::Crockery]       = buildCrockery();
+    volumes[(int)PropType::StreetLamp]     = buildStreetLamp();
+    volumes[(int)PropType::PottedPlant]    = buildPottedPlant();
+    volumes[(int)PropType::Bush]           = buildBush();
+    volumes[(int)PropType::Bench]          = buildBench();
+    volumes[(int)PropType::Fence]          = buildFenceSection();
+    volumes[(int)PropType::Sink]           = buildSink();
+    volumes[(int)PropType::KitchenCounter] = buildKitchenCounter();
+    volumes[(int)PropType::Wardrobe]       = buildWardrobe();
+    volumes[(int)PropType::Desk]           = buildDesk();
+    volumes[(int)PropType::Couch]          = buildCouch();
+    volumes[(int)PropType::SideTable]      = buildSideTable();
+    volumes[(int)PropType::Anvil]          = buildAnvil();
+    volumes[(int)PropType::Forge]          = buildForge();
+    volumes[(int)PropType::BarCounter]     = buildBarCounter();
+    volumes[(int)PropType::BarStool]       = buildBarStool();
+    volumes[(int)PropType::Cauldron]       = buildCauldron();
+    volumes[(int)PropType::AlchemyTable]   = buildAlchemyTable();
+    volumes[(int)PropType::SignAnvil]      = buildTradeSignAnvil();
+    volumes[(int)PropType::SignMug]        = buildTradeSignMug();
+    volumes[(int)PropType::SignStar]       = buildTradeSignStar();
+    volumes[(int)PropType::SignWheat]      = buildTradeSignWheat();
     for (int i = 0; i < DOOR_VARIANTS; i++) doorVolumes[i] = buildDoor(i);
     for (auto* v : volumes)
         if (v) v->updateMesh();
@@ -85,6 +103,32 @@ void Prop::draw(GLuint modelLoc) const {
     v->draw();
 }
 
+bool Prop::getInteraction(Interaction& out) const {
+    // The interaction's anchor is the prop's centre plus a small Y offset so
+    // the player rig sits "on top of" the furniture rather than inside it.
+    // The yaw is the prop's own yaw — a chair facing south seats the player
+    // facing south.
+    const float SEAT_Y_OFFSET = 0.55f;   // ~ chair seat height in world units
+    const float BED_Y_OFFSET  = 0.45f;   // mattress height
+    switch (type) {
+        case PropType::Chair:
+        case PropType::BarStool:
+            out.action    = InteractAction::SitChair;
+            out.anchorPos = position + glm::vec3(0.0f, SEAT_Y_OFFSET, 0.0f);
+            out.anchorYaw = yaw;
+            out.hint      = "Press E to sit";
+            return true;
+        case PropType::Bed:
+            out.action    = InteractAction::LieBed;
+            out.anchorPos = position + glm::vec3(0.0f, BED_Y_OFFSET, 0.0f);
+            out.anchorYaw = yaw;
+            out.hint      = "Press E to lie down";
+            return true;
+        default:
+            return false;
+    }
+}
+
 void Prop::getAABB(glm::vec3& mn, glm::vec3& mx) const {
     float hx = 0.5f, hy = 1.0f, hz = 0.5f;
     if (library) {
@@ -107,19 +151,41 @@ constexpr float DOOR_SPEED     = 4.0f;   // swing speed (full open in ~0.25 s)
 }
 
 Door::Door(glm::vec3 hinge, float closedYawDeg, glm::ivec2 doorCell, glm::ivec2 alongWall,
-           int doorVariant, const PropLibrary* lib, const glm::vec3* player)
+           int doorVariant, const PropLibrary* lib, const glm::vec3* player,
+           const ObjectManager* objMgr)
     : GameObject(ObjectKind::Door), wallCell(doorCell), wallDir(alongWall),
-      variant(doorVariant), closedYaw(closedYawDeg), library(lib), playerPos(player) {
+      variant(doorVariant), closedYaw(closedYawDeg), library(lib),
+      playerPos(player), objects(objMgr) {
     position = hinge;
     yaw      = closedYawDeg;
 }
 
 void Door::update(float dt, World&) {
+    // The door opens when any agent (local player, remote players or NPCs)
+    // walks into its trigger radius. NPCs were previously walking through the
+    // shut panel because only the local player position was being checked.
     float target = 0.0f;
+    const float openDist2 = DOOR_OPEN_DIST * DOOR_OPEN_DIST;
+
     if (playerPos) {
         glm::vec3 d = *playerPos - position;
-        if (glm::dot(d, d) < DOOR_OPEN_DIST * DOOR_OPEN_DIST) target = 1.0f;
+        if (glm::dot(d, d) < openDist2) target = 1.0f;
     }
+    if (target < 1.0f && objects) {
+        // Cheap proximity scan against the (already-streamed) nearby objects.
+        // We accept NPCs, remote players and animals as triggers — anything
+        // that walks on its own legs and would otherwise bump the panel.
+        for (const auto& o : objects->objects()) {
+            if (o.get() == this) continue;
+            if (o->dead) continue;
+            if (o->kind != ObjectKind::NPC &&
+                o->kind != ObjectKind::Player &&
+                o->kind != ObjectKind::Animal) continue;
+            glm::vec3 d = o->position - position;
+            if (glm::dot(d, d) < openDist2) { target = 1.0f; break; }
+        }
+    }
+
     float step = dt * DOOR_SPEED;
     if (openAmount < target) openAmount = std::min(target, openAmount + step);
     else                     openAmount = std::max(target, openAmount - step);

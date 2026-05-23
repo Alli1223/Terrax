@@ -25,78 +25,220 @@ inline bool solidAt(const TownBuilding& b, int x, int y, int z) {
     return b.blocks[hidx(b, x, y, z)] != (uint8_t)BlockType::Air;
 }
 
-// Scatters furniture across the interior floors of one baked house.
+// Room-aware furniture placement.
+//
+// Each `RoomType` has its own list of weighted "wall" and "open-floor" props
+// chosen by `furnitureForRoom`. The placer walks every Room emitted by the
+// building generator, scans only the cells inside that room's bounds for
+// valid spots, and draws from the room-specific pools — so kitchens get sinks
+// and cookers, bedrooms get beds and wardrobes, studies get bookshelves, etc.
+namespace {
+
+struct FurnitureRule {
+    std::vector<PropType> wallPicks;      // pieces placed against a wall
+    std::vector<PropType> openPicks;      // pieces placed in the middle of the room
+    int  wallLanternEvery = 5;            // 1-in-N wall spots become a lit lantern
+    int  capMin = 4, capMax = 9;          // furniture pieces per room
+    bool allowTableTopper = true;         // crockery/lantern on top of placed Tables
+};
+
+FurnitureRule furnitureForRoom(RoomType t) {
+    FurnitureRule r;
+    switch (t) {
+        case RoomType::Kitchen:
+            r.wallPicks  = { PropType::Cooker, PropType::Sink, PropType::KitchenCounter,
+                             PropType::KitchenCounter, PropType::Crockery };
+            r.openPicks  = { PropType::Table, PropType::Chair };
+            r.capMin = 4; r.capMax = 7;
+            r.wallLanternEvery = 6;
+            break;
+        case RoomType::Bedroom:
+            r.wallPicks  = { PropType::Bed, PropType::Wardrobe, PropType::SideTable,
+                             PropType::SideTable, PropType::Bookshelf };
+            r.openPicks  = { PropType::Chair };
+            r.capMin = 4; r.capMax = 6;
+            r.wallLanternEvery = 5;
+            r.allowTableTopper = false;
+            break;
+        case RoomType::Study:
+            r.wallPicks  = { PropType::Bookshelf, PropType::Bookshelf, PropType::Bookshelf,
+                             PropType::Desk, PropType::Desk };
+            r.openPicks  = { PropType::Chair, PropType::Chair };
+            r.capMin = 4; r.capMax = 7;
+            r.wallLanternEvery = 4;
+            break;
+        case RoomType::DiningHall:
+            r.wallPicks  = { PropType::Bookshelf, PropType::Cooker, PropType::BarCounter };
+            r.openPicks  = { PropType::Table, PropType::Table, PropType::Table,
+                             PropType::Chair, PropType::Chair, PropType::Chair };
+            r.capMin = 6; r.capMax = 10;
+            r.wallLanternEvery = 3;
+            break;
+        case RoomType::BarArea:
+            r.wallPicks  = { PropType::BarCounter, PropType::BarCounter,
+                             PropType::Bookshelf, PropType::Cooker };
+            r.openPicks  = { PropType::BarStool, PropType::BarStool };
+            r.capMin = 4; r.capMax = 8;
+            r.wallLanternEvery = 3;
+            r.allowTableTopper = false;
+            break;
+        case RoomType::Forge:
+            r.wallPicks  = { PropType::Forge, PropType::Anvil, PropType::KitchenCounter };
+            r.openPicks  = { PropType::Anvil };
+            r.capMin = 3; r.capMax = 5;
+            r.wallLanternEvery = 3;
+            r.allowTableTopper = false;
+            break;
+        case RoomType::Workshop:
+            r.wallPicks  = { PropType::Bookshelf, PropType::KitchenCounter, PropType::Desk };
+            r.openPicks  = { PropType::Table, PropType::Chair };
+            r.capMin = 4; r.capMax = 7;
+            r.wallLanternEvery = 4;
+            break;
+        case RoomType::AlchemyLab:
+            r.wallPicks  = { PropType::AlchemyTable, PropType::AlchemyTable,
+                             PropType::Bookshelf, PropType::Bookshelf };
+            r.openPicks  = { PropType::Cauldron, PropType::Table, PropType::Chair };
+            r.capMin = 4; r.capMax = 7;
+            r.wallLanternEvery = 4;
+            r.allowTableTopper = false;
+            break;
+        case RoomType::Library:
+            r.wallPicks  = { PropType::Bookshelf, PropType::Bookshelf, PropType::Bookshelf,
+                             PropType::Bookshelf, PropType::Desk };
+            r.openPicks  = { PropType::Chair, PropType::Table };
+            r.capMin = 5; r.capMax = 9;
+            r.wallLanternEvery = 5;
+            break;
+        case RoomType::Hallway:
+            r.wallPicks  = { PropType::Bookshelf };
+            r.openPicks  = {};
+            r.capMin = 0; r.capMax = 2;
+            r.wallLanternEvery = 2;
+            r.allowTableTopper = false;
+            break;
+        case RoomType::LivingRoom:
+        default:
+            r.wallPicks  = { PropType::Couch, PropType::Bookshelf, PropType::Bookshelf,
+                             PropType::SideTable };
+            r.openPicks  = { PropType::Table, PropType::Chair, PropType::Chair };
+            r.capMin = 5; r.capMax = 9;
+            r.wallLanternEvery = 5;
+            break;
+    }
+    return r;
+}
+
+// Returns true if a piece of furniture of the given PropType should be placed
+// against a wall (yaw orientation derived from the adjacent wall direction).
+bool prefersWall(PropType t) {
+    switch (t) {
+        case PropType::Bed: case PropType::Bookshelf: case PropType::Wardrobe:
+        case PropType::Cooker: case PropType::Sink: case PropType::KitchenCounter:
+        case PropType::SideTable: case PropType::Couch: case PropType::Desk:
+        case PropType::BarCounter: case PropType::Forge: case PropType::AlchemyTable:
+            return true;
+        default:
+            return false;
+    }
+}
+
+} // namespace
+
+// Scatters furniture across every Room of a building, picking from a room-
+// specific weighted pool so kitchens get cookers, studies get bookshelves, etc.
 void placeFurniture(const TownBuilding& b) {
-    if (b.dimX < 7 || b.dimZ < 7 || b.dimY < 5) return;
+    if (b.dimX < 5 || b.dimZ < 5 || b.dimY < 5) return;
+    if (b.rooms.empty()) return;
+
     std::mt19937 rng(worldSeed()
                      ^ (uint32_t)(b.wx * 73856093)
                      ^ (uint32_t)(b.wz * 19349663) ^ 0xF0A1u);
 
     struct Spot { int x, y, z; bool wall; float yaw; };
-    std::vector<Spot> spots;
-    for (int x = 2; x <= b.dimX - 3; x++)
-        for (int z = 2; z <= b.dimZ - 3; z++) {
-            int colTop = -1;
-            for (int y = b.dimY - 1; y >= 0; y--)
-                if (solidAt(b, x, y, z)) { colTop = y; break; }
-            if (colTop < 4) continue;
-            for (int y = 0; y + 2 < colTop; y++) {
-                if (!solidAt(b, x, y, z)) continue;            // need a floor
-                if (solidAt(b, x, y + 1, z) || solidAt(b, x, y + 2, z))
-                    continue;                                  // need headroom
-                Spot s{ x, y, z, true, 0.0f };
-                if      (solidAt(b, x - 1, y + 1, z)) s.yaw = 90.0f;
-                else if (solidAt(b, x + 1, y + 1, z)) s.yaw = 270.0f;
-                else if (solidAt(b, x, y + 1, z - 1)) s.yaw = 0.0f;
-                else if (solidAt(b, x, y + 1, z + 1)) s.yaw = 180.0f;
+
+    for (const Room& room : b.rooms) {
+        FurnitureRule rule = furnitureForRoom(room.type);
+        if (rule.wallPicks.empty() && rule.openPicks.empty() &&
+            rule.wallLanternEvery <= 0) continue;
+
+        std::vector<Spot> spots;
+        const int x0 = std::max(0, room.x0);
+        const int x1 = std::min(b.dimX - 1, room.x1);
+        const int z0 = std::max(0, room.z0);
+        const int z1 = std::min(b.dimZ - 1, room.z1);
+        const int y  = room.floorY;
+        const int yHead = std::min(b.dimY - 1, room.ceilingY);
+
+        for (int x = x0; x <= x1; x++)
+            for (int z = z0; z <= z1; z++) {
+                if (y - 1 < 0 || !solidAt(b, x, y - 1, z)) continue;
+                if (solidAt(b, x, y, z) || solidAt(b, x, y + 1, z)) continue;
+                if (yHead > y && solidAt(b, x, yHead, z) == false) {
+                    // Ceiling can be partly open at stair wells — that's fine,
+                    // we still place pieces on solid floor cells with headroom.
+                }
+                Spot s{ x, y - 1, z, true, 0.0f };
+                if      (solidAt(b, x - 1, y, z)) s.yaw = 90.0f;
+                else if (solidAt(b, x + 1, y, z)) s.yaw = 270.0f;
+                else if (solidAt(b, x, y, z - 1)) s.yaw = 0.0f;
+                else if (solidAt(b, x, y, z + 1)) s.yaw = 180.0f;
                 else { s.wall = false; s.yaw = (float)((rng() % 4) * 90); }
                 spots.push_back(s);
             }
-        }
-    if (spots.empty()) return;
+        if (spots.empty()) continue;
 
-    for (size_t i = spots.size(); i > 1; i--)                  // deterministic shuffle
-        std::swap(spots[i - 1], spots[rng() % i]);
+        for (size_t i = spots.size(); i > 1; i--)
+            std::swap(spots[i - 1], spots[rng() % i]);
 
-    int cap = 6 + (int)(rng() % 7);                            // 6..12 pieces
-    int placed = 0;
-    std::vector<glm::ivec3> used;
-    for (const Spot& s : spots) {
-        if (placed >= cap) break;
-        bool tooClose = false;
-        for (const glm::ivec3& u : used)
-            if (u.y == s.y && std::abs(u.x - s.x) < 3 && std::abs(u.z - s.z) < 3) {
-                tooClose = true; break;
-            }
-        if (tooClose) continue;
+        int cap = rule.capMin + (int)(rng() % std::max(1, rule.capMax - rule.capMin + 1));
+        int placed = 0;
+        std::vector<glm::ivec3> used;
+        int wallSeen = 0;
+        for (const Spot& s : spots) {
+            if (placed >= cap) break;
 
-        PropType t;
-        bool wallLantern = false;
-        if (s.wall) {
-            if (rng() % 4 == 0) {                              // a wall-mounted lantern
-                t = PropType::Lantern;
-                wallLantern = true;
+            bool tooClose = false;
+            for (const glm::ivec3& u : used)
+                if (u.y == s.y && std::abs(u.x - s.x) < 3 && std::abs(u.z - s.z) < 3) {
+                    tooClose = true; break;
+                }
+            if (tooClose) continue;
+
+            PropType t;
+            bool wallLantern = false;
+            if (s.wall) {
+                wallSeen++;
+                if (rule.wallLanternEvery > 0 &&
+                    (wallSeen % rule.wallLanternEvery) == 0) {
+                    t = PropType::Lantern;
+                    wallLantern = true;
+                } else if (!rule.wallPicks.empty()) {
+                    t = rule.wallPicks[rng() % rule.wallPicks.size()];
+                } else continue;
             } else {
-                static const PropType WALL[] = { PropType::Bookshelf, PropType::Bookshelf,
-                                                 PropType::Bed, PropType::Cooker };
-                t = WALL[rng() % 4];
+                if (rule.openPicks.empty()) continue;
+                t = rule.openPicks[rng() % rule.openPicks.size()];
             }
-        } else {
-            static const PropType OPEN[] = { PropType::Table, PropType::Table,
-                                             PropType::Chair };
-            t = OPEN[rng() % 3];
+
+            // Skip pieces that need a wall when placed at a floating spot, and
+            // vice versa, so big wall units don't sit awkwardly in the middle.
+            if (!s.wall && prefersWall(t)) continue;
+
+            glm::vec3 pos((float)(b.wx + s.x) + 0.5f,
+                          (float)(b.baseY + s.y + 1) + (wallLantern ? 3.0f : 0.0f),
+                          (float)(b.wz + s.z) + 0.5f);
+            g_placements.push_back({ t, pos, s.yaw, rng() });
+
+            if (rule.allowTableTopper && t == PropType::Table) {
+                glm::vec3 cp = pos; cp.y += TABLE_TOP_H;
+                PropType on = (rng() % 5 == 0) ? PropType::Crockery : PropType::Lantern;
+                g_placements.push_back({ on, cp, s.yaw, rng() });
+            }
+
+            used.push_back(glm::ivec3(s.x, s.y, s.z));
+            placed++;
         }
-        glm::vec3 pos((float)(b.wx + s.x) + 0.5f,
-                      (float)(b.baseY + s.y + 1) + (wallLantern ? 3.0f : 0.0f),
-                      (float)(b.wz + s.z) + 0.5f);
-        g_placements.push_back({ t, pos, s.yaw, rng() });
-        if (t == PropType::Table) {                            // a lantern (or crockery) on top
-            glm::vec3 cp = pos; cp.y += TABLE_TOP_H;
-            PropType on = (rng() % 5 == 0) ? PropType::Crockery : PropType::Lantern;
-            g_placements.push_back({ on, cp, s.yaw, rng() });
-        }
-        used.push_back(glm::ivec3(s.x, s.y, s.z));
-        placed++;
     }
 }
 
@@ -166,12 +308,21 @@ bool nearAnyTown(const TownPlan& plan, float wx, float wz, float dist) {
 }
 
 // Emits a lantern-on-a-post Prop at each baked street-light position.
+//
+// We prefer townFlatLevelAt() over sampleSurfaceSolid() inside a town's flat
+// zone because the chunk generator hard-snaps the terrain to that level
+// (baseY + a ±1 slope offset, with a small per-building flat pad). The
+// sampleSurfaceSolid prediction uses the smooth-blend townFlattenedHeight
+// instead, which doesn't include the slope offset, so lamps could end up
+// floating one block above or buried one block in the gravel. Outside the
+// flat zone (long highway segments) we still fall back to sampleSurfaceSolid.
 void placeStreetLampProps(const Town& t) {
     std::mt19937 rng(worldSeed()
                      ^ (uint32_t)(t.center.x * 73856093)
                      ^ (uint32_t)(t.center.y * 19349663) ^ 0x5A1Du);
     for (const glm::ivec2& L : t.lampPosts) {
-        int gy = sampleSurfaceSolid(L.x, L.y);
+        int gy = townFlatLevelAt(L.x, L.y);
+        if (gy < 1) gy = sampleSurfaceSolid(L.x, L.y);
         g_placements.push_back({ PropType::StreetLamp,
             glm::vec3((float)L.x + 0.5f, (float)(gy + 1), (float)L.y + 0.5f),
             (float)((rng() % 4) * 90), rng() });
@@ -221,11 +372,132 @@ void placeFences(const TownPlan& plan) {
             placeFenceRun(plan, h.pts, hrng, true);
 }
 
+// Picks the right trade-sign icon for a building kind. New roles (bakery,
+// apothecary, …) just need a new switch case + a new SignXxx PropType.
+PropType signForKind(int kind) {
+    switch ((BuildingKind)kind) {
+        case BuildingKind::Pub:        return PropType::SignMug;
+        case BuildingKind::Blacksmith: return PropType::SignAnvil;
+        case BuildingKind::MageTower:  return PropType::SignStar;
+        default:                       return PropType::Count;   // no sign
+    }
+}
+
+// Local-coord cell of the centre of the front-door cut, plus the world Y of
+// the door's base (the floor of the ground storey).
+struct DoorCellLocal { int x; int z; int baseY; bool valid; };
+
+// Finds the door cell using the same wall-detection scan as buildDoors() —
+// scan inward until we hit a row that's at least 1/3 solid at y=2 (the real
+// wall plane, not a porch overhang), then airRunCentre across that row to
+// pick the doorway gap. Factored out so placeTradeSign can mount the sign at
+// the same wall plane.
+DoorCellLocal findFrontDoorCell(const TownBuilding& b) {
+    DoorCellLocal out{0, 0, 0, false};
+    if ((b.doorDX == 0 && b.doorDZ == 0) || b.rooms.empty()) return out;
+
+    auto solid = [&](int x, int y, int z) {
+        if (x < 0 || x >= b.dimX || y < 0 || y >= b.dimY ||
+            z < 0 || z >= b.dimZ) return false;
+        return b.blocks[((size_t)y * b.dimZ + z) * b.dimX + x]
+               != (uint8_t)BlockType::Air;
+    };
+    auto airRun = [](int n, auto air) {
+        int bestS = n / 2, bestL = 0, rs = -1, rl = 0;
+        for (int i = 0; i <= n; i++) {
+            bool a = (i < n) && air(i);
+            if (a) { if (rs < 0) rs = i; rl++; }
+            else { if (rl > bestL) { bestL = rl; bestS = rs; } rs = -1; rl = 0; }
+        }
+        return bestL > 0 ? bestS + bestL / 2 : n / 2;
+    };
+
+    if (b.doorDZ != 0) {
+        const int thr = std::max(3, b.dimX / 3);
+        auto rowSolids = [&](int z) {
+            int n = 0;
+            for (int x = 0; x < b.dimX; x++) if (solid(x, 2, z)) n++;
+            return n;
+        };
+        int wz;
+        if (b.doorDZ < 0) {
+            wz = 0;
+            while (wz < b.dimZ - 1 && rowSolids(wz) < thr) wz++;
+        } else {
+            wz = b.dimZ - 1;
+            while (wz > 0 && rowSolids(wz) < thr) wz--;
+        }
+        out.x = airRun(b.dimX, [&](int x){ return !solid(x, 2, wz); });
+        out.z = wz;
+    } else {
+        const int thr = std::max(3, b.dimZ / 3);
+        auto colSolids = [&](int x) {
+            int n = 0;
+            for (int z = 0; z < b.dimZ; z++) if (solid(x, 2, z)) n++;
+            return n;
+        };
+        int wx;
+        if (b.doorDX < 0) {
+            wx = 0;
+            while (wx < b.dimX - 1 && colSolids(wx) < thr) wx++;
+        } else {
+            wx = b.dimX - 1;
+            while (wx > 0 && colSolids(wx) < thr) wx--;
+        }
+        out.x = wx;
+        out.z = airRun(b.dimZ, [&](int z){ return !solid(wx, 2, z); });
+    }
+    out.baseY = b.baseY;
+    out.valid = true;
+    return out;
+}
+
+// Mounts a wall plaque just above the front door. The plaque model's back
+// face (model Z=0) sits flush against the wall and the icon face (model Z=1)
+// faces outward in the door direction. World position is set so:
+//   • prop.position.y         = baseY + 5   (one block above the door cut)
+//   • XZ projection            = door-cell centre + fwd * (cell half-size +
+//                                  plaque half-thickness + tiny gap)
+//   • yaw                      = atan2(doorDX, doorDZ)   so model +Z aligns
+//                                  with the outward wall normal.
+void placeTradeSign(const TownBuilding& b) {
+    PropType t = signForKind(b.kind);
+    if (t == PropType::Count) return;
+    DoorCellLocal dc = findFrontDoorCell(b);
+    if (!dc.valid) return;
+
+    // Cell-centre of the door wall cell in world XZ.
+    const float cx = (float)(b.wx + dc.x) + 0.5f;
+    const float cz = (float)(b.wz + dc.z) + 0.5f;
+    const float fwdX = (float)b.doorDX;
+    const float fwdZ = (float)b.doorDZ;
+
+    // From the cell centre, step half a block to reach the wall's outer face
+    // (= cx + fwd * 0.5), then a tiny bit further so the plaque's centre sits
+    // just outside the wall (its back face hugs the wall plane). The 2-voxel
+    // depth × PROP_SCALE gives a half-thickness of 0.06; +0.04 of clearance
+    // keeps Z-fighting away.
+    const float pushOut = 0.5f + 0.10f;
+    const float px = cx + fwdX * pushOut;
+    const float pz = cz + fwdZ * pushOut;
+
+    // Sit one block above the door cut (cut is y=1..4; wall above starts y=5).
+    const float py = (float)b.baseY + 5.0f;
+
+    // Model +Z is the visible icon face; rotate so it aligns with the door
+    // direction in world space.
+    float yaw = glm::degrees(std::atan2(fwdX, fwdZ));
+
+    g_placements.push_back({ t, glm::vec3(px, py, pz), yaw, 0 });
+}
+
 void build() {
     const TownPlan& plan = getTownPlan();
     for (const Town& t : plan.towns) {
-        for (const TownBuilding& b : t.buildings)
-            if (b.kind == 1) placeFurniture(b);
+        for (const TownBuilding& b : t.buildings) {
+            if (!b.rooms.empty()) placeFurniture(b);
+            placeTradeSign(b);
+        }
         placeStreetLampProps(t);
         placeDecorations(t);
     }
@@ -250,7 +522,10 @@ void buildDoors() {
     };
     for (const Town& t : plan.towns)
         for (const TownBuilding& b : t.buildings) {
-            if (b.kind != 1 || (b.doorDX == 0 && b.doorDZ == 0)) continue;
+            // Every residential or special building has a door direction set
+            // by its generator. Centrepieces (well/market/etc) and farms leave
+            // doorDX/doorDZ at zero and are skipped here.
+            if ((b.doorDX == 0 && b.doorDZ == 0) || b.rooms.empty()) continue;
 
             auto solid = [&](int x, int y, int z) {
                 if (x < 0 || x >= b.dimX || y < 0 || y >= b.dimY ||
@@ -258,20 +533,45 @@ void buildDoors() {
                 return b.blocks[((size_t)y * b.dimZ + z) * b.dimX + x]
                        != (uint8_t)BlockType::Air;
             };
-            // The footprint edge can be a roof eave — scan inward (above the
-            // doorway) for the real wall plane, then find the doorway gap's
-            // centre along that wall at door height.
+            // The footprint edge can be a roof eave OR a porch (a small step +
+            // 2 posts + an overhanging roof slab in front of the actual wall).
+            // The porch row is mostly air at door height, so we scan inward
+            // until we find a row that's at least 1/3 solid at y=2 — that's
+            // the real wall plane. Then airRunCentre on that plane finds the
+            // doorway cut.
+            const int wallThreshold = std::max(3, b.dimX / 3);
+            const int wallThresholdZ = std::max(3, b.dimZ / 3);
             int wallX, wallZ;
             if (b.doorDZ != 0) {
-                int mx = b.dimX / 2, wz;
-                if (b.doorDZ < 0) { wz = 0;          while (wz < b.dimZ - 1 && !solid(mx, 5, wz)) wz++; }
-                else              { wz = b.dimZ - 1; while (wz > 0          && !solid(mx, 5, wz)) wz--; }
+                auto rowSolids = [&](int z) {
+                    int n = 0;
+                    for (int x = 0; x < b.dimX; x++) if (solid(x, 2, z)) n++;
+                    return n;
+                };
+                int wz;
+                if (b.doorDZ < 0) {
+                    wz = 0;
+                    while (wz < b.dimZ - 1 && rowSolids(wz) < wallThreshold) wz++;
+                } else {
+                    wz = b.dimZ - 1;
+                    while (wz > 0 && rowSolids(wz) < wallThreshold) wz--;
+                }
                 int dx = airRunCentre(b.dimX, [&](int x){ return !solid(x, 2, wz); });
                 wallX = b.wx + dx; wallZ = b.wz + wz;
             } else {
-                int mz = b.dimZ / 2, wx;
-                if (b.doorDX < 0) { wx = 0;          while (wx < b.dimX - 1 && !solid(wx, 5, mz)) wx++; }
-                else              { wx = b.dimX - 1; while (wx > 0          && !solid(wx, 5, mz)) wx--; }
+                auto colSolids = [&](int x) {
+                    int n = 0;
+                    for (int z = 0; z < b.dimZ; z++) if (solid(x, 2, z)) n++;
+                    return n;
+                };
+                int wx;
+                if (b.doorDX < 0) {
+                    wx = 0;
+                    while (wx < b.dimX - 1 && colSolids(wx) < wallThresholdZ) wx++;
+                } else {
+                    wx = b.dimX - 1;
+                    while (wx > 0 && colSolids(wx) < wallThresholdZ) wx--;
+                }
                 int dz = airRunCentre(b.dimZ, [&](int z){ return !solid(wx, 2, z); });
                 wallX = b.wx + wx; wallZ = b.wz + dz;
             }

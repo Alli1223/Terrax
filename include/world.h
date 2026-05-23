@@ -56,6 +56,9 @@ struct Vertex {
     float skyLight;      // (skyLevel/15) * faceShadeFactor, baked at mesh time
     float blockLight;    // (blockLevel/15) * faceShadeFactor
     float shoreDistance; // [0,1] distance to nearest land, used by water shader
+    float snowable;      // 1.0 = a paint surface exposed to open sky (roof / chimney top);
+                         // 0.0 otherwise. The chunk shader tints these toward white in
+                         // proportion to u_snowAmount so roofs go white when snowing.
 };
 
 struct ChunkPos {

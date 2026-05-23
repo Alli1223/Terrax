@@ -16,7 +16,7 @@ SRCS := src/main.cpp src/shader.cpp src/camera.cpp src/world.cpp src/town.cpp \
         src/object_manager.cpp src/player_object.cpp src/prop.cpp \
         src/furniture.cpp src/decorations.cpp src/prop_placement.cpp \
         src/vehicles.cpp src/ferry_routes.cpp src/npc.cpp src/animal.cpp \
-        src/vegetation.cpp
+        src/vegetation.cpp src/building.cpp
 OBJS := $(SRCS:src/%.cpp=build/%.o)
 
 DEPS := $(OBJS:.o=.d) $(IMGUI_OBJS:.o=.d) $(IMGUI_BACKEND_OBJS:.o=.d)
@@ -26,7 +26,7 @@ TARGET := terrax
 
 # --- Test build (headless, no GL/GLFW) ---
 TEST_TARGET  := terrax_tests
-TEST_SRCS    := src/voxel_model.cpp tests/gl_stub.cpp tests/test_main.cpp tests/test_voxel_model.cpp
+TEST_SRCS    := src/voxel_model.cpp src/building.cpp tests/gl_stub.cpp tests/test_main.cpp tests/test_voxel_model.cpp
 TEST_FLAGS   := -std=c++17 -O0 -g -Wall -Iinclude -Isrc -Itests -DTERRAX_TESTING
 
 $(shell mkdir -p build/imgui)

@@ -2,9 +2,21 @@
 #include <cstdint>
 #include <vector>
 #include <string>
+#include <atomic>
 #include <glm/glm.hpp>
+#include "building.h"
 
 class Chunk;
+
+// --- Town survey progress reporting -----------------------------------------
+// `buildTownPlan()` updates these atomics as it runs so a loading screen can
+// show what stage the survey is at. They're safe to read from any thread.
+//   `gTownBuildStage`   indexes into `kTownBuildStageNames[0..count-1]`.
+//   `gTownBuildFraction` is the fraction (0..1) through the current stage.
+extern std::atomic<int>   gTownBuildStage;
+extern std::atomic<float> gTownBuildFraction;
+extern const char* const  kTownBuildStageNames[];
+extern const int          kTownBuildStageCount;
 
 // --- Procedural towns & villages ---------------------------------------------
 // A deterministic plan of settlements is surveyed once from the world seed.
@@ -19,14 +31,17 @@ enum class TownCenter : unsigned char { Well, Market, Campfire, Statue };
 
 // One stamped structure — a pre-rotated block grid placed at a fixed world
 // position. `blocks` holds BlockType values, index ((y*dimZ)+z)*dimX+x.
-// kind: 0 = well, 1 = house, 2 = farm.
+// `kind` matches the BuildingKind enum (cast to int for legacy comparisons).
+// `rooms` is empty for non-residential kinds and used by the furniture placer
+// for kinds that have an interior (House, Pub, Blacksmith, MageTower).
 struct TownBuilding {
     int wx = 0, wz = 0;          // world XZ of the grid's (0,0) corner
     int baseY = 0;               // world Y of the grid's y=0 (the plot floor)
     int dimX = 0, dimY = 0, dimZ = 0;
-    int kind = 1;
+    int kind = 1;                // BuildingKind cast to int (Centerpiece=0, House=1, ...)
     int doorDX = 0, doorDZ = 0;   // outward facing of the front door (houses only)
     std::vector<uint8_t> blocks;
+    std::vector<Room>    rooms;   // semantic interior partitions (rotated to match `blocks`)
 };
 
 // A gravel road or path — a polyline of world-XZ waypoints laid on the terrain.
@@ -85,3 +100,10 @@ void stampTownChunk(Chunk* c);
 // levels so settlements sit on flat ground. Returns the raw height unchanged
 // until the town plan has finished building.
 float townFlattenedHeight(float wx, float wz, float rawHeight);
+
+// Returns the baseY of any town whose strictly-flat zone covers this XZ, or
+// -1 if no town claims it. The chunk generator uses this to *hard*-level the
+// terrain to baseY (the density field would otherwise wobble ±a few blocks
+// even with townFlattenedHeight in the bias, leaving paths and house doors
+// at mismatched heights).
+int townFlatLevelAt(int wx, int wz);

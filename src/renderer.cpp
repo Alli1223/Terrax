@@ -54,6 +54,30 @@ static void addLantern(LanternLightList& lights, const glm::vec3& feetPos, float
     lights.radius[i]    = held ? 20.0f : 10.0f;
 }
 
+// Per-light flicker. Each lantern / lamp / campfire gets its own rate-and-
+// phase set hashed from its world XZ, so neighbouring lights no longer pulse
+// in lockstep — some breathe slowly, some flutter quickly, and the row of
+// lamps down a street looks alive instead of synchronised. Returns a small
+// brightness multiplier hovering around 1.0.
+static float perLightFlicker(float t, float seedX, float seedZ) {
+    uint32_t h = (uint32_t)((int)(seedX * 13.0f) * 0x9E3779B1u)
+               ^ (uint32_t)((int)(seedZ * 17.0f) * 0x85EBCA77u)
+               ^ 0xCABBA6Eu;
+    auto u01 = [&](int shift) {
+        return (float)((h >> shift) & 0xFFu) / 255.0f;
+    };
+    float r0 = 0.65f + u01(0)  * 0.70f;     // 0.65 .. 1.35
+    float r1 = 0.65f + u01(8)  * 0.70f;
+    float r2 = 0.65f + u01(16) * 0.70f;
+    float p0 = u01(24)              * 6.2831853f;
+    float p1 = u01(4)               * 6.2831853f;
+    float p2 = u01(12)              * 6.2831853f;
+    return 1.0f
+         + 0.11f * std::sin(t * (6.8f  * r0) + p0)
+         + 0.07f * std::sin(t * (11.2f * r1) + p1)
+         + 0.04f * std::sin(t * (18.5f * r2) + p2);
+}
+
 static void collectLanternLights(const AppContext& ctx, float flicker, LanternLightList& lights) {
     lights.count = 0;
     addLantern(lights, ctx.camera.position, ctx.playerYaw, ctx.lanternHeld, flicker);
@@ -70,6 +94,7 @@ static void collectLanternLights(const AppContext& ctx, float flicker, LanternLi
     // Collected nearest-first so distant lights drop off the fixed-size list.
     const glm::vec3 cam = ctx.camera.position;
     const float COLLECT2 = 112.0f * 112.0f;
+    const float t        = ctx.flickerTime;
     struct Cand { glm::vec3 pos; float intensity, radius, d2; };
     std::vector<Cand> cand;
 
@@ -78,12 +103,12 @@ static void collectLanternLights(const AppContext& ctx, float flicker, LanternLi
         float intensity = 0.0f, radius = 0.0f;
         if (pp.type == PropType::Lantern) {
             lp        = pp.pos + glm::vec3(0.0f, 0.45f, 0.0f);
-            intensity = 0.78f * flicker * nightFactor;
-            radius    = 24.0f;
+            intensity = 0.57f * perLightFlicker(t, pp.pos.x, pp.pos.z) * nightFactor;
+            radius    = 21.0f;
         } else if (pp.type == PropType::StreetLamp) {
             lp        = pp.pos + glm::vec3(0.0f, 3.15f, 0.0f);
-            intensity = 0.82f * flicker * nightFactor;
-            radius    = 30.0f;
+            intensity = 0.61f * perLightFlicker(t, pp.pos.x, pp.pos.z) * nightFactor;
+            radius    = 26.0f;
         } else {
             continue;
         }
@@ -93,14 +118,16 @@ static void collectLanternLights(const AppContext& ctx, float flicker, LanternLi
         cand.push_back({ lp, intensity, radius, d2 });
     }
     // Town campfires glow after dark too.
-    for (const Town& t : getTownPlan().towns) {
-        if (t.centerpiece != TownCenter::Campfire) continue;
-        glm::vec3 lp((float)t.center.x + 0.5f, (float)t.baseY + 2.5f,
-                     (float)t.center.y + 0.5f);
+    for (const Town& t2 : getTownPlan().towns) {
+        if (t2.centerpiece != TownCenter::Campfire) continue;
+        glm::vec3 lp((float)t2.center.x + 0.5f, (float)t2.baseY + 2.5f,
+                     (float)t2.center.y + 0.5f);
         float dx = lp.x - cam.x, dz = lp.z - cam.z;
         float d2 = dx * dx + dz * dz;
         if (d2 > COLLECT2) continue;
-        cand.push_back({ lp, 0.95f * flicker * nightFactor, 26.0f, d2 });
+        cand.push_back({ lp,
+                         0.75f * perLightFlicker(t, lp.x, lp.z) * nightFactor,
+                         24.0f, d2 });
     }
     std::sort(cand.begin(), cand.end(),
               [](const Cand& a, const Cand& b) { return a.d2 < b.d2; });
@@ -517,6 +544,8 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
         chunkShader.setVec3("u_sunDir",        sunDir);
         bindLanternLights(chunkShader, lanternLights, lightVolOrigin, LIGHTVOL_SIZE, 2);
         chunkShader.setFloat("u_weather", weather);
+        chunkShader.setFloat("u_snowAmount",
+            (ctx.weatherKind == 1) ? weather : 0.0f);
         chunkShader.setVec4("u_clipPlane", glm::vec4(0.0f, 1.0f, 0.0f, -WATER_Y));
         ctx.world.drawAll();
         glDisable(GL_CLIP_DISTANCE0); glCullFace(GL_BACK); glEnable(GL_CULL_FACE);
@@ -570,7 +599,12 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     chunkShader.setVec3("camPos",          eyePos);
     chunkShader.setVec3("u_sunDir",        sunDir);
     bindLanternLights(chunkShader, lanternLights, lightVolOrigin, LIGHTVOL_SIZE, 2);
-    chunkShader.setFloat("u_weather",  weather);
+    chunkShader.setFloat("u_weather",   weather);
+    // Snow tint only takes effect in snow biomes (Mountains, Tundra). In rain
+    // biomes the same weatherIntensity drives rain particles + atmospheric
+    // wash but leaves roof colours alone.
+    chunkShader.setFloat("u_snowAmount",
+        (ctx.weatherKind == 1) ? weather : 0.0f);
     chunkShader.setVec4("u_clipPlane", glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
     ctx.world.drawAll();
 

@@ -308,12 +308,21 @@ bool nearAnyTown(const TownPlan& plan, float wx, float wz, float dist) {
 }
 
 // Emits a lantern-on-a-post Prop at each baked street-light position.
+//
+// We prefer townFlatLevelAt() over sampleSurfaceSolid() inside a town's flat
+// zone because the chunk generator hard-snaps the terrain to that level
+// (baseY + a ±1 slope offset, with a small per-building flat pad). The
+// sampleSurfaceSolid prediction uses the smooth-blend townFlattenedHeight
+// instead, which doesn't include the slope offset, so lamps could end up
+// floating one block above or buried one block in the gravel. Outside the
+// flat zone (long highway segments) we still fall back to sampleSurfaceSolid.
 void placeStreetLampProps(const Town& t) {
     std::mt19937 rng(worldSeed()
                      ^ (uint32_t)(t.center.x * 73856093)
                      ^ (uint32_t)(t.center.y * 19349663) ^ 0x5A1Du);
     for (const glm::ivec2& L : t.lampPosts) {
-        int gy = sampleSurfaceSolid(L.x, L.y);
+        int gy = townFlatLevelAt(L.x, L.y);
+        if (gy < 1) gy = sampleSurfaceSolid(L.x, L.y);
         g_placements.push_back({ PropType::StreetLamp,
             glm::vec3((float)L.x + 0.5f, (float)(gy + 1), (float)L.y + 0.5f),
             (float)((rng() % 4) * 90), rng() });

@@ -101,7 +101,7 @@ struct HouseSpec {
     int   wallSpanZ = 14;       // exterior Z span
     int   floors    = 1;
     int   floorH    = 6;        // height of each storey in blocks
-    int   roof      = 1;        // 0 flat, 1 gabled, 2 hipped, 3 pyramid
+    int   roof      = 1;        // 0 flat, 1 gabled, 2 hipped, 3 pyramid, 4 steep-gable (Norse)
     bool  porch     = false;    // small overhanging porch over the front door
     bool  threeRow  = false;    // longhouse-style: two parallel cuts → three rooms
     bool  chimney   = true;     // emit a brick chimney at the back-right
@@ -133,8 +133,11 @@ HouseSpec pickHouseSpec(int templateType) {
             s.plans[0].rooms[3] = RoomType::Study;
             break;
         }
-        case 3: { // Tower: four storeys stacked: store, living, bedroom, study
-            s.wallSpanX = 10; s.wallSpanZ = 10; s.floors = 4; s.floorH = 5;
+        case 3: { // Tower: four storeys stacked: store, living, bedroom, study.
+                  // Wider footprint than a typical narrow tower so the
+                  // staircase doesn't eat the whole floor — gives a 12×12
+                  // interior with comfortable room around the stairs.
+            s.wallSpanX = 14; s.wallSpanZ = 14; s.floors = 4; s.floorH = 6;
             s.roof = 3;
             s.plans[0].rooms[0] = RoomType::LivingRoom;
             s.plans[1].rooms[0] = RoomType::Kitchen;
@@ -206,6 +209,27 @@ HouseSpec pickHouseSpec(int templateType) {
             s.plans[2].rooms[0] = RoomType::Bedroom;
             break;
         }
+        case 10: { // Norse Longhouse: narrow elongated building, tall steep
+                   // wooden roof, three rooms in a row (hearth / hall / sleep)
+            s.wallSpanX = 24; s.wallSpanZ = 12; s.floors = 1; s.floorH = 7;
+            s.roof = 4; s.threeRow = true;
+            s.chimney = false;          // a smoke louvre, not a brick chimney
+            s.plans[0].cutX = 9;
+            s.plans[0].rooms[0] = RoomType::Kitchen;
+            s.plans[0].rooms[1] = RoomType::DiningHall;
+            s.plans[0].rooms[2] = RoomType::Bedroom;
+            break;
+        }
+        case 11: { // Norse Mead Hall: large rectangular hall, very tall steep
+                   // roof, dining hall up front, small bedroom in the back
+            s.wallSpanX = 22; s.wallSpanZ = 16; s.floors = 1; s.floorH = 10;
+            s.roof = 4;
+            s.porch  = true;
+            s.plans[0].cutZ = 12;
+            s.plans[0].rooms[0] = RoomType::DiningHall;
+            s.plans[0].rooms[2] = RoomType::Bedroom;
+            break;
+        }
         default: { // Bungalow: three-room cottage with kitchen and bedroom
             s.wallSpanX = 18; s.wallSpanZ = 14; s.floors = 1; s.floorH = 6;
             s.roof = 1;
@@ -247,18 +271,20 @@ struct Grid {
     }
 };
 
-// Cuts a 1-block-wide × 3-tall doorway in a vertical partition wall at `wallX`
+// Cuts a 2-block-wide × 3-tall doorway in a vertical partition wall at `wallX`
 // spanning z in [zA, zB], centred near `prefZ`. Air-only — caller adds a frame.
+// 2-block-wide so a player carrying a torch / lantern can pass through without
+// catching on the frame.
 void cutDoorwayAlongZ(Grid& g, int wallX, int zA, int zB, int yFloor, int prefZ) {
-    if (zB - zA < 3) return;
-    int cz = std::min(zB - 1, std::max(zA + 1, prefZ));
-    g.box(wallX, wallX, yFloor + 1, yFloor + 3, cz, cz, BlockType::Air);
+    if (zB - zA < 4) return;
+    int cz = std::min(zB - 2, std::max(zA + 1, prefZ));
+    g.box(wallX, wallX, yFloor + 1, yFloor + 3, cz, cz + 1, BlockType::Air);
 }
 
 void cutDoorwayAlongX(Grid& g, int wallZ, int xA, int xB, int yFloor, int prefX) {
-    if (xB - xA < 3) return;
-    int cx = std::min(xB - 1, std::max(xA + 1, prefX));
-    g.box(cx, cx, yFloor + 1, yFloor + 3, wallZ, wallZ, BlockType::Air);
+    if (xB - xA < 4) return;
+    int cx = std::min(xB - 2, std::max(xA + 1, prefX));
+    g.box(cx, cx + 1, yFloor + 1, yFloor + 3, wallZ, wallZ, BlockType::Air);
 }
 
 // Common shell-generation routine shared by HouseBuilding / PubBuilding /
@@ -279,7 +305,6 @@ void emitFromSpec(const HouseSpec& specIn, int material,
     const BlockType chimneyB    = pal.accent;
     const BlockType wallB       = pal.wall;
     const BlockType partB       = paint(2);               // light grey interior plaster
-    const BlockType doorTopB    = pal.wall;               // header above doorway
     const BlockType roofB       = pal.roof;
 
     // Allocate a working grid sized to the global house volume.
@@ -319,7 +344,11 @@ void emitFromSpec(const HouseSpec& specIn, int material,
         const FloorPlan& plan = spec.plans[f];
         const int yFloor   = f * spec.floorH;
         const int yCeiling = (f + 1) * spec.floorH - 1;
-        const int wallTop  = yCeiling;        // partition wall top
+        // Partition walls now reach all the way to the slab above (or, on the
+        // top floor, up to the eave). Previously they capped one block short
+        // which left an unsightly gap below the ceiling.
+        const int wallTop  = (f == spec.floors - 1) ? wallH
+                                                    : (f + 1) * spec.floorH - 1;
 
         // Three-room (longhouse / hall-style) layout: cut two parallel walls
         // at cutX and (interiorW - cutX) to make a wide centre flanked by
@@ -335,12 +364,13 @@ void emitFromSpec(const HouseSpec& specIn, int material,
         const int splitX = (plan.cutX > 0) ? interiorX0 + plan.cutX - 1 : -1;
         const int splitZ = (plan.cutZ > 0) ? interiorZ0 + plan.cutZ - 1 : -1;
 
-        // Emit partition walls (plaster + a wood doorway header).
+        // Emit partition walls (plaster). The wall climbs to wallTop inclusive
+        // so the room is properly sealed from the room above / the roof eave.
         auto raisePartitionAlongZ = [&](int wx) {
-            g.box(wx, wx, yFloor + 1, wallTop - 1, interiorZ0, interiorZ1, partB);
+            g.box(wx, wx, yFloor + 1, wallTop, interiorZ0, interiorZ1, partB);
         };
         auto raisePartitionAlongX = [&](int wz) {
-            g.box(interiorX0, interiorX1, yFloor + 1, wallTop - 1, wz, wz, partB);
+            g.box(interiorX0, interiorX1, yFloor + 1, wallTop, wz, wz, partB);
         };
 
         if (threeRow && splitXa > 0 && splitXb > 0) {
@@ -350,8 +380,6 @@ void emitFromSpec(const HouseSpec& specIn, int material,
                              (interiorZ0 + interiorZ1) / 2);
             cutDoorwayAlongZ(g, splitXb, interiorZ0, interiorZ1, yFloor,
                              (interiorZ0 + interiorZ1) / 2);
-            g.set(splitXa, yFloor + 3, (interiorZ0 + interiorZ1) / 2, doorTopB);
-            g.set(splitXb, yFloor + 3, (interiorZ0 + interiorZ1) / 2, doorTopB);
         } else {
             if (splitX > 0) raisePartitionAlongZ(splitX);
             if (splitZ > 0) raisePartitionAlongX(splitZ);
@@ -506,6 +534,37 @@ void emitFromSpec(const HouseSpec& specIn, int material,
                 h++;
             }
         }
+    } else if (spec.roof == 4) {
+        // Steep Gabled — Norse / stave-church pointy roof. Each "level" of the
+        // gable shrinks by 1 in Z (or X) but climbs by 2 in Y, doubling the
+        // pitch of the regular gabled roof. The result is a tall A-frame
+        // that reads as Viking-style from any angle.
+        int h = 0;
+        if (ridgeX) {
+            int az0 = rz0, az1 = rz1;
+            while (az0 <= az1) {
+                for (int ly = 0; ly < 2; ly++) {
+                    g.box(rx0, rx1, ry + h + ly, ry + h + ly, az0, az1, roofB);
+                    const int g0 = std::max(az0, z0), g1 = std::min(az1, z1);
+                    g.box(x0, x0, ry + h + ly, ry + h + ly, g0, g1, wallB);
+                    g.box(x1, x1, ry + h + ly, ry + h + ly, g0, g1, wallB);
+                    roofTopY = ry + h + ly;
+                }
+                az0++; az1--; h += 2;
+            }
+        } else {
+            int ax0 = rx0, ax1 = rx1;
+            while (ax0 <= ax1) {
+                for (int ly = 0; ly < 2; ly++) {
+                    g.box(ax0, ax1, ry + h + ly, ry + h + ly, rz0, rz1, roofB);
+                    const int g0 = std::max(ax0, x0), g1 = std::min(ax1, x1);
+                    g.box(g0, g1, ry + h + ly, ry + h + ly, z0, z0, wallB);
+                    g.box(g0, g1, ry + h + ly, ry + h + ly, z1, z1, wallB);
+                    roofTopY = ry + h + ly;
+                }
+                ax0++; ax1--; h += 2;
+            }
+        }
     } else { // Gabled
         int h = 0;
         if (ridgeX) {
@@ -536,6 +595,11 @@ void emitFromSpec(const HouseSpec& specIn, int material,
         const int cx = x1 - 3, cz = z1 - 3;
         g.box(cx, cx + 1, wallH, roofTopY + 2, cz, cz + 1, chimneyB);
     }
+
+    // (Norse stave-style crossed-V finials were here but were removed — they
+    // assumed a steep-gabled roof and clipped through any other roof type,
+    // and even on the right roof shape they confused the silhouette more
+    // than they helped.)
 
     // Tight-crop the work grid into the output and tighten room coords too.
     int mnx = HOUSE_VX, mny = HOUSE_VY, mnz = HOUSE_VZ;
@@ -659,9 +723,13 @@ void MageTowerBuilding::generate(uint32_t /*seed*/,
                                  int& doorDX, int& doorDZ)
 {
     HouseSpec spec;
-    spec.wallSpanX = 10; spec.wallSpanZ = 10;
+    // Wider than a stereotypical narrow wizard tower so the staircase fits
+    // without choking each storey — a 12×12 interior is much easier to
+    // navigate up than a 8×8 one and still reads as a tower thanks to the
+    // pyramid roof and the storey stack.
+    spec.wallSpanX = 14; spec.wallSpanZ = 14;
     spec.floors    = std::max(2, std::min(4, floors));
-    spec.floorH    = 5;
+    spec.floorH    = 6;
     spec.roof      = 3;          // a tower deserves a pyramid roof
     spec.chimney   = false;      // mages don't burn ordinary wood
     spec.porch     = false;

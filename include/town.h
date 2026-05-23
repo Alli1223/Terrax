@@ -2,10 +2,21 @@
 #include <cstdint>
 #include <vector>
 #include <string>
+#include <atomic>
 #include <glm/glm.hpp>
 #include "building.h"
 
 class Chunk;
+
+// --- Town survey progress reporting -----------------------------------------
+// `buildTownPlan()` updates these atomics as it runs so a loading screen can
+// show what stage the survey is at. They're safe to read from any thread.
+//   `gTownBuildStage`   indexes into `kTownBuildStageNames[0..count-1]`.
+//   `gTownBuildFraction` is the fraction (0..1) through the current stage.
+extern std::atomic<int>   gTownBuildStage;
+extern std::atomic<float> gTownBuildFraction;
+extern const char* const  kTownBuildStageNames[];
+extern const int          kTownBuildStageCount;
 
 // --- Procedural towns & villages ---------------------------------------------
 // A deterministic plan of settlements is surveyed once from the world seed.
@@ -89,3 +100,10 @@ void stampTownChunk(Chunk* c);
 // levels so settlements sit on flat ground. Returns the raw height unchanged
 // until the town plan has finished building.
 float townFlattenedHeight(float wx, float wz, float rawHeight);
+
+// Returns the baseY of any town whose strictly-flat zone covers this XZ, or
+// -1 if no town claims it. The chunk generator uses this to *hard*-level the
+// terrain to baseY (the density field would otherwise wobble ±a few blocks
+// even with townFlattenedHeight in the bias, leaving paths and house doors
+// at mismatched heights).
+int townFlatLevelAt(int wx, int wz);

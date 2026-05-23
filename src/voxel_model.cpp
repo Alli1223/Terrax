@@ -2,6 +2,7 @@
 #include "building.h"
 #include <iostream>
 #include <algorithm>
+#include <memory>
 #include <random>
 
 VoxelVolume::VoxelVolume(int x, int y, int z) : sizeX(x), sizeY(y), sizeZ(z) {
@@ -175,6 +176,52 @@ void BipedalRig::setupDefaultHuman(bool male) {
 
 void BipedalRig::update(float dt, float velocity) {
     animTime += dt;
+
+    // --- Static pose override (sitting / lying down) ----------------------
+    // The pose is set externally by the interactable system. While non-default
+    // we snap every limb to a fixed resting posture and skip the breathing /
+    // walking / attack animations entirely. Lying additionally tilts the
+    // whole rig forward 90° (about the root's X axis) so the body lies flat.
+    if (pose != PlayerPose::Standing) {
+        float k = std::min(1.0f, dt * 8.0f);
+        if (pose == PlayerPose::Sitting) {
+            root->localRot = glm::mix(root->localRot, glm::vec3(0.0f), k);
+            torso->localRot.x = glm::mix(torso->localRot.x, 0.0f, k);
+            head->localRot.x  = glm::mix(head->localRot.x,  0.0f, k);
+            // Legs forward at the hip (knees out), arms relaxed in lap.
+            lLeg->localRot.x = glm::mix(lLeg->localRot.x, -80.0f, k);
+            rLeg->localRot.x = glm::mix(rLeg->localRot.x, -80.0f, k);
+            lArm->localRot.x = glm::mix(lArm->localRot.x, -30.0f, k);
+            rArm->localRot.x = glm::mix(rArm->localRot.x, -30.0f, k);
+        } else { // Lying
+            // Tilt the whole rig 90° forward about X so the character lies on
+            // its back. Position is set by the gameplay layer at the bed top.
+            root->localRot.x = glm::mix(root->localRot.x, -90.0f, k);
+            root->localRot.y = glm::mix(root->localRot.y,   0.0f, k);
+            root->localRot.z = glm::mix(root->localRot.z,   0.0f, k);
+            torso->localRot.x = glm::mix(torso->localRot.x, 0.0f, k);
+            head->localRot.x  = glm::mix(head->localRot.x,  0.0f, k);
+            // Limbs straight along the body.
+            lLeg->localRot.x = glm::mix(lLeg->localRot.x, 0.0f, k);
+            rLeg->localRot.x = glm::mix(rLeg->localRot.x, 0.0f, k);
+            // Arms folded slightly across the chest.
+            lArm->localRot.x = glm::mix(lArm->localRot.x, -10.0f, k);
+            rArm->localRot.x = glm::mix(rArm->localRot.x, -10.0f, k);
+            lArm->localRot.z = glm::mix(lArm->localRot.z,  20.0f, k);
+            rArm->localRot.z = glm::mix(rArm->localRot.z, -20.0f, k);
+        }
+        return;
+    }
+
+    // Standing: ease the root tilt and arm twist back to neutral after a pose.
+    if (root->localRot.x != 0.0f || root->localRot.z != 0.0f ||
+        lArm->localRot.z != 0.0f || rArm->localRot.z != 0.0f) {
+        float k = std::min(1.0f, dt * 8.0f);
+        root->localRot   = glm::mix(root->localRot,   glm::vec3(0.0f), k);
+        lArm->localRot.z = glm::mix(lArm->localRot.z, 0.0f, k);
+        rArm->localRot.z = glm::mix(rArm->localRot.z, 0.0f, k);
+    }
+
     float breathe = sinf(animTime * 2.0f) * 1.5f;
     torso->localRot.x = breathe;
     head->localRot.x = -breathe * 0.5f;
@@ -547,18 +594,40 @@ void HouseModel::set(int x, int y, int z, BlockType t) {
     blocks[((size_t)z * HOUSE_VY + y) * HOUSE_VX + x] = t;
 }
 
-// Delegates to the polymorphic HouseBuilding generator and stamps the result
-// (which is tight-cropped) into the fixed-size HOUSE_VX*VY*VZ grid the editor
+// Delegates to the polymorphic Building generator family and stamps the
+// tight-cropped result into the fixed-size HOUSE_VX*VY*VZ grid the editor
 // uses for display. Centred in X/Z so rotations look sensible.
+//
+// Template id mapping:
+//   0..9  → HouseBuilding (Bungalow, Two-Story, Cottage, Tower, Cabin,
+//           Longhouse, Townhouse, Manor, Hall, Keep)
+//   10    → HouseBuilding template 10 = Norse Longhouse
+//   11    → HouseBuilding template 11 = Norse Mead Hall
+//   12    → PubBuilding
+//   13    → BlacksmithBuilding
+//   14    → MageTowerBuilding
 void generateHouseGrid(int templateType, int roofType, int material,
                        std::vector<BlockType>& blocks) {
     blocks.assign((size_t)HOUSE_VX * HOUSE_VY * HOUSE_VZ, BlockType::Air);
 
-    HouseBuilding gen(templateType, roofType, material);
     std::vector<uint8_t> raw;
     std::vector<Room>    rooms;
     int sx = 0, sy = 0, sz = 0, dx = 0, dz = -1;
-    gen.generate(0, raw, rooms, sx, sy, sz, dx, dz);
+
+    // Pick the right Building subclass for the requested template id. Each
+    // subclass already encapsulates its size + room layout so the editor and
+    // the town stamper share a single source of truth.
+    std::unique_ptr<Building> gen;
+    if (templateType == 12) {
+        gen = std::make_unique<PubBuilding>(material, roofType);
+    } else if (templateType == 13) {
+        gen = std::make_unique<BlacksmithBuilding>(material, roofType);
+    } else if (templateType == 14) {
+        gen = std::make_unique<MageTowerBuilding>(material, /*floors=*/3);
+    } else {
+        gen = std::make_unique<HouseBuilding>(templateType, roofType, material);
+    }
+    gen->generate(0, raw, rooms, sx, sy, sz, dx, dz);
     if (sx <= 0 || sy <= 0 || sz <= 0) return;
 
     const int ox = std::max(0, (HOUSE_VX - sx) / 2);

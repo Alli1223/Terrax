@@ -3,6 +3,7 @@
 #include "voxel_model.h"
 #include "building.h"
 #include <algorithm>
+#include <thread>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
@@ -14,6 +15,10 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+
+// Forward declaration so the in-anon-namespace placement helpers further down
+// can reach the file-scope definition that lives below buildTownPlan().
+static int townSlopeOffset(const Town& t, int wx, int wz);
 
 namespace {
 
@@ -31,6 +36,11 @@ constexpr int BIOME_MOUNTAINS = 3, BIOME_TUNDRA = 4;
 // oracle skips town flattening, so the survey itself works on the natural,
 // unflattened land (and there is no recursion back into the plan build).
 std::atomic<bool> g_townReady{false};
+
+void reportStage(int stage, float frac) {
+    gTownBuildStage.store(stage,    std::memory_order_release);
+    gTownBuildFraction.store(frac,  std::memory_order_release);
+}
 
 int cellWorld(int g) { return -REGION + g * SURVEY_STEP + SURVEY_STEP / 2; }
 
@@ -166,12 +176,20 @@ void bakeBuilding(TownBuilding& b, Building& gen, int q) {
                    b.dimX, b.dimZ);
 
     // Pre-rotation the front door faces -Z; rotate that normal alongside the
-    // grid so the rotated outward normal stays correct.
+    // grid so the rotated outward normal stays correct. The matrix below is
+    // the same rotation rotateBuilding() applies to positions, but applied
+    // to a direction vector (no translation). q=1 and q=3 were inverted in
+    // the previous version, which sent the door scanner — and the trade-sign
+    // placer that reads doorDX/Z — to the wall opposite the actual cut.
+    //
+    //   q=1: (x,z) → (z, sx-1-x)        gives  (dx,dz) → ( dz, -dx)
+    //   q=2: (x,z) → (sx-1-x, sz-1-z)   gives  (dx,dz) → (-dx, -dz)
+    //   q=3: (x,z) → (sz-1-z, x)        gives  (dx,dz) → (-dz,  dx)
     int rdx, rdz;
     switch (q & 3) {
-        case 1:  rdx = -dz; rdz =  dx; break;
+        case 1:  rdx =  dz; rdz = -dx; break;
         case 2:  rdx = -dx; rdz = -dz; break;
-        case 3:  rdx =  dz; rdz = -dx; break;
+        case 3:  rdx = -dz; rdz =  dx; break;
         default: rdx =  dx; rdz =  dz; break;
     }
     b.doorDX = rdx;
@@ -374,7 +392,11 @@ bool tryPlaceHouse(Town& t, std::mt19937& rng, int px, int pz, int faceX, int fa
         if (boxesOverlap(b.wx - 3, b.wz - 3, b.dimX + 6, b.dimZ + 6,
                          o.wx, o.wz, o.dimX, o.dimZ))
             return false;
-    b.baseY = t.baseY;   // every building sits on the town's flattened level
+    // Each building gets the slope offset at its own centre — the chunk
+    // generator pins the surrounding flat pad to this same value, so the door
+    // and the path leading to it always meet at the door's level even when
+    // the town as a whole tilts.
+    b.baseY = t.baseY + townSlopeOffset(t, px, pz);
     t.buildings.push_back(std::move(b));
     return true;
 }
@@ -388,7 +410,7 @@ bool tryPlaceFarm(Town& t, std::mt19937& rng, int px, int pz) {
         if (boxesOverlap(b.wx - 4, b.wz - 4, b.dimX + 8, b.dimZ + 8,
                          o.wx, o.wz, o.dimX, o.dimZ))
             return false;
-    b.baseY = t.baseY;   // every building sits on the town's flattened level
+    b.baseY = t.baseY + townSlopeOffset(t, px, pz);
     t.buildings.push_back(std::move(b));
     return true;
 }
@@ -407,7 +429,7 @@ bool tryPlaceSpecial(Town& t, Building& gen, int px, int pz) {
         if (boxesOverlap(b.wx - 3, b.wz - 3, b.dimX + 6, b.dimZ + 6,
                          o.wx, o.wz, o.dimX, o.dimZ))
             return false;
-    b.baseY = t.baseY;
+    b.baseY = t.baseY + townSlopeOffset(t, px, pz);
     t.buildings.push_back(std::move(b));
     return true;
 }
@@ -517,15 +539,19 @@ void layoutTown(Town& t) {
     }
 
     if (t.type == TownType::Coastal) {
-        static const int T[] = { 0, 1, 2, 4, 5 };   // bungalow/two-story/cottage/cabin/longhouse
+        // Coastal villages get the Norse longhouse mixed in — feels right for
+        // a seafaring settlement on a fjord.
+        static const int T[] = { 0, 1, 2, 4, 5, 10 };
         static const int M[] = { 7, 1, 5 };         // coastal / cottage / sandstone
         int numH = big ? 16 + (int)(rng() % 12) : 7 + (int)(rng() % 5);
-        layoutRings(t, rng, numH, false, T, 5, M, 3, ROOFS, 2);
+        layoutRings(t, rng, numH, false, T, 6, M, 3, ROOFS, 2);
     } else if (t.type == TownType::Mountain) {
-        static const int T[] = { 1, 2, 3, 4, 8 };   // two-story/cottage/tower/cabin/hall
+        // Mountain towns favour heavier wooden structures; both Norse templates
+        // appear here for the high-alpine stave-church silhouette.
+        static const int T[] = { 1, 2, 3, 4, 8, 10, 11 };
         static const int M[] = { 2, 4, 0, 6 };      // stone / cabin / timber / forest
         int numH = big ? 11 + (int)(rng() % 9) : 5 + (int)(rng() % 4);
-        layoutRings(t, rng, numH, true, T, 5, M, 4, ROOFS + 1, 2);  // hipped/pyramid
+        layoutRings(t, rng, numH, true, T, 7, M, 4, ROOFS + 1, 2);  // hipped/pyramid
     } else {
         static const int T[] = { 0, 1, 2, 4, 5, 7 };  // grassland mix
         static const int M[] = { 0, 1, 4, 8 };        // timber/cottage/cabin/autumn
@@ -995,15 +1021,41 @@ TownPlan buildTownPlan() {
     TownPlan plan;
     std::mt19937 rng(worldSeed() ^ 0x70776E21u);
 
+    reportStage(0, 0.0f);                  // "Surveying terrain"
     const int n = GRID * GRID;
     std::vector<int16_t> hgt(n);
     std::vector<uint8_t> bio(n);
-    for (int gz = 0; gz < GRID; gz++)
-        for (int gx = 0; gx < GRID; gx++) {
-            SurfaceSample s = sampleSurface(cellWorld(gx), cellWorld(gz));
-            hgt[gz * GRID + gx] = (int16_t)s.height;
-            bio[gz * GRID + gx] = (uint8_t)s.biome;
+    // Parallel surface sampling — each row is independent and the noise
+    // functions are read-only once seeded, so we can scale across cores. On
+    // typical hardware this drops the longest survey pass from seconds to a
+    // fraction of a second. Workers claim rows from a shared atomic counter
+    // so threads with cheaper rows steal work from the slower ones.
+    {
+        const int nWorkers = std::max(1,
+                                (int)std::thread::hardware_concurrency() - 1);
+        std::atomic<int> nextRow{0};
+        std::atomic<int> doneRows{0};
+        std::vector<std::thread> workers;
+        workers.reserve(nWorkers);
+        for (int w = 0; w < nWorkers; w++) {
+            workers.emplace_back([&]() {
+                while (true) {
+                    int gz = nextRow.fetch_add(1, std::memory_order_relaxed);
+                    if (gz >= GRID) break;
+                    for (int gx = 0; gx < GRID; gx++) {
+                        SurfaceSample s = sampleSurface(cellWorld(gx), cellWorld(gz));
+                        hgt[gz * GRID + gx] = (int16_t)s.height;
+                        bio[gz * GRID + gx] = (uint8_t)s.biome;
+                    }
+                    int done = doneRows.fetch_add(1, std::memory_order_relaxed) + 1;
+                    if ((done & 0xF) == 0)
+                        reportStage(0, (float)done / (float)GRID);
+                }
+            });
         }
+        for (auto& t : workers) t.join();
+    }
+    reportStage(0, 1.0f);
 
     auto at = [&](int gx, int gz) { return (int)hgt[gz * GRID + gx]; };
 
@@ -1051,6 +1103,7 @@ TownPlan buildTownPlan() {
     const int CELLS_B = GRID / BCOUNT;
     std::uniform_real_distribution<float> jitter(0.0f, 3.0f);
 
+    reportStage(1, 0.0f);                  // "Selecting town sites"
     std::vector<Site> sites;
     for (int bz = 0; bz < BCOUNT; bz++)
         for (int bx = 0; bx < BCOUNT; bx++) {
@@ -1087,18 +1140,23 @@ TownPlan buildTownPlan() {
     }
 
     // Lay out every settlement (well + houses + farms) and route its paths.
+    reportStage(2, 0.0f);                  // "Designing settlements"
     size_t totalBuildings = 0;
-    for (Town& t : plan.towns) {
-        layoutTown(t);
-        routeTownPaths(t);
-        totalBuildings += t.buildings.size();
+    for (size_t i = 0; i < plan.towns.size(); i++) {
+        layoutTown(plan.towns[i]);
+        routeTownPaths(plan.towns[i]);
+        totalBuildings += plan.towns[i].buildings.size();
+        reportStage(2, (float)(i + 1) / (float)plan.towns.size());
     }
 
     // Inter-town highways: curvy, terrain-following routes with shoreline docks.
+    reportStage(3, 0.0f);                  // "Routing roads"
     routeHighways(plan, hgt);
 
     // Street lights for every town's paths and highway approaches.
+    reportStage(4, 0.0f);                  // "Lighting streets"
     placeStreetLamps(plan);
+    reportStage(4, 1.0f);
 
     int nc = 0, nm = 0, ng = 0;
     for (const Town& t : plan.towns)
@@ -1128,8 +1186,15 @@ void stampBuilding(Chunk* c, const TownBuilding& b) {
             int wx = b.wx + x, wz = b.wz + z;
             int lx = wx - ox,  lz = wz - oz;
 
-            // Clear the column above the plot (terrain bumps, trees).
-            for (int wy = b.baseY; wy < CHUNK_HEIGHT; wy++)
+            // Clear the column the building actually occupies (terrain bumps,
+            // tree trunks/leaves that would clip through walls or the roof).
+            // Anything *above* the building's top is left alone, so a town in
+            // a forest keeps its canopy poking up above the rooftops instead
+            // of carving a bare-sky disc out of the trees. A trunk that ran
+            // through the building footprint is removed, which can leave a
+            // floating crown — but that reads a lot more like "house built
+            // in the woods" than the old strip-mined version did.
+            for (int wy = b.baseY; wy < b.baseY + b.dimY; wy++)
                 c->set(lx, wy, lz, BlockType::Air);
 
             // Stamp the building (its own Air cells carve clean space).
@@ -1228,8 +1293,12 @@ float pathHalfWidth(float arc, uint32_t seed) {
     return PATH_HW_MIN + n * (PATH_HW_MAX - PATH_HW_MIN);
 }
 
-// Lays one gravel road cell: gravel on the terrain surface (a causeway over
-// water), with the column above cleared so the path stays walkable.
+// Lays one road cell. Two surface mixes are produced, picked by `sink`:
+//   - sink == 0 (intra-town paths): gravel + stone cobble mix.
+//   - sink >  0 (cross-country highways): mostly dirt with a sprinkle of
+//     gravel, so the country lanes read as worn dirt tracks rather than
+//     paved roads.
+// Either way the column above is cleared so the path stays walkable.
 void stampRoadCell(Chunk* c, int lx, int lz, int sink) {
     int gtop = -1;
     for (int y = CHUNK_HEIGHT - 1; y >= 0; y--) {
@@ -1242,9 +1311,11 @@ void stampRoadCell(Chunk* c, int lx, int lz, int sink) {
     }
     if (gtop < 0) return;
     // Idempotent guard: a wide road revisits each cell from many overlapping
-    // stamps. If the surface is already road gravel, stop — otherwise each
-    // revisit would re-engrave it another block deeper.
-    if (c->get(lx, gtop, lz) == BlockType::Gravel) return;
+    // stamps. If the surface is already any of the road materials, stop —
+    // otherwise each revisit would re-engrave it one block deeper.
+    BlockType already = c->get(lx, gtop, lz);
+    if (already == BlockType::Gravel || already == BlockType::Stone ||
+        already == BlockType::Dirt) return;
 
     int roadY;
     if (gtop >= WORLD_SEA_LEVEL) {
@@ -1253,7 +1324,25 @@ void stampRoadCell(Chunk* c, int lx, int lz, int sink) {
         roadY = WORLD_SEA_LEVEL;                        // water — a stone causeway
         for (int y = gtop + 1; y < roadY; y++) c->set(lx, y, lz, BlockType::Stone);
     }
-    c->set(lx, roadY, lz, BlockType::Gravel);
+    // Per-cell deterministic hash on world XZ so the same patch of road
+    // looks the same every visit and across chunk boundaries.
+    int wx = c->pos.x * CHUNK_SIZE + lx;
+    int wz = c->pos.z * CHUNK_SIZE + lz;
+    uint32_t h = (uint32_t)wx * 0x9E3779B1u
+               ^ (uint32_t)wz * 0x85EBCA77u
+               ^ 0xC0BB1Eu;
+    h ^= h >> 16;
+    int   r       = (int)(h & 0x3F);     // 0..63
+    BlockType surface;
+    if (sink == 0) {
+        // Town path: ~60% gravel + ~40% stone, cobble look.
+        surface = (r < 25) ? BlockType::Stone : BlockType::Gravel;
+    } else {
+        // Country highway: a plain dirty-brown dirt track.
+        surface = BlockType::Dirt;
+    }
+    (void)r;     // r is unused for the highway case; keep the seed step for parity
+    c->set(lx, roadY, lz, surface);
 
     // Keep the path on the ground: a tree rooted on the road is removed whole,
     // but a canopy that merely overhangs the path is left intact.
@@ -1369,9 +1458,46 @@ void stampDock(Chunk* c, const TownDock& d) {
 void stampBridge(Chunk* c, const TownBridge& br) {
     const int ox = c->pos.x * CHUNK_SIZE, oz = c->pos.z * CHUNK_SIZE;
     const int deckY = br.deckY;
-    const int xmin = ox - 3, xmax = ox + CHUNK_SIZE + 3;
-    const int zmin = oz - 3, zmax = oz + CHUNK_SIZE + 3;
+    const int DECK_HALF = 3;          // 7-wide deck (~5 walkable between railings)
+    const int xmin = ox - DECK_HALF - 2, xmax = ox + CHUNK_SIZE + DECK_HALF + 1;
+    const int zmin = oz - DECK_HALF - 2, zmax = oz + CHUNK_SIZE + DECK_HALF + 1;
 
+    // Helper: set one cell, clamped to this chunk.
+    auto setCell = [&](int wx, int wz, int y, BlockType t) {
+        int lx = wx - ox, lz = wz - oz;
+        if (lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE) return;
+        if (y < 0 || y >= CHUNK_HEIGHT) return;
+        c->set(lx, y, lz, t);
+    };
+    // Helper: clear the column above (wx, wz) starting at yStart so the deck
+    // / stair stays walkable.
+    auto clearAbove = [&](int wx, int wz, int yStart) {
+        int lx = wx - ox, lz = wz - oz;
+        if (lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE) return;
+        for (int y = std::max(0, yStart); y < CHUNK_HEIGHT; y++)
+            c->set(lx, y, lz, BlockType::Air);
+    };
+    // Helper: place one row of deck/stair planks (5 wide perpendicular to the
+    // travel direction) at world (wx, wz) with the row at `y`. The two outer
+    // cells of every row get a wooden railing one block above, so the bridge
+    // / stair is fenced on both sides for its full length.
+    auto placeRow = [&](int wx, int wz, int y, bool horizDir) {
+        for (int w = -DECK_HALF; w <= DECK_HALF; w++) {
+            int cx = horizDir ? wx : wx + w;
+            int cz = horizDir ? wz + w : wz;
+            setCell(cx, cz, y, BlockType::Wood);
+            clearAbove(cx, cz, y + 1);
+            if (std::abs(w) == DECK_HALF)
+                setCell(cx, cz, y + 1, BlockType::Wood);   // railing
+        }
+    };
+
+    // --- Deck ---------------------------------------------------------------
+    // Walk every segment of the centreline, clipping the iteration window to
+    // this chunk's slab (plus the deck overhang) so we only place cells the
+    // chunk owns. arc counts steps along the whole bridge so railing posts
+    // sit on a global spacing rather than per-segment.
+    int arc = 0;
     for (size_t i = 0; i + 1 < br.pts.size(); i++) {
         int ax = br.pts[i].x, az = br.pts[i].y;
         int dx = br.pts[i + 1].x - ax, dz = br.pts[i + 1].y - az;
@@ -1387,39 +1513,104 @@ void stampBridge(Chunk* c, const TownBridge& br) {
         };
         slab(ax, dx, xmin, xmax);
         if (ok) slab(az, dz, zmin, zmax);
-        if (!ok) continue;
 
         int steps = std::max(std::abs(dx), std::abs(dz));
         if (steps == 0) steps = 1;
-        int s0 = std::max(0,     (int)std::floor(t0 * steps));
-        int s1 = std::min(steps, (int)std::ceil (t1 * steps));
-        bool horiz = std::abs(dx) >= std::abs(dz);
-        for (int s = s0; s <= s1; s++) {
-            int px = ax + (int)((long long)dx * s / steps);
-            int pz = az + (int)((long long)dz * s / steps);
-            for (int w = -1; w <= 1; w++) {
-                int wx = horiz ? px : px + w;
-                int wz = horiz ? pz + w : pz;
-                int lx = wx - ox, lz = wz - oz;
-                if (lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE) continue;
-                c->set(lx, deckY, lz, BlockType::Wood);             // deck plank
-                for (int y = deckY + 1; y < CHUNK_HEIGHT; y++)      // keep it walkable
-                    c->set(lx, y, lz, BlockType::Air);
+        bool horizDir = std::abs(dx) >= std::abs(dz);
+
+        if (ok) {
+            int s0 = std::max(0,     (int)std::floor(t0 * steps));
+            int s1 = std::min(steps, (int)std::ceil (t1 * steps));
+            for (int s = s0; s <= s1; s++) {
+                int px = ax + (int)((long long)dx * s / steps);
+                int pz = az + (int)((long long)dz * s / steps);
+                placeRow(px, pz, deckY, horizDir);
+                // Taller railing posts every 4 cells along the deck for a
+                // grand-bridge silhouette.
+                int curArc = arc + s;
+                if ((curArc & 3) == 0) {
+                    for (int w : { -DECK_HALF, DECK_HALF }) {
+                        int cx = horizDir ? px : px + w;
+                        int cz = horizDir ? pz + w : pz;
+                        setCell(cx, cz, deckY + 2, BlockType::Wood);
+                    }
+                }
             }
         }
+        arc += steps;
     }
 
-    // Support posts down to the terrain, every few centreline vertices.
+    // --- Stone support pillars ---------------------------------------------
+    // 2x2 stone footprint under every third centreline vertex, going from the
+    // terrain surface up to just under the deck. Reads as a real masonry pier
+    // rather than the single-block wooden post the bridge used before.
     for (size_t i = 0; i < br.pts.size(); i += 3) {
-        int lx = br.pts[i].x - ox, lz = br.pts[i].y - oz;
-        if (lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE) continue;
-        int gy = sampleSurface(br.pts[i].x, br.pts[i].y).height;
-        for (int y = std::max(0, gy); y < deckY; y++)
-            c->set(lx, y, lz, BlockType::Wood);
+        int cx = br.pts[i].x, cz = br.pts[i].y;
+        int gy = sampleSurface(cx, cz).height;
+        for (int dwx = -1; dwx <= 0; dwx++)
+            for (int dwz = -1; dwz <= 0; dwz++) {
+                for (int y = std::max(0, gy); y < deckY; y++)
+                    setCell(cx + dwx, cz + dwz, y, BlockType::Stone);
+            }
+    }
+
+    // --- End staircases -----------------------------------------------------
+    // Each end of the bridge gets a stair that steps outward by 1 block per
+    // step and drops by 1 block in Y per step, until the step is at or below
+    // the local ground. That fills the awkward vertical gap where the deck
+    // used to leave the road floating in space.
+    auto buildStair = [&](glm::ivec2 deckEnd, glm::ivec2 inward) {
+        int outX = deckEnd.x - inward.x;
+        int outZ = deckEnd.y - inward.y;
+        // Normalise to the dominant cardinal direction.
+        if (std::abs(outX) >= std::abs(outZ)) {
+            outX = (outX > 0) - (outX < 0); outZ = 0;
+        } else {
+            outZ = (outZ > 0) - (outZ < 0); outX = 0;
+        }
+        if (outX == 0 && outZ == 0) return;
+        bool horizDir = (outX != 0);
+        for (int k = 1; k <= 32; k++) {
+            int px = deckEnd.x + outX * k;
+            int pz = deckEnd.y + outZ * k;
+            int yStep = deckY - k;
+            int gy = sampleSurface(px, pz).height;
+            if (yStep < gy) break;            // step would dig into the ground
+            placeRow(px, pz, yStep, horizDir);
+            // Fill solid wood below the step down to the terrain so the stair
+            // reads as a continuous earthwork ramp rather than a floating run
+            // of free-standing planks.
+            for (int w = -DECK_HALF; w <= DECK_HALF; w++) {
+                int cx = horizDir ? px : px + w;
+                int cz = horizDir ? pz + w : pz;
+                for (int y = yStep - 1; y >= std::max(0, gy); y--)
+                    setCell(cx, cz, y, BlockType::Wood);
+            }
+            if (yStep <= gy) break;           // stepped onto the ground — done
+        }
+    };
+
+    if (br.pts.size() >= 2) {
+        buildStair(br.pts.front(), br.pts[1]);
+        buildStair(br.pts.back(),  br.pts[br.pts.size() - 2]);
     }
 }
 
 } // namespace
+
+// --- Town survey progress (declared in town.h) ------------------------------
+
+std::atomic<int>   gTownBuildStage{0};
+std::atomic<float> gTownBuildFraction{0.0f};
+const char* const  kTownBuildStageNames[] = {
+    "Surveying terrain",
+    "Selecting town sites",
+    "Designing settlements",
+    "Routing roads",
+    "Lighting streets",
+};
+const int          kTownBuildStageCount =
+    (int)(sizeof(kTownBuildStageNames) / sizeof(kTownBuildStageNames[0]));
 
 const TownPlan& getTownPlan() {
     static TownPlan      plan;
@@ -1429,6 +1620,95 @@ const TownPlan& getTownPlan() {
         g_townReady.store(true, std::memory_order_release);
     });
     return plan;
+}
+
+// Per-direction effective flat-zone radius for a town. Adds a three-octave
+// sinusoidal noise on the angle from the town centre so the otherwise-perfect
+// circular boundary becomes a lobed blob, and the surrounding smooth blend
+// inherits the same irregular shape. Much harder to spot the "bit that got
+// flattened" as a clean circle from the air. Each town gets its own noise
+// phase so adjacent towns don't share lobe patterns.
+static float townEffectiveFlatR(const Town& t, float dx, float dz) {
+    float baseR = (float)t.radius + 52.0f;
+    if (std::abs(dx) < 0.5f && std::abs(dz) < 0.5f) return baseR;
+    float angle = std::atan2(dz, dx);
+    uint32_t h = (uint32_t)t.center.x * 0xA24BAED4u
+               ^ (uint32_t)t.center.y * 0xCC9E2D51u
+               ^ 0xB10BB10Bu;
+    float phase = ((float)(h & 0xFFFF) / 65535.0f) * 6.2831853f;
+    float n = 0.55f * std::sin(angle * 2.0f  + phase)
+            + 0.30f * std::sin(angle * 5.0f  + phase * 1.7f)
+            + 0.15f * std::sin(angle * 11.0f + phase * 2.3f);
+    // Amplitude scales with town size — bigger towns get larger lobes so the
+    // boundary variance reads as proportionate, not as fixed wobble.
+    float amp = std::min(28.0f, (float)t.radius * 0.30f + 12.0f);
+    return baseR + n * amp;
+}
+
+// Gentle low-frequency tilt across one town: the town gets a random direction
+// vector (derived from its centre) and the surface rises by +1 on one side
+// and falls by -1 on the other. Returns one of {-1, 0, +1}. The tilt is the
+// same every frame for a given town, so neighbouring chunks agree on the
+// terrace shape and a path crosses a contour exactly once.
+static int townSlopeOffset(const Town& t, int wx, int wz) {
+    uint32_t h = (uint32_t)t.center.x * 0x9E3779B1u
+               ^ (uint32_t)t.center.y * 0x85EBCA77u
+               ^ 0xC0FFEEu;
+    float theta = ((float)(h & 0xFFFF) / 65535.0f) * 6.2831853f;
+    float dx    = (float)(wx - t.center.x);
+    float dz    = (float)(wz - t.center.y);
+    // Slope scale: one full step of ±1 reached around the town radius — so
+    // a small village has a slightly steeper tilt than a large town, but both
+    // top out at ±1 block across the settled zone.
+    float r  = (float)t.radius + 20.0f;
+    float tt = (dx * std::cos(theta) + dz * std::sin(theta)) / r;
+    if (tt > 1.0f) tt = 1.0f; else if (tt < -1.0f) tt = -1.0f;
+    return (int)std::round(tt);
+}
+
+// Hard flat-zone level: inside any town's settled radius the chunk generator
+// snaps the column to this Y so the terrain is exactly flat (paths and doors
+// then agree perfectly). Two behaviours are stacked:
+//
+//   - Cells inside (or within a small buffer of) a building footprint return
+//     that building's own baseY, giving every house a strictly flat pad even
+//     when the rest of the town is on a slight slope.
+//   - Cells outside all building footprints return t.baseY plus a gentle ±1
+//     low-frequency tilt (see townSlopeOffset), so the town no longer looks
+//     uniformly flat. Paths follow the tilt and step ±1 across the contour
+//     lines, but each door still meets the path at exactly the door's level
+//     because the immediate building neighbourhood is held flat.
+int townFlatLevelAt(int wx, int wz) {
+    if (!g_townReady.load(std::memory_order_acquire)) return -1;
+    const TownPlan& plan = getTownPlan();
+    const Town* bestT = nullptr;
+    float bestD2 = 1e30f;
+    for (const Town& t : plan.towns) {
+        float dx = (float)(wx - t.center.x);
+        float dz = (float)(wz - t.center.y);
+        float d2 = dx * dx + dz * dz;
+        // Noisy boundary so the hard-flat zone isn't a perfect circle. The
+        // same noise drives the smooth-blend ring below, so the chunk-gen
+        // snap and the surface oracle agree on the shape.
+        float flatR = townEffectiveFlatR(t, dx, dz);
+        if (d2 >= flatR * flatR) continue;
+        if (d2 < bestD2) { bestD2 = d2; bestT = &t; }
+    }
+    if (!bestT) return -1;
+
+    // Building flat pad — extends a couple of cells past the footprint so
+    // the path landing on the door is also forced to the door's level.
+    const int BUF = 2;
+    for (const TownBuilding& b : bestT->buildings) {
+        if (wx < b.wx - BUF) continue;
+        if (wx >= b.wx + b.dimX + BUF) continue;
+        if (wz < b.wz - BUF) continue;
+        if (wz >= b.wz + b.dimZ + BUF) continue;
+        return b.baseY;
+    }
+
+    // Outside any building: the town's gentle tilt shows through.
+    return bestT->baseY + townSlopeOffset(*bestT, wx, wz);
 }
 
 // Blends a raw surface height toward the base level of any nearby town, so
@@ -1441,8 +1721,11 @@ float townFlattenedHeight(float wx, float wz, float rawHeight) {
     for (const Town& t : plan.towns) {
         float dx = wx - (float)t.center.x;
         float dz = wz - (float)t.center.y;
-        float flatR  = (float)t.radius + 52.0f;   // fully level out to here
-        float blendR = flatR + 50.0f;             // eased back to natural by here
+        // Match the noisy boundary the chunk generator uses for its hard
+        // snap, then ease the influence back to natural over a generous
+        // 80-block ring so the perimeter never reads as a clean edge.
+        float flatR  = townEffectiveFlatR(t, dx, dz);
+        float blendR = flatR + 80.0f;
         float d2 = dx * dx + dz * dz;
         if (d2 >= blendR * blendR) continue;
         float dist = std::sqrt(d2);

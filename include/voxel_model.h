@@ -5,6 +5,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include "gl_loader.h"
 #include "world.h"
+#include "interactable.h"
 #include <mutex>
 #include <random>
 
@@ -99,6 +100,11 @@ public:
     bool isAttacking = false;
     bool lanternHeld = false;
     bool isSwimming  = false;
+    // Static pose override: when set to Sitting / Lying the update() method
+    // skips the walking / breathing cycle and snaps every limb to a fixed
+    // resting posture (and lying tilts the whole rig 90° forward, hands on
+    // chest, legs straight). Reset to Standing to resume normal animation.
+    PlayerPose pose  = PlayerPose::Standing;
     int hairStyle = 0, earType = 0, armorType = 0, noseStyle = 0, eyebrowStyle = 0, eyeType = 0;
     Voxel hairColor = {60, 40, 20, 255}, eyeColor = {0, 0, 0, 255};
     Voxel skinColor = {210, 160, 130, 255};

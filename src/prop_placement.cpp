@@ -363,11 +363,132 @@ void placeFences(const TownPlan& plan) {
             placeFenceRun(plan, h.pts, hrng, true);
 }
 
+// Picks the right trade-sign icon for a building kind. New roles (bakery,
+// apothecary, …) just need a new switch case + a new SignXxx PropType.
+PropType signForKind(int kind) {
+    switch ((BuildingKind)kind) {
+        case BuildingKind::Pub:        return PropType::SignMug;
+        case BuildingKind::Blacksmith: return PropType::SignAnvil;
+        case BuildingKind::MageTower:  return PropType::SignStar;
+        default:                       return PropType::Count;   // no sign
+    }
+}
+
+// Local-coord cell of the centre of the front-door cut, plus the world Y of
+// the door's base (the floor of the ground storey).
+struct DoorCellLocal { int x; int z; int baseY; bool valid; };
+
+// Finds the door cell using the same wall-detection scan as buildDoors() —
+// scan inward until we hit a row that's at least 1/3 solid at y=2 (the real
+// wall plane, not a porch overhang), then airRunCentre across that row to
+// pick the doorway gap. Factored out so placeTradeSign can mount the sign at
+// the same wall plane.
+DoorCellLocal findFrontDoorCell(const TownBuilding& b) {
+    DoorCellLocal out{0, 0, 0, false};
+    if ((b.doorDX == 0 && b.doorDZ == 0) || b.rooms.empty()) return out;
+
+    auto solid = [&](int x, int y, int z) {
+        if (x < 0 || x >= b.dimX || y < 0 || y >= b.dimY ||
+            z < 0 || z >= b.dimZ) return false;
+        return b.blocks[((size_t)y * b.dimZ + z) * b.dimX + x]
+               != (uint8_t)BlockType::Air;
+    };
+    auto airRun = [](int n, auto air) {
+        int bestS = n / 2, bestL = 0, rs = -1, rl = 0;
+        for (int i = 0; i <= n; i++) {
+            bool a = (i < n) && air(i);
+            if (a) { if (rs < 0) rs = i; rl++; }
+            else { if (rl > bestL) { bestL = rl; bestS = rs; } rs = -1; rl = 0; }
+        }
+        return bestL > 0 ? bestS + bestL / 2 : n / 2;
+    };
+
+    if (b.doorDZ != 0) {
+        const int thr = std::max(3, b.dimX / 3);
+        auto rowSolids = [&](int z) {
+            int n = 0;
+            for (int x = 0; x < b.dimX; x++) if (solid(x, 2, z)) n++;
+            return n;
+        };
+        int wz;
+        if (b.doorDZ < 0) {
+            wz = 0;
+            while (wz < b.dimZ - 1 && rowSolids(wz) < thr) wz++;
+        } else {
+            wz = b.dimZ - 1;
+            while (wz > 0 && rowSolids(wz) < thr) wz--;
+        }
+        out.x = airRun(b.dimX, [&](int x){ return !solid(x, 2, wz); });
+        out.z = wz;
+    } else {
+        const int thr = std::max(3, b.dimZ / 3);
+        auto colSolids = [&](int x) {
+            int n = 0;
+            for (int z = 0; z < b.dimZ; z++) if (solid(x, 2, z)) n++;
+            return n;
+        };
+        int wx;
+        if (b.doorDX < 0) {
+            wx = 0;
+            while (wx < b.dimX - 1 && colSolids(wx) < thr) wx++;
+        } else {
+            wx = b.dimX - 1;
+            while (wx > 0 && colSolids(wx) < thr) wx--;
+        }
+        out.x = wx;
+        out.z = airRun(b.dimZ, [&](int z){ return !solid(wx, 2, z); });
+    }
+    out.baseY = b.baseY;
+    out.valid = true;
+    return out;
+}
+
+// Mounts a wall plaque just above the front door. The plaque model's back
+// face (model Z=0) sits flush against the wall and the icon face (model Z=1)
+// faces outward in the door direction. World position is set so:
+//   • prop.position.y         = baseY + 5   (one block above the door cut)
+//   • XZ projection            = door-cell centre + fwd * (cell half-size +
+//                                  plaque half-thickness + tiny gap)
+//   • yaw                      = atan2(doorDX, doorDZ)   so model +Z aligns
+//                                  with the outward wall normal.
+void placeTradeSign(const TownBuilding& b) {
+    PropType t = signForKind(b.kind);
+    if (t == PropType::Count) return;
+    DoorCellLocal dc = findFrontDoorCell(b);
+    if (!dc.valid) return;
+
+    // Cell-centre of the door wall cell in world XZ.
+    const float cx = (float)(b.wx + dc.x) + 0.5f;
+    const float cz = (float)(b.wz + dc.z) + 0.5f;
+    const float fwdX = (float)b.doorDX;
+    const float fwdZ = (float)b.doorDZ;
+
+    // From the cell centre, step half a block to reach the wall's outer face
+    // (= cx + fwd * 0.5), then a tiny bit further so the plaque's centre sits
+    // just outside the wall (its back face hugs the wall plane). The 2-voxel
+    // depth × PROP_SCALE gives a half-thickness of 0.06; +0.04 of clearance
+    // keeps Z-fighting away.
+    const float pushOut = 0.5f + 0.10f;
+    const float px = cx + fwdX * pushOut;
+    const float pz = cz + fwdZ * pushOut;
+
+    // Sit one block above the door cut (cut is y=1..4; wall above starts y=5).
+    const float py = (float)b.baseY + 5.0f;
+
+    // Model +Z is the visible icon face; rotate so it aligns with the door
+    // direction in world space.
+    float yaw = glm::degrees(std::atan2(fwdX, fwdZ));
+
+    g_placements.push_back({ t, glm::vec3(px, py, pz), yaw, 0 });
+}
+
 void build() {
     const TownPlan& plan = getTownPlan();
     for (const Town& t : plan.towns) {
-        for (const TownBuilding& b : t.buildings)
+        for (const TownBuilding& b : t.buildings) {
             if (!b.rooms.empty()) placeFurniture(b);
+            placeTradeSign(b);
+        }
         placeStreetLampProps(t);
         placeDecorations(t);
     }
@@ -403,20 +524,45 @@ void buildDoors() {
                 return b.blocks[((size_t)y * b.dimZ + z) * b.dimX + x]
                        != (uint8_t)BlockType::Air;
             };
-            // The footprint edge can be a roof eave — scan inward (above the
-            // doorway) for the real wall plane, then find the doorway gap's
-            // centre along that wall at door height.
+            // The footprint edge can be a roof eave OR a porch (a small step +
+            // 2 posts + an overhanging roof slab in front of the actual wall).
+            // The porch row is mostly air at door height, so we scan inward
+            // until we find a row that's at least 1/3 solid at y=2 — that's
+            // the real wall plane. Then airRunCentre on that plane finds the
+            // doorway cut.
+            const int wallThreshold = std::max(3, b.dimX / 3);
+            const int wallThresholdZ = std::max(3, b.dimZ / 3);
             int wallX, wallZ;
             if (b.doorDZ != 0) {
-                int mx = b.dimX / 2, wz;
-                if (b.doorDZ < 0) { wz = 0;          while (wz < b.dimZ - 1 && !solid(mx, 5, wz)) wz++; }
-                else              { wz = b.dimZ - 1; while (wz > 0          && !solid(mx, 5, wz)) wz--; }
+                auto rowSolids = [&](int z) {
+                    int n = 0;
+                    for (int x = 0; x < b.dimX; x++) if (solid(x, 2, z)) n++;
+                    return n;
+                };
+                int wz;
+                if (b.doorDZ < 0) {
+                    wz = 0;
+                    while (wz < b.dimZ - 1 && rowSolids(wz) < wallThreshold) wz++;
+                } else {
+                    wz = b.dimZ - 1;
+                    while (wz > 0 && rowSolids(wz) < wallThreshold) wz--;
+                }
                 int dx = airRunCentre(b.dimX, [&](int x){ return !solid(x, 2, wz); });
                 wallX = b.wx + dx; wallZ = b.wz + wz;
             } else {
-                int mz = b.dimZ / 2, wx;
-                if (b.doorDX < 0) { wx = 0;          while (wx < b.dimX - 1 && !solid(wx, 5, mz)) wx++; }
-                else              { wx = b.dimX - 1; while (wx > 0          && !solid(wx, 5, mz)) wx--; }
+                auto colSolids = [&](int x) {
+                    int n = 0;
+                    for (int z = 0; z < b.dimZ; z++) if (solid(x, 2, z)) n++;
+                    return n;
+                };
+                int wx;
+                if (b.doorDX < 0) {
+                    wx = 0;
+                    while (wx < b.dimX - 1 && colSolids(wx) < wallThresholdZ) wx++;
+                } else {
+                    wx = b.dimX - 1;
+                    while (wx > 0 && colSolids(wx) < wallThresholdZ) wx--;
+                }
                 int dz = airRunCentre(b.dimZ, [&](int z){ return !solid(wx, 2, z); });
                 wallX = b.wx + wx; wallZ = b.wz + dz;
             }

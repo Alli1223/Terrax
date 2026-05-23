@@ -268,6 +268,109 @@ VoxelVolume* buildCauldron() {
     return v;
 }
 
+// --- Trade signs -----------------------------------------------------------
+//
+// Wall-mounted plaques: a wooden board with an iron-rivet frame and a coloured
+// icon painted on the front face. The board sits flush against the building's
+// front wall (the placer sets the Z position so model Z=0 hugs the wall) and
+// the icon faces outward. New roles only need a new icon builder + a switch
+// case in placeTradeSign.
+
+namespace {
+const Voxel SIGN_PLANK    {178, 140,  92, 255};   // light board wood
+const Voxel SIGN_FRAME    {110,  78,  46, 255};   // darker frame wood
+const Voxel SIGN_RIVET    { 60,  62,  68, 255};   // corner rivets / icon iron
+const Voxel SIGN_GOLD     {220, 178,  90, 255};   // mug rim / star body
+const Voxel SIGN_DEEP     {110,  68,  30, 255};   // mug body
+const Voxel SIGN_WHEAT    {214, 178,  74, 255};   // wheat heads
+
+// All trade-sign plaques share the same wood backing + frame + iron rivets.
+// Coordinates: X runs along the wall, Y is up, Z is the depth out from the
+// wall (Z=0 is the side that hugs the wall, Z=1 is the visible face).
+// The icon builder then paints onto the Z=1 layer in the rectangle the frame
+// leaves bare.
+constexpr int SIGN_W = 18;
+constexpr int SIGN_H = 12;
+constexpr int SIGN_D = 2;
+
+void buildSignPlaque(VoxelVolume* v) {
+    // Solid wooden backing across the entire plaque (the side that touches
+    // the wall) so the sign reads as a real plaque from any angle.
+    voxFill(v, 0, 0, 0, SIGN_W - 1, SIGN_H - 1, 0, SIGN_PLANK);
+    // Light planks on the visible (Z=1) face inside the frame.
+    voxFill(v, 1, 1, 1, SIGN_W - 2, SIGN_H - 2, 1, SIGN_PLANK);
+    // Darker wooden frame around the border of the visible face.
+    voxFill(v, 0, 0,         1, SIGN_W - 1, 0,         1, SIGN_FRAME); // top
+    voxFill(v, 0, SIGN_H - 1, 1, SIGN_W - 1, SIGN_H - 1, 1, SIGN_FRAME); // bot
+    voxFill(v, 0, 0,         1, 0,         SIGN_H - 1, 1, SIGN_FRAME); // L
+    voxFill(v, SIGN_W - 1, 0, 1, SIGN_W - 1, SIGN_H - 1, 1, SIGN_FRAME); // R
+    // Four corner rivets so it reads as nailed-on metalwork.
+    v->setVoxel(1,         1,         1, SIGN_RIVET);
+    v->setVoxel(SIGN_W - 2, 1,         1, SIGN_RIVET);
+    v->setVoxel(1,         SIGN_H - 2, 1, SIGN_RIVET);
+    v->setVoxel(SIGN_W - 2, SIGN_H - 2, 1, SIGN_RIVET);
+}
+}   // namespace
+
+VoxelVolume* buildTradeSignAnvil() {
+    VoxelVolume* v = new VoxelVolume(SIGN_W, SIGN_H, SIGN_D);
+    buildSignPlaque(v);
+    const int cx = SIGN_W / 2;
+    const int cy = SIGN_H / 2;
+    // Wooden stump base under the anvil.
+    voxFill(v, cx - 2, cy - 4, 1, cx + 1, cy - 3, 1, SIGN_FRAME);
+    // Iron anvil: stem + body + horn + heel.
+    voxFill(v, cx - 1, cy - 2, 1, cx,     cy - 1, 1, SIGN_RIVET); // stem
+    voxFill(v, cx - 4, cy,     1, cx + 3, cy + 1, 1, SIGN_RIVET); // body
+    voxFill(v, cx - 5, cy + 1, 1, cx - 4, cy + 1, 1, SIGN_RIVET); // horn
+    voxFill(v, cx + 3, cy + 1, 1, cx + 4, cy + 1, 1, SIGN_RIVET); // heel
+    return v;
+}
+
+VoxelVolume* buildTradeSignMug() {
+    VoxelVolume* v = new VoxelVolume(SIGN_W, SIGN_H, SIGN_D);
+    buildSignPlaque(v);
+    const int cx = SIGN_W / 2;
+    const int cy = SIGN_H / 2;
+    // Mug body.
+    voxFill(v, cx - 2, cy - 4, 1, cx + 1, cy + 1, 1, SIGN_DEEP);
+    // Frothy head.
+    voxFill(v, cx - 2, cy + 2, 1, cx + 1, cy + 3, 1, {230, 230, 220, 255});
+    // Gold rim band + curving handle.
+    voxFill(v, cx - 2, cy + 1, 1, cx + 1, cy + 1, 1, SIGN_GOLD);
+    voxFill(v, cx + 2, cy - 2, 1, cx + 2, cy,     1, SIGN_GOLD);
+    voxFill(v, cx + 3, cy - 1, 1, cx + 3, cy - 1, 1, SIGN_GOLD);
+    return v;
+}
+
+VoxelVolume* buildTradeSignStar() {
+    VoxelVolume* v = new VoxelVolume(SIGN_W, SIGN_H, SIGN_D);
+    buildSignPlaque(v);
+    const int cx = SIGN_W / 2;
+    const int cy = SIGN_H / 2;
+    // Five-point gold star.
+    voxFill(v, cx - 1, cy - 1, 1, cx,     cy + 1, 1, SIGN_GOLD); // body
+    v->setVoxel(cx,     cy + 2, 1, SIGN_GOLD);                   // top point
+    v->setVoxel(cx - 1, cy + 2, 1, SIGN_GOLD);
+    v->setVoxel(cx - 1, cy - 3, 1, SIGN_GOLD);                   // bottom point
+    v->setVoxel(cx,     cy - 3, 1, SIGN_GOLD);
+    voxFill(v, cx - 3, cy - 1, 1, cx - 2, cy,     1, SIGN_GOLD); // left arm
+    voxFill(v, cx + 1, cy - 1, 1, cx + 2, cy,     1, SIGN_GOLD); // right arm
+    return v;
+}
+
+VoxelVolume* buildTradeSignWheat() {
+    VoxelVolume* v = new VoxelVolume(SIGN_W, SIGN_H, SIGN_D);
+    buildSignPlaque(v);
+    const int cy = SIGN_H / 2;
+    // Three wheat shafts side-by-side.
+    for (int sx : { SIGN_W / 2 - 4, SIGN_W / 2, SIGN_W / 2 + 4 }) {
+        voxFill(v, sx, cy - 4, 1, sx, cy + 1, 1, SIGN_FRAME);    // stalk
+        voxFill(v, sx - 1, cy + 1, 1, sx + 1, cy + 3, 1, SIGN_WHEAT); // head
+    }
+    return v;
+}
+
 VoxelVolume* buildAlchemyTable() {
     const int W = 18, H = 18, D = 10;
     VoxelVolume* v = new VoxelVolume(W, H, D);

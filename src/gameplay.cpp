@@ -152,6 +152,75 @@ static void syncAnimalObjects(AppContext& ctx) {
 
 // Finds the villager the player is facing within talk range, drives the talk
 // prompt, and opens the dialogue box when the interact key was pressed.
+// Scans nearby GameObjects for the best interactable in front of the player.
+// Drives `ctx.pendingInteraction` (read by the HUD for the E-hint) and, on E
+// press, enters or exits a player pose. Designed to be extended: adding a new
+// InteractAction value + a switch case here is enough to wire a new action.
+static void updatePropInteraction(AppContext& ctx) {
+    glm::vec3 eye = ctx.camera.position;
+    glm::vec3 fwd = glm::vec3(ctx.camera.front.x, 0.0f, ctx.camera.front.z);
+    if (glm::length(fwd) > 0.001f) fwd = glm::normalize(fwd);
+
+    Interaction best{};
+    float bestD2 = 2.5f * 2.5f;            // ~ arm's reach
+    for (auto& o : ctx.objectManager.objects()) {
+        if (o->dead) continue;
+        Interaction off;
+        if (!o->getInteraction(off)) continue;
+        glm::vec3 to = o->position - eye;
+        float dy = to.y;
+        to.y = 0.0f;
+        float d2 = to.x * to.x + to.z * to.z;
+        if (d2 > bestD2) continue;
+        if (std::abs(dy) > 1.5f) continue;     // same-floor only
+        if (d2 > 0.04f && glm::dot(glm::normalize(to), fwd) < 0.2f) continue;
+        bestD2 = d2;
+        best   = off;
+    }
+    // While already in a pose we don't surface another object's hint; the HUD
+    // shows the "press E to get up" prompt instead.
+    ctx.pendingInteraction = (ctx.playerPose == PlayerPose::Standing) ? best
+                                                                      : Interaction{};
+
+    // Handle E press: enter a new pose, or exit the current one.
+    if (ctx.interactPressed) {
+        if (ctx.playerPose != PlayerPose::Standing) {
+            ctx.playerPose      = PlayerPose::Standing;
+            ctx.interactPressed = false;
+        } else if (best.action != InteractAction::None) {
+            ctx.poseAnchorPos = best.anchorPos;
+            ctx.poseAnchorYaw = best.anchorYaw;
+            switch (best.action) {
+                case InteractAction::SitChair:
+                    ctx.playerPose = PlayerPose::Sitting; break;
+                case InteractAction::LieBed:
+                    ctx.playerPose = PlayerPose::Lying;   break;
+                default: break;
+            }
+            ctx.interactPressed = false;
+        }
+    }
+
+    // Any movement input pops the player out of the pose.
+    if (ctx.playerPose != PlayerPose::Standing) {
+        if (ctx.keyFwd || ctx.keyBack || ctx.keyLeft ||
+            ctx.keyRight || ctx.keyJump) {
+            ctx.playerPose = PlayerPose::Standing;
+        }
+    }
+
+    // Push the pose into the rig and snap the camera to the pose anchor.
+    if (ctx.playerRig) ctx.playerRig->pose = ctx.playerPose;
+    if (ctx.playerPose != PlayerPose::Standing) {
+        const float eyeOffset =
+            (ctx.playerPose == PlayerPose::Sitting) ? 0.95f : 0.55f;
+        ctx.camera.position = ctx.poseAnchorPos
+                            + glm::vec3(0.0f, eyeOffset, 0.0f);
+        ctx.camera.velocity = glm::vec3(0.0f);
+        ctx.camera.onGround = true;
+    }
+}
+
 static void updateNpcInteraction(AppContext& ctx) {
     glm::vec3 eye = ctx.camera.position;
     glm::vec3 fwd = glm::vec3(ctx.camera.front.x, 0.0f, ctx.camera.front.z);
@@ -700,8 +769,13 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
     }
 
     if (gameplayActive) {
+        // While seated / lying down the player is locked to the pose anchor —
+        // skip all movement physics (it would fight the snap-to-anchor inside
+        // updatePropInteraction below).
+        const bool inPose = (ctx.playerPose != PlayerPose::Standing);
+
         // Riding a ferry: carry the player with the deck before block physics.
-        Ferry* supportFerry = findSupportFerry(ctx);
+        Ferry* supportFerry = inPose ? nullptr : findSupportFerry(ctx);
         if (supportFerry)
             ctx.camera.position += supportFerry->velocity * ctx.deltaTime;
 
@@ -722,7 +796,11 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
         float hw = PLAYER_WIDTH / 2.0f;
         float ph = PLAYER_HEIGHT * (ctx.playerRig ? ctx.playerRig->heightScale : 1.0f);
 
-        if (ctx.noclip) {
+        if (inPose) {
+            // Position is owned by updatePropInteraction; no physics applies.
+            ctx.camera.velocity = glm::vec3(0.0f);
+            ctx.camera.onGround = true;
+        } else if (ctx.noclip) {
             if (ctx.keyJump) moveDir.y += 1.0f;
             float noclipSpeed = ctx.keySprint ? 45.0f : 15.0f;
             ctx.camera.position += moveDir * noclipSpeed * ctx.deltaTime;
@@ -786,6 +864,7 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
         ctx.localPlayer->update(ctx.deltaTime, ctx.world);
     }
 
+    updatePropInteraction(ctx);
     updateNpcInteraction(ctx);
 
     if (ctx.state == GameState::Playing && !ctx.paused) {

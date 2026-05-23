@@ -517,6 +517,8 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
         chunkShader.setVec3("u_sunDir",        sunDir);
         bindLanternLights(chunkShader, lanternLights, lightVolOrigin, LIGHTVOL_SIZE, 2);
         chunkShader.setFloat("u_weather", weather);
+        chunkShader.setFloat("u_snowAmount",
+            (ctx.weatherKind == 1) ? weather : 0.0f);
         chunkShader.setVec4("u_clipPlane", glm::vec4(0.0f, 1.0f, 0.0f, -WATER_Y));
         ctx.world.drawAll();
         glDisable(GL_CLIP_DISTANCE0); glCullFace(GL_BACK); glEnable(GL_CULL_FACE);
@@ -570,7 +572,12 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     chunkShader.setVec3("camPos",          eyePos);
     chunkShader.setVec3("u_sunDir",        sunDir);
     bindLanternLights(chunkShader, lanternLights, lightVolOrigin, LIGHTVOL_SIZE, 2);
-    chunkShader.setFloat("u_weather",  weather);
+    chunkShader.setFloat("u_weather",   weather);
+    // Snow tint only takes effect in snow biomes (Mountains, Tundra). In rain
+    // biomes the same weatherIntensity drives rain particles + atmospheric
+    // wash but leaves roof colours alone.
+    chunkShader.setFloat("u_snowAmount",
+        (ctx.weatherKind == 1) ? weather : 0.0f);
     chunkShader.setVec4("u_clipPlane", glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
     ctx.world.drawAll();
 

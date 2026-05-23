@@ -9,11 +9,14 @@
 #include "object_manager.h"
 #include "player_object.h"
 #include "prop.h"
+#include "interactable.h"
 #include <glm/glm.hpp>
 #include <string>
 #include <unordered_map>
 #include <vector>
 #include <future>
+#include <atomic>
+#include <thread>
 
 struct LeafParticle {
     glm::vec3 pos, vel;
@@ -121,6 +124,17 @@ struct AppContext {
     float breathTime     = 30.0f;
     float posSendTimer   = 0.0f;
 
+    // --- Loading (background world-gen) ---
+    // The worker thread is spawned when the user clicks Host/Singleplayer/Join
+    // and the state transitions to GameState::Loading. The worker pre-warms
+    // getTownPlan() so the survey doesn't stall the first gameplay frame.
+    // The main thread polls `loadingWorkerDone` from the Loading state.
+    std::atomic<bool>  loadingWorkerDone{false};
+    std::atomic<int>   loadingHighStage{0};      // 0..kLoadingStageCount-1 (see ui.cpp)
+    std::atomic<float> loadingHighFraction{0.0f};
+    std::thread        loadingThread;
+    bool               loadingFinalised = false;   // GL-bound finalisation done on main thread
+
     // --- World Map ---
     bool   showMap         = false;
     GLuint mapTex          = 0;
@@ -148,6 +162,15 @@ struct AppContext {
     // --- Ambient atmosphere particles (pollen, fireflies, embers) ---
     std::vector<AmbientParticle> ambientParticles;
     float ambientSpawnTimer = 0.0f;
+
+    // --- Player pose (sit / lie / …) ---
+    // Set by the interactable system when the player presses E on a chair or
+    // bed; cleared on E-again or any movement key. While non-Standing the
+    // player's camera is locked to `poseAnchorPos` and movement is ignored.
+    PlayerPose playerPose       = PlayerPose::Standing;
+    glm::vec3  poseAnchorPos    = glm::vec3(0.0f);
+    float      poseAnchorYaw    = 0.0f;
+    Interaction pendingInteraction{};   // best offer in front of the player this frame
 
     // --- NPC interaction ---
     bool        interactPressed = false;   // E pressed this frame (set by input)

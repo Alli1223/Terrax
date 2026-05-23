@@ -88,6 +88,7 @@
     <ClInclude Include="include\vegetation.h"><Filter>Headers</Filter></ClInclude>
     <ClInclude Include="include\voxel_model.h"><Filter>Headers</Filter></ClInclude>
     <ClInclude Include="include\building.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\interactable.h"><Filter>Headers</Filter></ClInclude>
     <ClInclude Include="include\world.h"><Filter>Headers</Filter></ClInclude>
     <ClInclude Include="src\noise.h"><Filter>Headers</Filter></ClInclude>
   </ItemGroup>

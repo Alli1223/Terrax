@@ -6,6 +6,7 @@ layout(location = 2) in vec2  aTexCoord;
 layout(location = 3) in float aMaterialID;
 layout(location = 4) in float aSkyLight;
 layout(location = 5) in float aBlockLight;
+layout(location = 7) in float aSnowable;    // 1.0 = top of a roof/chimney, accepts snow
 
 uniform mat4 model;
 uniform mat4 view;
@@ -19,6 +20,7 @@ out float BlockLight;
 out vec3  FragWorldPos;
 out vec3  FragNormal;
 out vec4  FragPosLightSpace;
+out float Snowable;
 
 void main() {
     vec4 worldPos = model * vec4(aPos, 1.0);
@@ -28,6 +30,7 @@ void main() {
     FragWorldPos      = worldPos.xyz;
     FragNormal        = aNormal;
     FragPosLightSpace = lightSpaceMatrix * worldPos;
+    Snowable          = aSnowable;
 
     gl_ClipDistance[0] = dot(worldPos.xyz, u_clipPlane.xyz) + u_clipPlane.w;
     gl_Position        = projection * view * worldPos;

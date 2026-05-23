@@ -162,6 +162,7 @@
     <ClInclude Include="include\vegetation.h" />
     <ClInclude Include="include\voxel_model.h" />
     <ClInclude Include="include\building.h" />
+    <ClInclude Include="include\interactable.h" />
     <ClInclude Include="include\world.h" />
     <ClInclude Include="src\noise.h" />
   </ItemGroup>

@@ -6,6 +6,8 @@
 #include "atlas.h"
 #include "town.h"
 #include "prop_placement.h"
+#include "projectile.h"   // for collectProjectileLights / MagicBoltProjectile
+#include "npc.h"          // for NPC + getRig() in collectLanternLights
 #include <glm/gtc/matrix_transform.hpp>
 #include <cmath>
 #include <vector>
@@ -35,7 +37,15 @@ struct LanternLightList {
     glm::vec3 pos[MAX_LANTERNS];
     float intensity[MAX_LANTERNS];
     float radius[MAX_LANTERNS];
+    // Per-light colour — defaults to warm lantern orange. Coloured
+    // sources (magic bolts: fire = orange, ice = blue, arcane = violet)
+    // override this when they append themselves to the list.
+    glm::vec3 color[MAX_LANTERNS];
 };
+
+// Standard tungsten-lantern colour used by held lanterns, props,
+// streetlamps, and town campfires. Magic-bolt lights set their own.
+static constexpr glm::vec3 LANTERN_DEFAULT_COLOR = glm::vec3(1.00f, 0.76f, 0.40f);
 
 static glm::vec3 lanternWorldPos(const glm::vec3& feetPos, float yaw, bool held) {
     glm::vec3 fwd   = glm::vec3(sinf(glm::radians(yaw)), 0.0f, cosf(glm::radians(yaw)));
@@ -52,6 +62,22 @@ static void addLantern(LanternLightList& lights, const glm::vec3& feetPos, float
     lights.pos[i]       = lanternWorldPos(feetPos, yaw, held);
     lights.intensity[i] = (held ? 0.9f : 0.4f) * flicker;
     lights.radius[i]    = held ? 20.0f : 10.0f;
+    lights.color[i]     = LANTERN_DEFAULT_COLOR;
+}
+
+// Generic "point light" appender — used for non-lantern emitters such
+// as in-flight magic bolts. Caller passes their own colour/intensity/
+// radius. Silently drops if the per-frame light list is already full
+// (lanterns get priority since they were appended first).
+static void addColoredLight(LanternLightList& lights, const glm::vec3& pos,
+                             const glm::vec3& color, float intensity,
+                             float radius) {
+    if (lights.count >= MAX_LANTERNS) return;
+    int i = lights.count++;
+    lights.pos[i]       = pos;
+    lights.intensity[i] = intensity;
+    lights.radius[i]    = radius;
+    lights.color[i]     = color;
 }
 
 static void collectLanternLights(const AppContext& ctx, float flicker, LanternLightList& lights) {
@@ -60,6 +86,17 @@ static void collectLanternLights(const AppContext& ctx, float flicker, LanternLi
     for (const auto& [id, p] : ctx.remotePlayers) {
         (void)id;
         addLantern(lights, p.position, p.yaw, p.lanternHeld, flicker);
+    }
+    // NPC lanterns — walk the object manager and add lights for any
+    // NPC whose rig was tagged `hasLantern` by `applyNpcThemedLoadout`
+    // (some villagers, most guards, never bandits). Always belt-mode
+    // (never raised), so we pass `held = false`.
+    for (const auto& obj : ctx.objectManager.objects()) {
+        if (obj->dead || obj->kind != ObjectKind::NPC) continue;
+        auto* n = static_cast<NPC*>(obj.get());
+        const BipedalRig* r = n->getRig();
+        if (!r || !r->hasLantern) continue;
+        addLantern(lights, n->position, n->yaw, /*held=*/false, flicker);
     }
 
     // House lanterns and town street lamps only glow after dark.
@@ -110,12 +147,33 @@ static void collectLanternLights(const AppContext& ctx, float flicker, LanternLi
         lights.pos[i]       = c.pos;
         lights.intensity[i] = c.intensity;
         lights.radius[i]    = c.radius;
+        lights.color[i]     = LANTERN_DEFAULT_COLOR;
+    }
+}
+
+// Walk the ObjectManager and add a point light for every magic-bolt
+// projectile in flight. The bolt's element drives the colour so a fire
+// bolt washes its surroundings in orange, an ice bolt in cool blue,
+// arcane in violet. Lights persist only for the frame each bolt
+// exists — they're added/removed from the per-frame list naturally.
+static void collectProjectileLights(const AppContext& ctx, LanternLightList& lights) {
+    for (const auto& obj : ctx.objectManager.objects()) {
+        if (obj->dead || obj->kind != ObjectKind::Projectile) continue;
+        auto* bolt = dynamic_cast<MagicBoltProjectile*>(obj.get());
+        if (!bolt) continue;
+        Voxel pri = bolt->trailColorA;
+        // Saturate the colour slightly so the light reads as glowing
+        // rather than tinted-off-white. Lantern shader applies the
+        // colour multiplicatively so darker colours just dim.
+        glm::vec3 col(pri.r / 255.0f, pri.g / 255.0f, pri.b / 255.0f);
+        addColoredLight(lights, bolt->position, col, 0.85f, 9.0f);
     }
 }
 
 static void bindLanternLights(const Shader& shader, const LanternLightList& lights,
                               const glm::ivec3& volOrigin, int volSize, int volTexUnit) {
-    shader.setLanternLights(lights.count, lights.pos, lights.intensity, lights.radius);
+    shader.setLanternLights(lights.count, lights.pos, lights.intensity,
+                             lights.radius, lights.color);
     shader.setInt("u_lightVol", volTexUnit);
     shader.setVec3("u_lightVolOrigin", glm::vec3(volOrigin));
     shader.setFloat("u_lightVolSize", (float)volSize);
@@ -166,6 +224,24 @@ bool Renderer::init(int width, int height) {
     glEnableVertexAttribArray(5);
     glVertexAttribPointer(6, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, shoreDistance));
     glEnableVertexAttribArray(6);
+    glBindVertexArray(0);
+
+    // Voxel-death-particle buffer — same vertex layout as the character
+    // shader expects (pos + normal + rgba). Re-uploaded each frame.
+    struct VxVtx { float px, py, pz; float nx, ny, nz; float r, g, b, a; };
+    glGenVertexArrays(1, &voxelDeathVao);
+    glGenBuffers(1, &voxelDeathVbo);
+    glBindVertexArray(voxelDeathVao);
+    glBindBuffer(GL_ARRAY_BUFFER, voxelDeathVbo);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(VxVtx),
+                          (void*)offsetof(VxVtx, px));
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(VxVtx),
+                          (void*)offsetof(VxVtx, nx));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(VxVtx),
+                          (void*)offsetof(VxVtx, r));
+    glEnableVertexAttribArray(2);
     glBindVertexArray(0);
 
     // Shadow map framebuffer
@@ -268,7 +344,7 @@ void Renderer::renderEditorCharacter(AppContext& ctx, const glm::mat4& model,
     charShader.setVec3("u_sunDir", glm::normalize(glm::vec3(0.5f, 1.0f, 0.4f)));
     charShader.setFloat("sunFactor", 1.0f);
     charShader.setVec3("skyAmbient", glm::vec3(0.85f, 0.90f, 1.00f));
-    charShader.setLanternLights(0, nullptr, nullptr, nullptr);
+    charShader.setLanternLights(0, nullptr, nullptr, nullptr, nullptr);
     charShader.setFloat("u_alpha", 1.0f);
     charShader.setFloat("u_skyExposure", 1.0f);
     charShader.setVec3("camPos", glm::vec3(glm::inverse(view)[3]));
@@ -298,7 +374,7 @@ void Renderer::renderEditorHouse(AppContext& ctx, const glm::mat4& model,
     charShader.setVec3("u_sunDir", glm::normalize(glm::vec3(0.5f, 1.0f, 0.4f)));
     charShader.setFloat("sunFactor", 1.0f);
     charShader.setVec3("skyAmbient", glm::vec3(0.85f, 0.90f, 1.00f));
-    charShader.setLanternLights(0, nullptr, nullptr, nullptr);
+    charShader.setLanternLights(0, nullptr, nullptr, nullptr, nullptr);
     charShader.setFloat("u_alpha", 1.0f);
     charShader.setFloat("u_skyExposure", 1.0f);
     charShader.setVec3("camPos", glm::vec3(glm::inverse(view)[3]));
@@ -441,7 +517,24 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
                            * std::min(1.0f, ctx.deltaTime * 8.0f);
 
     glm::vec3 eyePos = camBase - ctx.camera.front * ctx.camDistSmooth;
-    glm::mat4 view   = glm::lookAt(eyePos, ctx.camera.position + glm::vec3(0, 1.2f, 0), ctx.camera.worldUp);
+    glm::vec3 lookAt = ctx.camera.position + glm::vec3(0, 1.2f, 0);
+
+    // Over-the-shoulder offset while drawing a bow — both the camera
+    // and the lookAt slide laterally so the player isn't blocking the
+    // crosshair (and so they can see what they're aiming at). The
+    // forward direction stays the same so `camera.front` still aims
+    // straight ahead through the reticle.
+    if (ctx.bowChargingHeld) {
+        // Use the smoothed charge value for a gentle swoop rather than
+        // an instant snap. 1.4 blocks at full draw is enough to clear
+        // the player's silhouette without feeling like a cinematic.
+        float shift = ctx.bowCharge * 1.4f;
+        glm::vec3 lateral = ctx.camera.right * shift;
+        eyePos += lateral;
+        lookAt += lateral;
+    }
+
+    glm::mat4 view = glm::lookAt(eyePos, lookAt, ctx.camera.worldUp);
 
     // Expose to UI for nametags
     frameView  = view;
@@ -478,6 +571,9 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
         + 0.03f * sinf(ctx.flickerTime * 19.1f + 1.2f);
     LanternLightList lanternLights;
     collectLanternLights(ctx, flicker, lanternLights);
+    // Transient point lights from in-flight magic projectiles — added
+    // every frame, removed naturally when the bolt dies.
+    collectProjectileLights(ctx, lanternLights);
 
     // Rebuild the occlusion volume and bind it to texture unit 2 for the frame.
     updateLightVolume(ctx);
@@ -601,6 +697,68 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
             glUniform1f(seLoc, skyExposureAt(ctx.world, o->position));
             o->draw(ml);
         }
+
+        // Voxel death-explosion particles — small cubes flung out when an
+        // enemy dies, then settling on the ground. One draw call for the
+        // whole swarm, geometry rebuilt each frame.
+        if (!ctx.voxelParticles.empty()) {
+            struct VxVtx { float px, py, pz; float nx, ny, nz; float r, g, b, a; };
+            static std::vector<VxVtx> verts;
+            verts.clear();
+            verts.reserve(ctx.voxelParticles.size() * 36);
+
+            // Six face quads worth of (offset, normal) per unit cube.
+            // We expand each particle into 36 verts (2 tris per face).
+            struct Face { float n[3]; float o[6][3]; };
+            static const Face faces[6] = {
+                // +X
+                {{ 1, 0, 0}, {{1,0,0},{1,1,0},{1,1,1},{1,0,0},{1,1,1},{1,0,1}}},
+                // -X
+                {{-1, 0, 0}, {{0,0,1},{0,1,1},{0,1,0},{0,0,1},{0,1,0},{0,0,0}}},
+                // +Y
+                {{ 0, 1, 0}, {{0,1,1},{1,1,1},{1,1,0},{0,1,1},{1,1,0},{0,1,0}}},
+                // -Y
+                {{ 0,-1, 0}, {{0,0,0},{1,0,0},{1,0,1},{0,0,0},{1,0,1},{0,0,1}}},
+                // +Z
+                {{ 0, 0, 1}, {{1,0,1},{1,1,1},{0,1,1},{1,0,1},{0,1,1},{0,0,1}}},
+                // -Z
+                {{ 0, 0,-1}, {{0,0,0},{0,1,0},{1,1,0},{0,0,0},{1,1,0},{1,0,0}}},
+            };
+            for (const auto& p : ctx.voxelParticles) {
+                float fade = (p.life < 1.2f) ? (p.life / 1.2f) : 1.0f;
+                float a    = fade;
+                float r    = p.color.r / 255.0f;
+                float g    = p.color.g / 255.0f;
+                float b    = p.color.b / 255.0f;
+                float s    = p.size;
+                for (const auto& f : faces) {
+                    for (int v = 0; v < 6; v++) {
+                        VxVtx vx;
+                        vx.px = p.pos.x + (f.o[v][0] - 0.5f) * s;
+                        vx.py = p.pos.y + (f.o[v][1]       ) * s;
+                        vx.pz = p.pos.z + (f.o[v][2] - 0.5f) * s;
+                        vx.nx = f.n[0]; vx.ny = f.n[1]; vx.nz = f.n[2];
+                        vx.r = r; vx.g = g; vx.b = b; vx.a = a;
+                        verts.push_back(vx);
+                    }
+                }
+            }
+
+            // Particles are emissive-ish — disable backface culling so the
+            // tiny cubes never go invisible if the camera straddles them.
+            glDisable(GL_CULL_FACE);
+            glUniform1f(seLoc, 1.0f);
+            glm::mat4 identity(1.0f);
+            glUniformMatrix4fv(ml, 1, GL_FALSE, &identity[0][0]);
+            glBindVertexArray(voxelDeathVao);
+            glBindBuffer(GL_ARRAY_BUFFER, voxelDeathVbo);
+            glBufferData(GL_ARRAY_BUFFER,
+                         (GLsizeiptr)(verts.size() * sizeof(VxVtx)),
+                         verts.data(), GL_DYNAMIC_DRAW);
+            glDrawArrays(GL_TRIANGLES, 0, (GLsizei)verts.size());
+            glBindVertexArray(0);
+            glEnable(GL_CULL_FACE);
+        }
     }
 
     // House placement ghost — translucent preview that follows the player.
@@ -629,7 +787,8 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     vegetationShader.setVec3("camPos", eyePos);
     vegetationShader.setVec3("u_sunDir", sunDir);
     vegetationShader.setLanternLights(lanternLights.count, lanternLights.pos,
-                                      lanternLights.intensity, lanternLights.radius);
+                                       lanternLights.intensity, lanternLights.radius,
+                                       lanternLights.color);
     vegetationShader.setFloat("u_weather", weather);
     vegetationShader.setFloat("time", currentTime);
     // Players bend nearby vegetation as they move through it.

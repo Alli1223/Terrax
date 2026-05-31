@@ -89,7 +89,8 @@ static void serverThreadMain(unsigned short port) {
                 // Resolve melee hits clients landed on NPCs this tick.
                 for (const NpcHitEvent& hit : g_server->npcHits)
                     npcDirector.playerHitNpc(hit.attackerId, hit.npcId,
-                                             g_server->getPlayerPosition(hit.attackerId));
+                                             g_server->getPlayerPosition(hit.attackerId),
+                                             hit.damageScale);
                 g_server->npcHits.clear();
 
                 npcDirector.update(SERVER_TICK_DT, dirPlayers, serverWorld, g_serverGameTime);
@@ -133,6 +134,15 @@ static void serverThreadMain(unsigned short port) {
                     ap.vx = a->velocity.x; ap.vy = a->velocity.y; ap.vz = a->velocity.z;
                     g_server->broadcast(PacketType::AnimalState, &ap, sizeof(ap));
                 }
+            }
+
+            // Expire stale loot drops once per tick. 90 s without a
+            // pickup and the drop is broadcast as gone (newOwnerId=0).
+            {
+                using namespace std::chrono;
+                double now = duration<double>(
+                    steady_clock::now().time_since_epoch()).count();
+                g_server->expireStaleLoot(now, 90.0);
             }
 
             g_serverGameTime = fmodf(g_serverGameTime + SERVER_TICK_DT / DAY_CYCLE_SECONDS, 1.0f);

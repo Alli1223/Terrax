@@ -48,6 +48,7 @@ void Player::update(float dt, World& world) {
     p->rig->lanternHeld = p->lanternHeld;
     p->rig->isAttacking = p->isAttacking;
     p->rig->attackAnim  = p->attackAnim;
+    p->rig->isBlocking  = p->shieldRaised;   // mirror remote block state
     p->rig->update(dt, std::min(vel, 10.0f));
 
     position = p->position;

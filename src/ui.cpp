@@ -23,88 +23,127 @@
 // ImGui theme
 // ---------------------------------------------------------------------------
 
-static void setupFantasyStyle() {
+// Pixel-art-leaning style: sharp corners everywhere, chunky borders, no
+// anti-aliasing on lines / fills, a warm parchment-on-leather palette.
+// The visual goal is "tabletop RPG screen", not "default ImGui debug HUD".
+static void setupPixelArtStyle() {
     ImGuiStyle& style  = ImGui::GetStyle();
     ImVec4*     colors = style.Colors;
 
-    ImVec4 bg_base     = ImVec4(0.15f, 0.08f, 0.05f, 1.00f);
-    ImVec4 bg_mid      = ImVec4(0.22f, 0.12f, 0.08f, 1.00f);
-    ImVec4 gold_bright = ImVec4(0.85f, 0.65f, 0.25f, 1.00f);
-    ImVec4 gold_dim    = ImVec4(0.60f, 0.45f, 0.15f, 1.00f);
-    ImVec4 parchment   = ImVec4(0.92f, 0.85f, 0.75f, 1.00f);
+    ImVec4 ink         = ImVec4(0.06f, 0.04f, 0.03f, 1.00f);
+    ImVec4 leather     = ImVec4(0.13f, 0.09f, 0.06f, 0.97f);
+    ImVec4 leather_mid = ImVec4(0.20f, 0.14f, 0.09f, 1.00f);
+    ImVec4 leather_hi  = ImVec4(0.30f, 0.20f, 0.12f, 1.00f);
+    ImVec4 gold        = ImVec4(0.95f, 0.78f, 0.32f, 1.00f);
+    ImVec4 gold_dim    = ImVec4(0.65f, 0.50f, 0.18f, 1.00f);
+    ImVec4 parchment   = ImVec4(0.96f, 0.90f, 0.72f, 1.00f);
+    ImVec4 parchdim    = ImVec4(0.70f, 0.62f, 0.45f, 1.00f);
 
     colors[ImGuiCol_Text]                  = parchment;
-    colors[ImGuiCol_TextDisabled]          = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
-    colors[ImGuiCol_WindowBg]              = bg_base;
-    colors[ImGuiCol_ChildBg]               = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-    colors[ImGuiCol_PopupBg]               = bg_base;
+    colors[ImGuiCol_TextDisabled]          = parchdim;
+    colors[ImGuiCol_WindowBg]              = leather;
+    colors[ImGuiCol_ChildBg]               = ImVec4(0.08f, 0.06f, 0.04f, 0.55f);
+    colors[ImGuiCol_PopupBg]               = leather;
     colors[ImGuiCol_Border]                = gold_dim;
-    colors[ImGuiCol_BorderShadow]          = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-    colors[ImGuiCol_FrameBg]               = bg_mid;
-    colors[ImGuiCol_FrameBgHovered]        = ImVec4(0.30f, 0.18f, 0.12f, 1.00f);
-    colors[ImGuiCol_FrameBgActive]         = ImVec4(0.35f, 0.22f, 0.15f, 1.00f);
-    colors[ImGuiCol_TitleBg]               = bg_base;
-    colors[ImGuiCol_TitleBgActive]         = bg_mid;
-    colors[ImGuiCol_TitleBgCollapsed]      = bg_base;
-    colors[ImGuiCol_MenuBarBg]             = bg_base;
-    colors[ImGuiCol_ScrollbarBg]           = bg_base;
+    colors[ImGuiCol_BorderShadow]          = ImVec4(0, 0, 0, 0);
+    colors[ImGuiCol_FrameBg]               = leather_mid;
+    colors[ImGuiCol_FrameBgHovered]        = leather_hi;
+    colors[ImGuiCol_FrameBgActive]         = ImVec4(0.40f, 0.28f, 0.18f, 1.00f);
+    colors[ImGuiCol_TitleBg]               = ink;
+    colors[ImGuiCol_TitleBgActive]         = leather_mid;
+    colors[ImGuiCol_TitleBgCollapsed]      = ink;
+    colors[ImGuiCol_MenuBarBg]             = leather_mid;
+    colors[ImGuiCol_ScrollbarBg]           = ink;
     colors[ImGuiCol_ScrollbarGrab]         = gold_dim;
-    colors[ImGuiCol_ScrollbarGrabHovered]  = gold_bright;
-    colors[ImGuiCol_ScrollbarGrabActive]   = gold_bright;
-    colors[ImGuiCol_CheckMark]             = gold_bright;
+    colors[ImGuiCol_ScrollbarGrabHovered]  = gold;
+    colors[ImGuiCol_ScrollbarGrabActive]   = gold;
+    colors[ImGuiCol_CheckMark]             = gold;
     colors[ImGuiCol_SliderGrab]            = gold_dim;
-    colors[ImGuiCol_SliderGrabActive]      = gold_bright;
-    colors[ImGuiCol_Button]                = bg_mid;
-    colors[ImGuiCol_ButtonHovered]         = ImVec4(0.40f, 0.25f, 0.15f, 1.00f);
+    colors[ImGuiCol_SliderGrabActive]      = gold;
+    colors[ImGuiCol_Button]                = leather_mid;
+    colors[ImGuiCol_ButtonHovered]         = leather_hi;
     colors[ImGuiCol_ButtonActive]          = gold_dim;
-    colors[ImGuiCol_Header]                = bg_mid;
-    colors[ImGuiCol_HeaderHovered]         = ImVec4(0.35f, 0.20f, 0.12f, 1.00f);
+    colors[ImGuiCol_Header]                = leather_mid;
+    colors[ImGuiCol_HeaderHovered]         = leather_hi;
     colors[ImGuiCol_HeaderActive]          = gold_dim;
     colors[ImGuiCol_Separator]             = gold_dim;
-    colors[ImGuiCol_SeparatorHovered]      = gold_bright;
-    colors[ImGuiCol_SeparatorActive]       = gold_bright;
+    colors[ImGuiCol_SeparatorHovered]      = gold;
+    colors[ImGuiCol_SeparatorActive]       = gold;
     colors[ImGuiCol_ResizeGrip]            = gold_dim;
-    colors[ImGuiCol_ResizeGripHovered]     = gold_bright;
-    colors[ImGuiCol_ResizeGripActive]      = gold_bright;
-    colors[ImGuiCol_Tab]                   = bg_base;
-    colors[ImGuiCol_TabHovered]            = bg_mid;
-    colors[ImGuiCol_TabActive]             = bg_mid;
-    colors[ImGuiCol_TabUnfocused]          = bg_base;
-    colors[ImGuiCol_TabUnfocusedActive]    = bg_mid;
-    colors[ImGuiCol_PlotLines]             = gold_bright;
+    colors[ImGuiCol_ResizeGripHovered]     = gold;
+    colors[ImGuiCol_ResizeGripActive]      = gold;
+    colors[ImGuiCol_Tab]                   = ink;
+    colors[ImGuiCol_TabHovered]            = leather_hi;
+    colors[ImGuiCol_TabActive]             = leather_mid;
+    colors[ImGuiCol_TabUnfocused]          = ink;
+    colors[ImGuiCol_TabUnfocusedActive]    = leather_mid;
+    colors[ImGuiCol_PlotLines]             = gold;
     colors[ImGuiCol_PlotLinesHovered]      = parchment;
-    colors[ImGuiCol_PlotHistogram]         = gold_bright;
+    colors[ImGuiCol_PlotHistogram]         = gold;
     colors[ImGuiCol_PlotHistogramHovered]  = parchment;
     colors[ImGuiCol_TextSelectedBg]        = ImVec4(0.45f, 0.30f, 0.15f, 1.00f);
-    colors[ImGuiCol_DragDropTarget]        = gold_bright;
-    colors[ImGuiCol_NavHighlight]          = gold_bright;
-    colors[ImGuiCol_NavWindowingHighlight] = gold_bright;
-    colors[ImGuiCol_NavWindowingDimBg]     = ImVec4(0.80f, 0.80f, 0.80f, 0.20f);
-    colors[ImGuiCol_ModalWindowDimBg]      = ImVec4(0.20f, 0.15f, 0.10f, 0.60f);
+    colors[ImGuiCol_DragDropTarget]        = gold;
+    colors[ImGuiCol_NavHighlight]          = gold;
+    colors[ImGuiCol_NavWindowingHighlight] = gold;
+    colors[ImGuiCol_NavWindowingDimBg]     = ImVec4(0.0f, 0.0f, 0.0f, 0.45f);
+    colors[ImGuiCol_ModalWindowDimBg]      = ImVec4(0.0f, 0.0f, 0.0f, 0.55f);
 
-    style.WindowPadding     = ImVec2(12, 12);
+    // Sharp corners — defining feature of the pixel-art feel.
+    style.WindowRounding    = 0.0f;
+    style.ChildRounding     = 0.0f;
+    style.FrameRounding     = 0.0f;
+    style.PopupRounding     = 0.0f;
+    style.ScrollbarRounding = 0.0f;
+    style.GrabRounding      = 0.0f;
+    style.TabRounding       = 0.0f;
+
+    // Chunky borders for that punched-out plate-armour feel.
+    style.WindowBorderSize  = 2.0f;
+    style.ChildBorderSize   = 1.0f;
+    style.PopupBorderSize   = 2.0f;
+    style.FrameBorderSize   = 1.0f;
+    style.TabBorderSize     = 1.0f;
+    style.SeparatorTextBorderSize = 2.0f;
+
+    style.WindowPadding     = ImVec2(14, 14);
     style.FramePadding      = ImVec2(8, 6);
     style.ItemSpacing       = ImVec2(10, 8);
-    style.IndentSpacing     = 25.0f;
-    style.ScrollbarSize     = 15.0f;
-    style.ScrollbarRounding = 9.0f;
-    style.GrabMinSize       = 12.0f;
-    style.WindowRounding    = 8.0f;
-    style.ChildRounding     = 6.0f;
-    style.FrameRounding     = 4.0f;
-    style.PopupRounding     = 6.0f;
-    style.TabRounding       = 4.0f;
+    style.ItemInnerSpacing  = ImVec2(8, 6);
+    style.IndentSpacing     = 24.0f;
+    style.ScrollbarSize     = 14.0f;
+    style.GrabMinSize       = 14.0f;
     style.WindowTitleAlign  = ImVec2(0.5f, 0.5f);
-    style.WindowBorderSize  = 2.0f;
-    style.FrameBorderSize   = 1.0f;
+    style.ButtonTextAlign   = ImVec2(0.5f, 0.5f);
+
+    // Disable AA so primitives draw as crisp rectangles instead of soft
+    // edges — keeps the whole HUD inside a single visual language.
+    style.AntiAliasedLines       = false;
+    style.AntiAliasedLinesUseTex = false;
+    style.AntiAliasedFill        = false;
 }
 
 void initImGui(GLFWwindow* window) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    setupFantasyStyle();
+
+    // ImGui ships ProggyClean — a bitmap-style font designed for exactly
+    // 13px. We disable atlas oversampling so the glyphs rasterise at 1:1
+    // (no sub-pixel smoothing) and leave FontGlobalScale at 1.0 so the
+    // atlas pixels map straight to screen pixels. Upscaling ProggyClean
+    // is what made the text look blurry — the ImGui GL backend binds a
+    // GL_LINEAR sampler object that overrides any per-texture filter we
+    // try to set, so non-integer scales blur and even integer scales
+    // need a backend patch to stay crisp. Native size is bulletproof.
+    ImFontConfig cfg;
+    cfg.OversampleH = 1;
+    cfg.OversampleV = 1;
+    cfg.PixelSnapH  = true;
+    io.Fonts->AddFontDefault(&cfg);
+
+    setupPixelArtStyle();
+
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
 }
@@ -335,6 +374,7 @@ void renderCharacterEditorUI(AppContext& ctx, GLFWwindow* window, Renderer& rend
 
     if (ImGui::Combo("Character Type", &ctx.editorCharType, "Human Male\0Human Female\0")) {
         ctx.playerRig->setupDefaultHuman(ctx.editorCharType == 0);
+        rebuildRigFromInventory(*ctx.playerRig, ctx.inventory);
     }
 
     ImGui::Separator();
@@ -353,12 +393,12 @@ void renderCharacterEditorUI(AppContext& ctx, GLFWwindow* window, Renderer& rend
         if (ImGui::ColorEdit3("Skin Color", sCol)) {
             ctx.playerRig->skinColor = { (uint8_t)(sCol[0]*255), (uint8_t)(sCol[1]*255),
                                          (uint8_t)(sCol[2]*255), 255 };
-            ctx.playerRig->applyCustomization();
+            rebuildRigFromInventory(*ctx.playerRig, ctx.inventory);
         }
         if (ImGui::Combo("Hair Style", &ctx.playerRig->hairStyle,
                 "Bald\0Crew Cut\0Messy Short\0Mohawk\0Spiky\0Side Swept\0"
                 "Bob\0Long Straight\0Wavy Long\0Bun\0Pigtails\0Braided\0"))
-            ctx.playerRig->applyCustomization();
+            rebuildRigFromInventory(*ctx.playerRig, ctx.inventory);
 
         float hCol[3] = { ctx.playerRig->hairColor.r / 255.0f,
                           ctx.playerRig->hairColor.g / 255.0f,
@@ -366,11 +406,11 @@ void renderCharacterEditorUI(AppContext& ctx, GLFWwindow* window, Renderer& rend
         if (ImGui::ColorEdit3("Hair Color", hCol)) {
             ctx.playerRig->hairColor = { (uint8_t)(hCol[0]*255), (uint8_t)(hCol[1]*255),
                                          (uint8_t)(hCol[2]*255), 255 };
-            ctx.playerRig->applyCustomization();
+            rebuildRigFromInventory(*ctx.playerRig, ctx.inventory);
         }
         if (ImGui::Combo("Eyebrow Style", &ctx.playerRig->eyebrowStyle,
                 "Straight\0Arched\0Thick\0Thin\0Furrowed\0"))
-            ctx.playerRig->applyCustomization();
+            rebuildRigFromInventory(*ctx.playerRig, ctx.inventory);
 
         float eCol[3] = { ctx.playerRig->eyeColor.r / 255.0f,
                           ctx.playerRig->eyeColor.g / 255.0f,
@@ -378,20 +418,19 @@ void renderCharacterEditorUI(AppContext& ctx, GLFWwindow* window, Renderer& rend
         if (ImGui::ColorEdit3("Eye Color", eCol)) {
             ctx.playerRig->eyeColor = { (uint8_t)(eCol[0]*255), (uint8_t)(eCol[1]*255),
                                         (uint8_t)(eCol[2]*255), 255 };
-            ctx.playerRig->applyCustomization();
+            rebuildRigFromInventory(*ctx.playerRig, ctx.inventory);
         }
         if (ImGui::Combo("Eye Type", &ctx.playerRig->eyeType,
                 "Classic\0Happy\0Wide\0Slanted\0Heart\0Wink\0Tired\0Star\0Tears\0Determined\0"))
-            ctx.playerRig->applyCustomization();
+            rebuildRigFromInventory(*ctx.playerRig, ctx.inventory);
         if (ImGui::Combo("Nose Style", &ctx.playerRig->noseStyle,
                 "Button\0Wide\0Narrow\0Upturned\0Broad\0"))
-            ctx.playerRig->applyCustomization();
+            rebuildRigFromInventory(*ctx.playerRig, ctx.inventory);
         if (ImGui::Combo("Ear Type", &ctx.playerRig->earType,
                 "None\0Human\0Elven\0Rounded\0Wide\0"))
-            ctx.playerRig->applyCustomization();
-        if (ImGui::Combo("Armor Set", &ctx.playerRig->armorType,
-                "None\0Cloth\0Leather\0Heavy\0"))
-            ctx.playerRig->applyCustomization();
+            rebuildRigFromInventory(*ctx.playerRig, ctx.inventory);
+        // Armour set picker removed — gear is now managed in-game from the
+        // Character Loadout screen (press C while playing).
     }
 
     ImGui::Separator();
@@ -1005,6 +1044,27 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
                           IM_COL32(15, 60, 140, 90));
     }
 
+    // Bow draw charge bar — visible while the player is holding left
+    // mouse with a bow equipped. Centred above the reticle so it shows
+    // up clearly while aiming. Colour shifts from amber → bright gold
+    // as the draw approaches full.
+    if (ctx.bowChargingHeld && ctx.bowCharge > 0.0f) {
+        float w = 220.0f;
+        ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH / 2 - w * 0.5f,
+                                       WINDOW_HEIGHT / 2 - 80));
+        ImGui::SetNextWindowSize(ImVec2(w, 22));
+        ImGui::Begin("BowCharge", nullptr,
+                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground |
+                     ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoInputs);
+        float t = ctx.bowCharge;
+        ImVec4 col(0.85f + 0.10f * t, 0.55f + 0.40f * t, 0.20f + 0.15f * t, 1.0f);
+        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, col);
+        ImGui::ProgressBar(t, ImVec2(-1, 16),
+                           t >= 0.99f ? "MAX" : "");
+        ImGui::PopStyleColor();
+        ImGui::End();
+    }
+
     // Breath bar
     if (ctx.breathTime < 29.9f) {
         ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH / 2 - 150, WINDOW_HEIGHT - 100));
@@ -1021,16 +1081,28 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
         ImGui::End();
     }
 
-    // HUD
-    ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH / 2 - 150, WINDOW_HEIGHT - 80));
-    ImGui::SetNextWindowSize(ImVec2(300, 60));
+    // HUD — health, level + XP bar.
+    ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH / 2 - 150, WINDOW_HEIGHT - 90));
+    ImGui::SetNextWindowSize(ImVec2(300, 78));
     ImGui::Begin("HUD", nullptr,
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground |
                  ImGuiWindowFlags_NoMove);
     ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.7f, 0.1f, 0.1f, 1.0f));
-    ImGui::ProgressBar(ctx.playerHealth, ImVec2(-1, 20), "");
+    ImGui::ProgressBar(ctx.playerHealth, ImVec2(-1, 14), "");
     ImGui::PopStyleColor();
-    ImGui::Text("Health: %d / 100", (int)(ctx.playerHealth * 100));
+
+    // XP bar sits just below health. ProgressBar fraction is XP toward
+    // the next level — matching `xpForNextLevel` in gameplay.cpp.
+    int xpNeed = 100 + 50 * (ctx.playerLevel - 1);
+    float xpFrac = (xpNeed > 0) ? (ctx.playerXp / float(xpNeed)) : 0.0f;
+    if (xpFrac > 1.0f) xpFrac = 1.0f;
+    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.42f, 0.65f, 1.00f, 1.0f));
+    ImGui::ProgressBar(xpFrac, ImVec2(-1, 8), "");
+    ImGui::PopStyleColor();
+    ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.5f, 1.0f),
+                       "Lv %d   %d/%d XP   HP %d/100",
+                       ctx.playerLevel, (int)ctx.playerXp, xpNeed,
+                       (int)(ctx.playerHealth * 100));
     ImGui::End();
 
     // Nametags
@@ -1067,6 +1139,26 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
         ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.45f, 1.0f), "%s", ctx.talkName.c_str());
         ImGui::Separator();
         ImGui::TextWrapped("%s", ctx.talkLine.c_str());
+        ImGui::End();
+    }
+
+    // Loot pickup prompt — shown when the player is in range of a drop.
+    // Sits just above the reticle so the player doesn't have to look down
+    // to read it.
+    if (!ctx.lootHintName.empty()) {
+        float boxW = 320.0f;
+        ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH / 2 - boxW * 0.5f,
+                                       WINDOW_HEIGHT / 2 + 60));
+        ImGui::SetNextWindowSize(ImVec2(boxW, 32));
+        ImGui::Begin("LootHint", nullptr,
+                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                     ImGuiWindowFlags_NoInputs);
+        ImVec4 c(ctx.lootHintColor.r / 255.0f,
+                 ctx.lootHintColor.g / 255.0f,
+                 ctx.lootHintColor.b / 255.0f, 1.0f);
+        ImGui::TextColored(ImVec4(0.96f, 0.90f, 0.70f, 1.0f), "[E] Pick up");
+        ImGui::SameLine();
+        ImGui::TextColored(c, "%s", ctx.lootHintName.c_str());
         ImGui::End();
     }
 
@@ -1139,4 +1231,52 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
         }
         ImGui::End();
     }
+
+    // I and C both pull up the unified equipment screen (inventory grid +
+    // character loadout side by side), so drag-drop between them works.
+    if (ctx.showInventory || ctx.showCharacterLoadout) {
+        renderInventoryUI(ctx, window);
+        renderCharacterLoadoutUI(ctx, window);
+    }
+
+    // Toast queue — XP / level-up / loot notifications stacked top-right.
+    // Newest at the bottom of the stack so the eye lands on the latest
+    // message. Older entries fade out as their lifeTime ticks down.
+    if (!ctx.toasts.empty()) {
+        int fbW = 0, fbH = 0;
+        glfwGetFramebufferSize(window, &fbW, &fbH);
+        if (fbW <= 0) fbW = WINDOW_WIDTH;
+        if (fbH <= 0) fbH = WINDOW_HEIGHT;
+        float toastW = 320.0f;
+        float lineH  = 22.0f;
+        float winH   = (float)ctx.toasts.size() * lineH + 12.0f;
+        ImGui::SetNextWindowPos(ImVec2(fbW - toastW - 16.0f, 80.0f), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(toastW, winH), ImGuiCond_Always);
+        ImGui::Begin("##toasts", nullptr,
+                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground |
+                     ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoInputs);
+        for (auto& t : ctx.toasts) {
+            float alpha = (t.lifeTime > 1.0f) ? 1.0f : t.lifeTime;
+            ImU32 bg = IM_COL32(15, 10, 8, (int)(alpha * 200));
+            ImU32 br = IM_COL32(t.color.r, t.color.g, t.color.b,
+                                (int)(alpha * 220));
+            ImU32 tx = IM_COL32(t.color.r, t.color.g, t.color.b,
+                                (int)(alpha * 255));
+
+            // Decorate via the draw list (doesn't touch ImGui layout).
+            ImVec2 p0 = ImGui::GetCursorScreenPos();
+            ImVec2 p1(p0.x + toastW - 16.0f, p0.y + lineH - 2);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            dl->AddRectFilled(p0, p1, bg);
+            dl->AddRect(p0, p1, br);
+            dl->AddText(ImVec2(p0.x + 6, p0.y + 2), tx, t.text.c_str());
+
+            // Reserve a layout row so ImGui knows about this toast and
+            // grows the window's tracked content extent.
+            ImGui::Dummy(ImVec2(toastW - 16.0f, lineH));
+        }
+        ImGui::End();
+    }
 }
+
+// renderInventoryUI / renderCharacterLoadoutUI live in src/inventory_ui.cpp.

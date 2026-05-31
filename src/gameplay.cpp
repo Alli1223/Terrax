@@ -10,6 +10,10 @@
 #include "vehicle.h"
 #include "npc.h"
 #include "animal.h"
+#include "item_generator.h"
+#include "loot_drop.h"
+#include "projectile.h"
+#include "voxel_model.h"
 #include <algorithm>
 #include <vector>
 #include <iostream>
@@ -70,6 +74,123 @@ static void syncFerryObjects(AppContext& ctx) {
     ctx.client->entityUpdates.clear();
 }
 
+// XP threshold to advance from `level` to `level+1`. Curve is mild so
+// early-game progression is brisk: 100, 150, 200, 250, ...
+static int xpForNextLevel(int level) {
+    return 100 + 50 * (level - 1);
+}
+
+// XP awarded per enemy kill, slightly scaling with the player's level so
+// kills don't feel devalued at the top of the curve.
+static int xpForEnemyKill(int playerLevel) {
+    return 20 + 5 * playerLevel;
+}
+
+// Push a transient HUD message. UI renders the queue in renderPlayUI;
+// updateGameplay decrements lifeTime and prunes expired entries.
+static void pushToast(AppContext& ctx, std::string text, Voxel color,
+                      float life = 3.5f) {
+    AppContext::HudToast t;
+    t.text = std::move(text);
+    t.color = color;
+    t.lifeTime = life;
+    ctx.toasts.push_back(std::move(t));
+    if (ctx.toasts.size() > 8) ctx.toasts.erase(ctx.toasts.begin());
+}
+
+// Sample a swarm of small voxel cubes from a dying NPC's rig — used to
+// give kills a satisfying "bursts into pieces" effect. Each particle
+// inherits the colour of whichever rig voxel it was sampled from, gets
+// an outward-and-up initial velocity, then falls and lands on terrain.
+static void spawnDeathParticles(AppContext& ctx, const NPC* npc) {
+    if (!npc) return;
+    const BipedalRig* rig = npc->getRig();
+    if (!rig) return;
+
+    static std::mt19937 rng((uint32_t)std::random_device{}());
+    auto frand = [&](float lo, float hi) {
+        return std::uniform_real_distribution<float>(lo, hi)(rng);
+    };
+
+    CharacterNode* parts[6] = {
+        rig->head,  rig->torso,
+        rig->lArm,  rig->rArm,
+        rig->lLeg,  rig->rLeg,
+    };
+
+    // Aim for ~80 particles total across all body parts. Each part
+    // contributes proportional to its voxel count.
+    for (CharacterNode* part : parts) {
+        if (!part || !part->volume) continue;
+        VoxelVolume* v = part->volume;
+
+        // Try up to 30 random samples per part; keep the first dozen that
+        // hit a non-empty voxel. Skip-loop keeps the cost bounded.
+        int kept = 0;
+        const int maxKeep = 14;
+        for (int tries = 0; tries < 40 && kept < maxKeep; tries++) {
+            int rx = (int)frand(0.0f, (float)v->sizeX);
+            int ry = (int)frand(0.0f, (float)v->sizeY);
+            int rz = (int)frand(0.0f, (float)v->sizeZ);
+            Voxel vx = v->getVoxel(rx, ry, rz);
+            if (vx.a == 0) continue;
+            kept++;
+
+            VoxelDeathParticle p;
+            p.color = vx;
+            // Spawn in a small cloud around the NPC chest.
+            p.pos = npc->position
+                  + glm::vec3(frand(-0.3f, 0.3f),
+                              0.7f + frand(0.0f, 0.7f),
+                              frand(-0.3f, 0.3f));
+            // Outward burst plus a hop upward.
+            p.vel = glm::vec3(frand(-3.5f, 3.5f),
+                              frand( 2.5f, 6.5f),
+                              frand(-3.5f, 3.5f));
+            p.life    = 5.0f + frand(0.0f, 2.0f);
+            p.maxLife = p.life;
+            p.size    = 0.07f + frand(-0.01f, 0.02f);
+            ctx.voxelParticles.push_back(p);
+        }
+    }
+    // Bound the list so a kill spree doesn't accumulate thousands of
+    // particles in the queue.
+    if (ctx.voxelParticles.size() > 600)
+        ctx.voxelParticles.erase(ctx.voxelParticles.begin(),
+                                  ctx.voxelParticles.begin()
+                                  + (ctx.voxelParticles.size() - 600));
+}
+
+// Called when the local client observes a nearby Enemy NPC transition
+// from alive to dying. Awards XP (may level the player up) and showers
+// the kill site with voxel "rubble" particles sampled from the body's
+// rig. The actual loot drops are spawned **server-side** so every player
+// on the server sees the same items — those arrive as LootSpawn packets
+// processed by syncLootDrops below. Simple attribution — any nearby
+// observer awards themselves XP — good enough for single-player and
+// small-coop play.
+static void awardEnemyKill(AppContext& ctx, const NPC* npc) {
+    int xp = xpForEnemyKill(ctx.playerLevel);
+    ctx.playerXp += float(xp);
+    pushToast(ctx, std::string("+") + std::to_string(xp) + " XP",
+              Voxel{160, 210, 255, 255}, 2.5f);
+
+    bool leveledUp = false;
+    while (ctx.playerXp >= float(xpForNextLevel(ctx.playerLevel))) {
+        ctx.playerXp -= float(xpForNextLevel(ctx.playerLevel));
+        ctx.playerLevel++;
+        leveledUp = true;
+        pushToast(ctx, std::string("Level Up!  You are now level ")
+                       + std::to_string(ctx.playerLevel),
+                  Voxel{255, 220, 80, 255}, 5.5f);
+    }
+    // Resend the PlayerModel so the server knows our new level — future
+    // loot rolls for our kills will scale to the new level.
+    if (leveledUp) sendPlayerModelUpdate(ctx);
+
+    spawnDeathParticles(ctx, npc);
+}
+
 // Creates/updates client-side NPC objects from the server's NPCState
 // broadcasts, and times out NPCs the server has stopped sending (their town
 // streamed out of range). The server owns NPC motion/AI; clients interpolate.
@@ -78,6 +199,7 @@ static void syncNPCObjects(AppContext& ctx) {
     double now = glfwGetTime();
     for (const NPCStatePacket& np : ctx.client->npcUpdates) {
         GameObject* o = ctx.objectManager.findById(np.entityId);
+        bool isNewNpc = (o == nullptr);
         NPC* n = nullptr;
         if (!o) {
             auto nn = std::make_unique<NPC>();
@@ -93,14 +215,24 @@ static void syncNPCObjects(AppContext& ctx) {
             n = static_cast<NPC*>(o);
         }
         if (n) {
+            // Detect the alive→dying transition for nearby enemies so we
+            // can award XP/loot exactly once per kill.
+            bool wasDying = (!isNewNpc) ? n->dyingFlag : true;
+            bool nowDying = (np.flags & 4) != 0;
+
             n->targetPos  = glm::vec3(np.x, np.y, np.z);
             n->targetYaw  = np.yaw;
             n->velocity   = glm::vec3(np.vx, np.vy, np.vz);
             n->health     = np.health;
             n->walking    = (np.flags & 1) != 0;
             n->attackFlag = (np.flags & 2) != 0;
-            n->dyingFlag  = (np.flags & 4) != 0;
+            n->dyingFlag  = nowDying;
             n->lastUpdate = now;
+
+            if (!wasDying && nowDying && n->type == NPCType::Enemy) {
+                float dist = glm::distance(n->position, ctx.camera.position);
+                if (dist < 22.0f) awardEnemyKill(ctx, n);
+            }
         }
     }
     ctx.client->npcUpdates.clear();
@@ -150,6 +282,132 @@ static void syncAnimalObjects(AppContext& ctx) {
     }
 }
 
+// Rebuild a local Item from the raw fields in a LootSpawnPacket. Mirrors
+// the data the server captured via `itemToLootPacket` in network.cpp.
+static std::unique_ptr<Item> itemFromLootPacket(const LootSpawnPacket& p) {
+    std::string name(p.name);
+    std::string setName(p.setName);
+    if (p.kind == 1) {
+        auto c = std::make_unique<ClothingItem>(
+            name, (EquipSlot)p.slot, (ClothingTier)p.subtype);
+        c->rarity       = (ItemRarity)p.rarity;
+        c->level        = p.level;
+        c->primaryColor = p.primary;
+        c->accentColor  = p.accent;
+        c->patternSeed  = p.patternSeed;
+        c->attackPower  = p.attackPower;
+        c->defenseValue = p.defenseValue;
+        c->setKey       = setName;
+        return c;
+    } else if (p.kind == 2) {
+        auto w = createWeaponItem(name, (WeaponType)p.subtype);
+        if (!w) return nullptr;
+        w->rarity       = (ItemRarity)p.rarity;
+        w->level        = p.level;
+        w->primaryColor = p.primary;
+        w->accentColor  = p.accent;
+        w->attackPower  = p.attackPower;
+        w->defenseValue = p.defenseValue;
+        w->setKey       = setName;
+        w->element      = (WeaponElement)p.element;
+        return w;
+    }
+    return nullptr;
+}
+
+// Drain the server's loot broadcasts. LootSpawn entries become local
+// LootDrop GameObjects; LootRemoved entries kill the matching local drop.
+// If the removal names us as the new owner, we also pocket the item.
+static void syncLootDrops(AppContext& ctx) {
+    if (!ctx.client) return;
+
+    for (auto& sp : ctx.client->lootSpawns) {
+        auto drop = std::make_unique<LootDrop>();
+        drop->position     = glm::vec3(sp.x, sp.y, sp.z);
+        // Server doesn't send velocity, so use a small randomised hop.
+        drop->velocity     = glm::vec3(((rand() % 200) - 100) / 50.0f,
+                                        2.5f + (rand() % 200) / 100.0f,
+                                       ((rand() % 200) - 100) / 50.0f);
+        drop->serverLootId = sp.dropId;
+        if (auto item = itemFromLootPacket(sp))
+            drop->setItem(std::move(item));
+        ctx.objectManager.add(std::move(drop));
+    }
+    ctx.client->lootSpawns.clear();
+
+    for (auto& rm : ctx.client->lootRemovals) {
+        for (auto& o : ctx.objectManager.objects()) {
+            if (o->dead || o->kind != ObjectKind::Loot) continue;
+            LootDrop* d = static_cast<LootDrop*>(o.get());
+            if (d->serverLootId != rm.dropId) continue;
+            if (rm.newOwnerId == ctx.client->clientID) {
+                // We won the pickup — take ownership and stash it.
+                if (auto taken = d->takeItem()) {
+                    Voxel col = rarityUiColor(taken->rarity);
+                    std::string name = taken->getName();
+                    ctx.inventory.addItem(std::move(taken));
+                    pushToast(ctx, "Picked up: " + name, col, 3.0f);
+                }
+            }
+            d->dead = true;
+            break;
+        }
+    }
+    ctx.client->lootRemovals.clear();
+}
+
+// Finds the closest pickup-eligible loot drop within a few blocks of the
+// player, surfaces an "[E] Pick up <name>" prompt, and sends a
+// LootPickupRequest to the server when interact is pressed. Actual item
+// transfer happens when LootRemoved arrives back from the server (see
+// syncLootDrops). Runs before NPC interaction so loot wins over villager
+// talk when both prompts compete on E.
+static void updateLootPickup(AppContext& ctx) {
+    ctx.lootHintName.clear();
+
+    LootDrop* best = nullptr;
+    float     bestD2 = 3.0f * 3.0f;
+    glm::vec3 eye = ctx.camera.position;
+    for (auto& o : ctx.objectManager.objects()) {
+        if (o->dead || o->kind != ObjectKind::Loot) continue;
+        LootDrop* d = static_cast<LootDrop*>(o.get());
+        if (!d->peekItem()) continue;
+        glm::vec3 to = d->position - eye;
+        float d2 = to.x * to.x + to.y * to.y + to.z * to.z;
+        if (d2 < bestD2) {
+            bestD2 = d2;
+            best   = d;
+        }
+    }
+    if (!best) return;
+
+    const Item* shown = best->peekItem();
+    ctx.lootHintName  = shown->getName();
+    ctx.lootHintColor = rarityUiColor(shown->rarity);
+
+    if (!ctx.interactPressed) return;
+
+    bool hasRoom = false;
+    for (int i = 0; i < ctx.inventory.capacity(); i++) {
+        if (!ctx.inventory.at(i)) { hasRoom = true; break; }
+    }
+    if (!hasRoom) {
+        pushToast(ctx, "Bag full!", Voxel{220, 100, 80, 255}, 2.5f);
+        ctx.interactPressed = false;
+        return;
+    }
+
+    // Send a pickup request. Server will decide who actually gets it
+    // (in case two players race) and broadcast LootRemoved, which
+    // syncLootDrops above turns into the actual inventory transfer.
+    if (ctx.client && best->serverLootId != 0) {
+        LootPickupRequestPacket req {};
+        req.dropId = best->serverLootId;
+        ctx.client->send(PacketType::LootPickupRequest, &req, sizeof(req));
+    }
+    ctx.interactPressed = false;
+}
+
 // Finds the villager the player is facing within talk range, drives the talk
 // prompt, and opens the dialogue box when the interact key was pressed.
 static void updateNpcInteraction(AppContext& ctx) {
@@ -189,31 +447,64 @@ static void updateNpcInteraction(AppContext& ctx) {
     if (ctx.talkTimer > 0.0f) ctx.talkTimer -= ctx.deltaTime;
 }
 
-// The NPC a melee swing should land on — nearest one ahead within reach.
-static NPC* findMeleeTargetNpc(AppContext& ctx) {
+// The NPC a swing/shot should land on — nearest one ahead within range.
+// Melee uses a 3.8-block radius and a generous facing cone; bows use a
+// 28-block radius and a tighter cone (you have to actually aim).
+static NPC* findTargetNpc(AppContext& ctx, float maxRange, float minFacing) {
     glm::vec3 eye = ctx.camera.position;
     glm::vec3 fwd = glm::vec3(ctx.camera.front.x, 0.0f, ctx.camera.front.z);
     if (glm::length(fwd) > 0.001f) fwd = glm::normalize(fwd);
     NPC* best = nullptr;
-    float bestD2 = 3.8f * 3.8f;
+    float bestD2 = maxRange * maxRange;
     for (auto& o : ctx.objectManager.objects()) {
         if (o->dead || o->kind != ObjectKind::NPC) continue;
         NPC* n = static_cast<NPC*>(o.get());
         glm::vec3 to = n->position - eye; to.y = 0.0f;
         float d2 = to.x * to.x + to.z * to.z;
         if (d2 > bestD2) continue;
-        if (d2 > 0.04f && glm::dot(glm::normalize(to), fwd) < 0.3f) continue;
+        if (d2 > 0.04f && glm::dot(glm::normalize(to), fwd) < minFacing) continue;
         bestD2 = d2;
         best   = n;
     }
     return best;
 }
 
+static NPC* findMeleeTargetNpc(AppContext& ctx) {
+    return findTargetNpc(ctx, 3.8f, 0.3f);
+}
+
+static NPC* findRangedTargetNpc(AppContext& ctx) {
+    return findTargetNpc(ctx, 28.0f, 0.95f);   // tight cone for bow aim
+}
+
 // Applies incoming damage to the player, regenerates health out of combat,
 // and respawns at the spawn town on death.
 static void updatePlayerVitals(AppContext& ctx) {
     if (ctx.client && ctx.client->pendingSelfDamage > 0.0f) {
-        ctx.playerHealth -= ctx.client->pendingSelfDamage / 100.0f;
+        float dmg = ctx.client->pendingSelfDamage;
+
+        // Active shield block — if the player is raising the shield AND
+        // has one equipped, soak damage equal to (defense * a flat
+        // efficiency). 1.0 defence ~= 1 HP soaked; legendary plate
+        // shields can fully eat low-tier hits.
+        if (ctx.shieldRaised) {
+            if (Item* off = ctx.inventory.equipped(EquipSlot::OffHand)) {
+                if (off->getKind() == ItemKind::Weapon
+                    && static_cast<WeaponItem*>(off)->getType() == WeaponType::Shield) {
+                    float soak = off->defenseValue * 1.5f;
+                    float absorbed = std::min(dmg, soak);
+                    dmg -= absorbed;
+                    if (absorbed > 0.5f) {
+                        AppContext::HudToast t;
+                        t.text     = "Blocked " + std::to_string((int)absorbed);
+                        t.color    = Voxel{120, 200, 255, 255};
+                        t.lifeTime = 1.6f;
+                        ctx.toasts.push_back(std::move(t));
+                    }
+                }
+            }
+        }
+        ctx.playerHealth -= dmg / 100.0f;
         ctx.client->pendingSelfDamage = 0.0f;
         ctx.regenDelay = 5.0f;
     }
@@ -591,17 +882,7 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
 
     if (ctx.client->clientID != 0 && !ctx.joinNameSent) {
         ctx.client->sendPlayerJoin(ctx.playerName);
-        PlayerModelHeader mh{};
-        mh.clientID     = ctx.client->clientID;
-        mh.hairStyle    = ctx.playerRig->hairStyle;
-        mh.hairColor    = ctx.playerRig->hairColor;
-        mh.eyeColor     = ctx.playerRig->eyeColor;
-        mh.eyeType      = ctx.playerRig->eyeType;
-        mh.noseStyle    = ctx.playerRig->noseStyle;
-        mh.eyebrowStyle = ctx.playerRig->eyebrowStyle;
-        mh.earType      = ctx.playerRig->earType;
-        mh.armorType    = ctx.playerRig->armorType;
-        ctx.client->send(PacketType::PlayerModel, &mh, sizeof(mh));
+        sendPlayerModelUpdate(ctx);
         ctx.joinNameSent = true;
     }
 
@@ -642,15 +923,109 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
 
     const bool gameplayActive = (ctx.state == GameState::Playing && !ctx.chatOpen);
 
-    if (gameplayActive && glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS) {
-        if (!ctx.playerRig->isAttacking) {
-            ctx.playerRig->isAttacking = true;
-            ctx.playerRig->attackAnim  = 0.0f;
-            NPC* target = findMeleeTargetNpc(ctx);
-            PlayerAttackPacket ap { ctx.client->clientID, target ? target->id : 0u };
-            ctx.client->send(PacketType::PlayerAttack, &ap, sizeof(ap));
+    // Combat input — branches by equipped main-hand weapon.
+    //   * Bow: left mouse held charges the shot (rig.bowDrawAmount), and
+    //     releasing fires once with damage scaled by the charge level.
+    //     Sub-15% charges are aborted (mis-fire prevention).
+    //   * Melee/none: keep the original click-to-swing behaviour.
+    // Shield blocking is independent — driven by right-mouse in input.cpp.
+    bool leftHeld = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS);
+    Item* mainHand = ctx.inventory.equipped(EquipSlot::MainHand);
+    bool hasBow = mainHand
+        && mainHand->getKind() == ItemKind::Weapon
+        && static_cast<WeaponItem*>(mainHand)->getType() == WeaponType::Bow;
+
+    if (gameplayActive && hasBow) {
+        if (leftHeld) {
+            if (!ctx.bowChargingHeld) ctx.bowCharge = 0.0f;
+            ctx.bowChargingHeld = true;
+            // ~1.4 seconds to a full draw — long enough that the player
+            // sees the bar fill, short enough not to feel sluggish.
+            ctx.bowCharge = std::min(1.0f, ctx.bowCharge + ctx.deltaTime * 0.7f);
+        } else if (ctx.bowChargingHeld) {
+            ctx.bowChargingHeld = false;
+            if (ctx.bowCharge > 0.15f) {
+                ctx.playerRig->isAttacking = true;
+                ctx.playerRig->attackAnim  = 0.0f;
+                NPC* target = findRangedTargetNpc(ctx);
+                // Damage scales 0.5..2.5 across the charge range so a
+                // full draw is roughly 2.5x a melee hit.
+                float scale = 0.5f + ctx.bowCharge * 2.0f;
+                PlayerAttackPacket ap {};
+                ap.clientID    = ctx.client->clientID;
+                ap.targetNpcId = target ? target->id : 0u;
+                ap.damageScale = scale;
+                ctx.client->send(PacketType::PlayerAttack, &ap, sizeof(ap));
+
+                // Spawn the visible arrow. Damage is already applied
+                // server-side via the packet above — this projectile is
+                // the cosmetic shaft you see flying through the air.
+                auto arrow = std::make_unique<ArrowProjectile>();
+                // `ctx.camera.position` is the player's feet — spawn at
+                // chest height (+1.5 blocks) and slightly forward so
+                // the arrow leaves from the bow, not from the ground.
+                glm::vec3 spawnPos = ctx.camera.position
+                                   + glm::vec3(0.0f, 1.5f, 0.0f)
+                                   + ctx.camera.front * 0.5f;
+                arrow->position = spawnPos;
+                // Initial speed scales with charge. ~22 m/s on a min
+                // shot, ~55 m/s on a max draw — fast enough to feel
+                // snappy, slow enough that the drop is visible.
+                float speed = 22.0f + ctx.bowCharge * 33.0f;
+                arrow->velocity      = ctx.camera.front * speed;
+                arrow->restingDir    = glm::normalize(ctx.camera.front);
+                arrow->ownerClientId = ctx.client->clientID;
+                arrow->damageScale   = scale;
+                ctx.objectManager.add(std::move(arrow));
+            }
+            ctx.bowCharge = 0.0f;
+        }
+        ctx.playerRig->bowDrawAmount = ctx.bowChargingHeld ? ctx.bowCharge : 0.0f;
+    } else {
+        // Reset bow state when not wielding one — avoids the rig getting
+        // stuck in a draw pose after swapping weapons mid-charge.
+        ctx.bowChargingHeld = false;
+        ctx.bowCharge       = 0.0f;
+        ctx.playerRig->bowDrawAmount = 0.0f;
+
+        if (gameplayActive && leftHeld
+            && !ctx.playerRig->isAttacking && !ctx.playerRig->isCasting) {
+            // Polymorphic dispatch — the weapon decides what an attack
+            // does. Staff overrides to fire a magic bolt; default
+            // (sword/axe/no-weapon) sends a melee PlayerAttackPacket.
+            WeaponItem* w = (mainHand
+                              && mainHand->getKind() == ItemKind::Weapon)
+                            ? static_cast<WeaponItem*>(mainHand) : nullptr;
+            // Pick the animation flag based on the weapon: casters
+            // raise their arms ("spell pose"), everything else does
+            // the right-arm sword swing.
+            if (w && w->usesCastAnimation()) {
+                ctx.playerRig->isCasting = true;
+                ctx.playerRig->castAnim  = 0.0f;
+            } else {
+                ctx.playerRig->isAttacking = true;
+                ctx.playerRig->attackAnim  = 0.0f;
+            }
+            if (w) {
+                float range = w->isInstantRanged() ? w->attackRange() : 3.8f;
+                float cone  = w->isInstantRanged() ? w->attackFacing() : 0.3f;
+                NPC* target = findTargetNpc(ctx, range, cone);
+                w->onPrimaryAttack(ctx, 1.0f, target);
+            } else {
+                NPC* target = findMeleeTargetNpc(ctx);
+                PlayerAttackPacket ap {};
+                ap.clientID    = ctx.client->clientID;
+                ap.targetNpcId = target ? target->id : 0u;
+                ap.damageScale = 1.0f;
+                ctx.client->send(PacketType::PlayerAttack, &ap, sizeof(ap));
+            }
         }
     }
+
+    // Mirror the shield-block state into the rig so the animation kicks
+    // in and the damage filter below sees it.
+    ctx.playerRig->isBlocking = ctx.shieldRaised
+        && ctx.inventory.equipped(EquipSlot::OffHand) != nullptr;
 
     ctx.client->update(ctx.world, ctx.remotePlayers);
     updatePlayerVitals(ctx);
@@ -676,7 +1051,8 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
             p.z           = ctx.camera.position.z;
             p.pitch       = ctx.camera.pitch;
             p.yaw         = ctx.playerYaw;
-            p.lanternHeld = ctx.lanternHeld ? 1 : 0;
+            p.lanternHeld  = ctx.lanternHeld ? 1 : 0;
+            p.shieldRaised = ctx.shieldRaised ? 1 : 0;
             ctx.client->sendUDP(&p, sizeof(p));
             ctx.posSendTimer = 0.0f;
         }
@@ -773,7 +1149,51 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
     syncFerryObjects(ctx);
     syncNPCObjects(ctx);
     syncAnimalObjects(ctx);
+    syncLootDrops(ctx);
+
+    // Age HUD toasts and prune expired ones. syncNPCObjects (above) is the
+    // most common source of new toasts via awardEnemyKill().
+    for (auto& t : ctx.toasts) t.lifeTime -= ctx.deltaTime;
+    ctx.toasts.erase(
+        std::remove_if(ctx.toasts.begin(), ctx.toasts.end(),
+                       [](const AppContext::HudToast& t){ return t.lifeTime <= 0.0f; }),
+        ctx.toasts.end());
+
+    // Update death-explosion voxel particles. Each falls under gravity and
+    // sticks to the first solid block its centre crosses, then fades over
+    // its remaining lifetime.
+    {
+        const float dt = ctx.deltaTime;
+        for (auto& p : ctx.voxelParticles) {
+            p.life -= dt;
+            if (p.life <= 0.0f) continue;
+            if (p.grounded) continue;
+
+            p.vel.y -= 16.0f * dt;
+            glm::vec3 next = p.pos + p.vel * dt;
+
+            int bx = (int)std::floor(next.x);
+            int by = (int)std::floor(next.y);
+            int bz = (int)std::floor(next.z);
+            BlockType b = ctx.world.getBlock(bx, by, bz);
+            if (b != BlockType::Air && b != BlockType::Water) {
+                next.y = (float)(by + 1);
+                p.vel  = glm::vec3(0.0f);
+                p.grounded = true;
+            }
+            p.pos = next;
+        }
+        ctx.voxelParticles.erase(
+            std::remove_if(ctx.voxelParticles.begin(), ctx.voxelParticles.end(),
+                [](const VoxelDeathParticle& p){ return p.life <= 0.0f; }),
+            ctx.voxelParticles.end());
+    }
     ctx.objectManager.updateAll(ctx.deltaTime, ctx.world);
+
+    // Sweep flying projectiles against NPCs in a separate pass — keeps
+    // the projectile class self-contained (no ObjectManager back-ref)
+    // while still letting it react via virtual hooks. See projectile.cpp.
+    updateProjectileCollisions(ctx);
     ctx.objectManager.streamProps(ctx.camera.position, 260.0f,
                                   getPropPlacements(), ctx.propLibrary);
     ctx.objectManager.streamDoors(ctx.camera.position, 180.0f,
@@ -786,6 +1206,7 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
         ctx.localPlayer->update(ctx.deltaTime, ctx.world);
     }
 
+    updateLootPickup(ctx);
     updateNpcInteraction(ctx);
 
     if (ctx.state == GameState::Playing && !ctx.paused) {
@@ -796,6 +1217,23 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
     }
 
     updateHousePreview(ctx);
+}
+
+void sendPlayerModelUpdate(AppContext& ctx) {
+    if (!ctx.client || !ctx.client->connected || !ctx.playerRig) return;
+    PlayerModelHeader mh{};
+    mh.clientID     = ctx.client->clientID;
+    mh.hairStyle    = ctx.playerRig->hairStyle;
+    mh.hairColor    = ctx.playerRig->hairColor;
+    mh.eyeColor     = ctx.playerRig->eyeColor;
+    mh.eyeType      = ctx.playerRig->eyeType;
+    mh.noseStyle    = ctx.playerRig->noseStyle;
+    mh.eyebrowStyle = ctx.playerRig->eyebrowStyle;
+    mh.earType      = ctx.playerRig->earType;
+    mh.armorType    = 0;   // legacy field, replaced by `slots`
+    mh.playerLevel  = ctx.playerLevel;
+    fillSlotsFromInventory(mh.slots, ctx.inventory);
+    ctx.client->send(PacketType::PlayerModel, &mh, sizeof(mh));
 }
 
 void sendHousePlacement(AppContext& ctx) {

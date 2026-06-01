@@ -106,3 +106,6 @@ jobs:
         with:
           files: ${{ env.ASSET }}
           fail_on_unmatched_files: true
+          # SemVer pre-release tags carry a hyphen (v0.1.0-rc.1); mark those as
+          # prereleases so a plain vX.Y.Z stays the "Latest" release.
+          prerelease: ${{ contains(github.ref_name, '-') }}

@@ -55,7 +55,14 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install glm (vcpkg)
         shell: pwsh
-        run: vcpkg install glm:x64-windows
+        # Install from outside the repo so vcpkg uses classic mode — running it
+        # in the repo root would pick up vcpkg.json (manifest mode) and reject
+        # the per-package argument. run_tests_msvc.ps1 auto-detects glm under
+        # the runner's $VCPKG_INSTALLATION_ROOT.
+        run: |
+          Push-Location $env:RUNNER_TEMP
+          vcpkg install glm:x64-windows
+          Pop-Location
       - name: Build & run headless tests
         shell: pwsh
         run: ./tests/run_tests_msvc.ps1

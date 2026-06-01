@@ -1,0 +1,99 @@
+name: Release
+
+# Tag a release (e.g. `git tag v1.0.0 && git push origin v1.0.0`) and this
+# builds a Windows x64 package and attaches it to the GitHub Release so it can
+# be downloaded from the Releases tab. workflow_dispatch lets you do a dry run
+# (produces a downloadable Actions artifact but does not publish a release).
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      toolset:
+        description: 'MSVC PlatformToolset to build with'
+        default: 'v143'
+        type: string
+
+permissions:
+  contents: write          # create the release and upload assets
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows-release:
+    name: Windows x64 package
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Enable vcpkg MSBuild integration
+        shell: pwsh
+        # The project uses vcpkg manifest mode (vcpkg.json + VcpkgEnabled).
+        # Integrating the preinstalled vcpkg makes MSBuild restore glfw3/glm/
+        # boost-asio, add their include/lib paths, and copy dependent DLLs
+        # (glfw3.dll) next to the exe automatically.
+        run: & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" integrate install
+
+      - name: Build Terrax (Release | x64)
+        shell: pwsh
+        # Terrax.vcxproj targets PlatformToolset v145 (VS 2026), which hosted
+        # runners do not ship, so override to the runner's toolset. The code is
+        # C++17 and builds on v143; bump this input once runners carry v145.
+        env:
+          TOOLSET: ${{ github.event.inputs.toolset || 'v143' }}
+        run: |
+          msbuild Terrax.vcxproj `
+            /p:Configuration=Release /p:Platform=x64 `
+            /p:PlatformToolset=$env:TOOLSET `
+            /m /v:minimal /clp:Summary
+          if ($LASTEXITCODE -ne 0) { throw "MSBuild failed ($LASTEXITCODE)" }
+
+      - name: Stage package
+        shell: pwsh
+        run: |
+          $rel   = "build/windows/Release"
+          $stage = "dist/Terrax"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item "$rel/Terrax.exe" $stage
+          Copy-Item "$rel/*.dll" $stage            # glfw3.dll and any other runtime DLLs
+          Copy-Item "shaders" "$stage/shaders" -Recurse
+          @"
+          Terrax — Windows x64
+
+          Run Terrax.exe to play. `Terrax.exe --server` runs a dedicated server (port 12345).
+          Keep glfw3.dll and the shaders\ folder next to Terrax.exe.
+
+          If the game fails to start, install the Microsoft Visual C++ Redistributable:
+          https://aka.ms/vs/17/release/vc_redist.x64.exe
+          "@ | Out-File -Encoding utf8 "$stage/README.txt"
+          Get-ChildItem -Recurse $stage | Select-Object FullName
+
+      - name: Package zip
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}"
+          if (-not $ver) { $ver = "dev" }
+          $zip = "Terrax-$ver-win64.zip"
+          Compress-Archive -Path "dist/Terrax/*" -DestinationPath $zip -Force
+          "ASSET=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Built $zip"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Terrax-win64
+          path: ${{ env.ASSET }}
+          if-no-files-found: error
+
+      - name: Publish to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ASSET }}
+          fail_on_unmatched_files: true

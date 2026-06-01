@@ -31,3 +31,7 @@ Win32/
 
 # vcpkg
 vcpkg_installed/
+
+# Release packaging output (see .github/workflows/release.yml)
+dist/
+Terrax-*-win64.zip

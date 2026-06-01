@@ -4,6 +4,7 @@
 #include "app_context.h"
 #include "network.h"
 #include "npc.h"
+#include "gameplay.h"   // castChainHeal / castHealZone (HealingStaffItem)
 
 // ---------------------------------------------------------------------------
 // Item type implementations — constructors, identity, and label helpers.
@@ -173,14 +174,58 @@ void StaffItem::onPrimaryAttack(AppContext& ctx, float chargeAmount, NPC* target
     ctx.client->send(PacketType::PlayerAttack, &ap, sizeof(ap));
 }
 
+// --- HealingStaffItem -----------------------------------------------------
+// Support caster. Both buttons defer to gameplay-side helpers that own the
+// heal targeting + particle work; here we set the heal power, tint the staff
+// green/gold, and gate each ability behind its own cooldown timer stored on
+// AppContext (decremented every frame in updateGameplay).
+
+HealingStaffItem::HealingStaffItem(std::string n)
+    : WeaponItem(std::move(n), WeaponType::Staff) {
+    element      = WeaponElement::Holy;
+    attackPower  = 24.0f;   // repurposed as heal-per-target / chain power
+    // Verdant green shaft with a warm gold crystal — reads as "restorative"
+    // at a glance next to the offensive elemental staves.
+    primaryColor = { 70, 190, 110, 255};
+    accentColor  = {235, 222, 150, 255};
+}
+
+void HealingStaffItem::onPrimaryAttack(AppContext& ctx, float /*charge*/, NPC* /*target*/) {
+    // Still on cooldown — cancel the cast pose gameplay just started so the
+    // arms don't fizzle, and wait. gameplay re-polls the button next frame.
+    if (ctx.healCdPrimary > 0.0f) {
+        if (ctx.playerRig) { ctx.playerRig->isCasting = false; ctx.playerRig->castAnim = 0.0f; }
+        return;
+    }
+    ctx.healCdPrimary = cooldown();
+    castChainHeal(ctx, attackPower);
+}
+
+void HealingStaffItem::onSecondaryAttack(AppContext& ctx) {
+    if (ctx.healCdSecondary > 0.0f) return;
+    ctx.healCdSecondary = 8.0f;
+    // Per-pulse heal is half the chain value; the zone makes up for the
+    // smaller tick with sustained healing across its lifetime.
+    castHealZone(ctx, attackPower * 0.5f, 4.5f, 6.0f);
+}
+
 // --- Factory --------------------------------------------------------------
 // All weapon construction routes through here so the only place that
 // knows the WeaponType → concrete-class mapping is this file.
 
-std::unique_ptr<WeaponItem> createWeaponItem(std::string name, WeaponType type) {
+std::unique_ptr<WeaponItem> createWeaponItem(std::string name, WeaponType type,
+                                             WeaponElement element) {
+    std::unique_ptr<WeaponItem> w;
     switch (type) {
         case WeaponType::Staff:
-            return std::make_unique<StaffItem>(std::move(name));
+            // A Holy staff mends instead of harming — a distinct concrete
+            // class so it round-trips through drop/pickup (loot rebuilds
+            // items via this factory, keyed on type + element).
+            if (element == WeaponElement::Holy)
+                w = std::make_unique<HealingStaffItem>(std::move(name));
+            else
+                w = std::make_unique<StaffItem>(std::move(name));
+            break;
         // Other types currently use the default WeaponItem (melee or
         // bow-style behaviour driven by gameplay.cpp). Adding a subclass
         // for any of them is a drop-in change — see CLAUDE.md's
@@ -189,10 +234,13 @@ std::unique_ptr<WeaponItem> createWeaponItem(std::string name, WeaponType type) 
         case WeaponType::Shield:
         case WeaponType::Bow:
         case WeaponType::Axe:
-            return std::make_unique<WeaponItem>(std::move(name), type);
+            w = std::make_unique<WeaponItem>(std::move(name), type);
+            break;
         default:
             return nullptr;
     }
+    if (w) w->element = element;
+    return w;
 }
 
 // --- Labels -----------------------------------------------------------------

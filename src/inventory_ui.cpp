@@ -68,6 +68,150 @@ std::string itemSubtitle(const Item* item) {
     return {};
 }
 
+// --- Layout + chrome ----------------------------------------------------
+// ImGui windows are positioned in the main viewport's coordinate space
+// (logical display units). That space tracks live resolution changes and
+// HiDPI scaling, so the panels stay put when the window is resized — unlike
+// the fixed WINDOW_WIDTH/HEIGHT constants or the raw framebuffer size, which
+// drift out of sync the moment the resolution changes.
+ImVec2 vpPos()  { return ImGui::GetMainViewport()->Pos; }
+ImVec2 vpSize() { return ImGui::GetMainViewport()->Size; }
+
+// Shared "equipment screen" palette — warm gold-on-leather, matched to the
+// global pixel-art theme set up in ui.cpp.
+constexpr ImU32 COL_GOLD     = IM_COL32(214, 176,  78, 255);
+constexpr ImU32 COL_GOLD_HI  = IM_COL32(247, 224, 150, 255);
+constexpr ImU32 COL_GOLD_DIM = IM_COL32(120,  96,  42, 255);
+constexpr ImU32 COL_GHOST    = IM_COL32(150, 124,  78,  70);
+
+// Engraved accent line just inside the window edge — gives the flat ImGui
+// border the "stamped metal plate" depth the rest of the HUD has. Call
+// right after Begin().
+void drawWindowInnerFrame() {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImVec2 a = ImGui::GetWindowPos();
+    ImVec2 s = ImGui::GetWindowSize();
+    ImVec2 b(a.x + s.x, a.y + s.y);
+    dl->AddRect(ImVec2(a.x + 4, a.y + 4), ImVec2(b.x - 4, b.y - 4),
+                COL_GOLD_DIM, 0.0f, 0, 1.5f);
+}
+
+// Riveted gold title plaque laid out at the current cursor. Reserves its
+// own vertical space so normal widgets continue below it.
+void titleBanner(const char* title) {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    float  w = ImGui::GetContentRegionAvail().x;
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    const float bh = 30.0f;
+    ImVec2 q(p.x + w, p.y + bh);
+    // Vertical sheen so the plaque looks lit from above.
+    dl->AddRectFilledMultiColor(p, q,
+        IM_COL32(64, 47, 24, 255), IM_COL32(64, 47, 24, 255),
+        IM_COL32(26, 18, 11, 255), IM_COL32(26, 18, 11, 255));
+    dl->AddRect(p, q, COL_GOLD, 0.0f, 0, 2.0f);
+    auto stud = [&](float x, float y) {
+        dl->AddCircleFilled(ImVec2(x, y), 2.0f, COL_GOLD_HI, 8);
+    };
+    stud(p.x + 7, p.y + 7); stud(q.x - 7, p.y + 7);
+    stud(p.x + 7, q.y - 7); stud(q.x - 7, q.y - 7);
+    ImVec2 ts = ImGui::CalcTextSize(title);
+    ImVec2 tp(p.x + (w - ts.x) * 0.5f, p.y + (bh - ts.y) * 0.5f);
+    dl->AddText(ImVec2(tp.x + 1, tp.y + 1), IM_COL32(0, 0, 0, 210), title);
+    dl->AddText(tp, COL_GOLD_HI, title);
+    ImGui::Dummy(ImVec2(w, bh));
+    ImGui::Spacing();
+}
+
+// Faint placeholder glyph for an empty equip slot, so the player can read
+// what belongs there before anything is on. One stroked shape per slot
+// kind, in the same visual language as drawItemIcon.
+void drawSlotGhost(ImDrawList* dl, ImVec2 c, float size, EquipSlot slot) {
+    float h = size * 0.5f;
+    ImU32 g = COL_GHOST;
+    auto box = [&](float x0, float y0, float x1, float y1) {
+        dl->AddRect(ImVec2(c.x + x0 * h, c.y + y0 * h),
+                    ImVec2(c.x + x1 * h, c.y + y1 * h), g, 0.0f, 0, 1.5f);
+    };
+    switch (slot) {
+        case EquipSlot::Helmet:
+            dl->AddCircle(ImVec2(c.x, c.y - h * 0.05f), h * 0.6f, g, 18, 1.5f);
+            dl->AddLine(ImVec2(c.x - h * 0.7f, c.y + h * 0.25f),
+                        ImVec2(c.x + h * 0.7f, c.y + h * 0.25f), g, 1.5f);
+            break;
+        case EquipSlot::Shoulders:
+            box(-0.8f, -0.25f, -0.2f, 0.35f); box(0.2f, -0.25f, 0.8f, 0.35f);
+            break;
+        case EquipSlot::Chest:
+            box(-0.55f, -0.7f, 0.55f, 0.6f);
+            dl->AddLine(ImVec2(c.x, c.y - h * 0.6f),
+                        ImVec2(c.x, c.y + h * 0.5f), g, 1.5f);
+            break;
+        case EquipSlot::Legs:
+            box(-0.5f, -0.6f, -0.05f, 0.7f); box(0.05f, -0.6f, 0.5f, 0.7f);
+            break;
+        case EquipSlot::Feet:
+            box(-0.7f, -0.1f, -0.1f, 0.5f); box(0.1f, -0.1f, 0.7f, 0.5f);
+            break;
+        case EquipSlot::MainHand:
+            dl->AddLine(ImVec2(c.x, c.y - h * 0.8f),
+                        ImVec2(c.x, c.y + h * 0.6f), g, 2.0f);
+            dl->AddLine(ImVec2(c.x - h * 0.4f, c.y + h * 0.2f),
+                        ImVec2(c.x + h * 0.4f, c.y + h * 0.2f), g, 2.0f);
+            break;
+        case EquipSlot::OffHand: {
+            ImVec2 pts[5] = {
+                ImVec2(c.x,             c.y - h * 0.75f),
+                ImVec2(c.x + h * 0.6f,  c.y - h * 0.4f),
+                ImVec2(c.x + h * 0.45f, c.y + h * 0.65f),
+                ImVec2(c.x - h * 0.45f, c.y + h * 0.65f),
+                ImVec2(c.x - h * 0.6f,  c.y - h * 0.4f),
+            };
+            dl->AddPolyline(pts, 5, g, ImDrawFlags_Closed, 1.5f);
+            break;
+        }
+        default: break;
+    }
+}
+
+// Geometry for the paired equipment screen (loadout panel + bag panel),
+// centred together in the viewport so the two windows read as one screen
+// and re-centre on every resolution change.
+struct EquipScreenLayout {
+    ImVec2 loadoutPos, loadoutSize;
+    ImVec2 bagPos, bagSize;
+    int    cols, rows;
+    float  cell, pad;
+};
+
+EquipScreenLayout computeEquipScreen() {
+    EquipScreenLayout L;
+    L.cols = 8; L.rows = 6; L.cell = 50.0f; L.pad = 6.0f;
+
+    ImVec2 vp = vpPos(), vs = vpSize();
+    const float wpad  = 14.0f;          // matches style.WindowPadding.x
+    float gridW = L.cols * L.cell + (L.cols - 1) * L.pad;
+    float bagW  = gridW + wpad * 2.0f + 4.0f;
+    float loadW = 300.0f;
+    float gap   = 22.0f;
+
+    // Panel height holds the bag grid plus its chrome (banner + counts +
+    // hint + footer). Clamp to the viewport so it always fits — a smaller
+    // window just leaves less margin around the screen.
+    float gridH  = L.rows * L.cell + (L.rows - 1) * L.pad;
+    float panelH = gridH + 196.0f;
+    panelH = std::min(panelH, vs.y - 24.0f);
+
+    float totalW = loadW + gap + bagW;
+    float x0 = vp.x + (vs.x - totalW) * 0.5f;
+    float y  = vp.y + (vs.y - panelH) * 0.5f;
+
+    L.loadoutPos  = ImVec2(x0, y);
+    L.loadoutSize = ImVec2(loadW, panelH);
+    L.bagPos      = ImVec2(x0 + loadW + gap, y);
+    L.bagSize     = ImVec2(bagW, panelH);
+    return L;
+}
+
 // --- Stylised item icon ------------------------------------------------
 // Draws a small voxel-flavoured silhouette per item kind/slot/weapon type.
 // Centred at `c`, sized to fit a `size` x `size` box. Uses the item's two
@@ -249,11 +393,24 @@ bool drawItemCell(AppContext& ctx, ImVec2 size, int cellIdx, Item* item,
             dl->AddRectFilled(cursor, ImVec2(cursor.x + size.x, cursor.y + size.y),
                               IM_COL32(0, 0, 0, 120));
         }
+    } else if (equipDropTarget != EquipSlot::None) {
+        // Empty equip slot — draw a faint ghost of what belongs here.
+        ImVec2 center(cursor.x + size.x * 0.5f, cursor.y + size.y * 0.5f);
+        drawSlotGhost(dl, center, size.x * 0.72f, equipDropTarget);
     }
 
     // An invisible button claims the cell's input so drag/click work.
     bool clicked = ImGui::InvisibleButton("##cell", size);
     bool changed = false;
+
+    // Hover highlight — gold frame + faint inner glow so the focused cell
+    // pops. Drawn over the icon, under the cursor's drag preview.
+    if (ImGui::IsItemHovered()) {
+        dl->AddRectFilled(cursor, ImVec2(cursor.x + size.x, cursor.y + size.y),
+                          IM_COL32(255, 220, 140, 26));
+        dl->AddRect(cursor, ImVec2(cursor.x + size.x, cursor.y + size.y),
+                    COL_GOLD_HI, 0.0f, 0, 2.0f);
+    }
 
     // Hover tooltip.
     if (item && ImGui::IsItemHovered()) {
@@ -423,14 +580,10 @@ bool drawEquipSlotCell(AppContext& ctx, ImVec2 pos, ImVec2 size,
     bool changed = drawItemCell(ctx, size, /*cellIdx*/-1, eq, dragSrc,
                                 /*allowDropAsSwap*/false, slot);
 
-    // Label below the cell — helps the player learn which slot is which.
-    ImVec2 cur = ImGui::GetCursorScreenPos();
-    ImDrawList* dl = ImGui::GetForegroundDrawList();
-    (void)dl;
-    // We use the window's drawlist so it stays inside the window scissor.
-    ImGui::SetCursorPos(ImVec2(pos.x, pos.y + size.y + 2));
+    // Label centred below the cell — helps the player learn the slots.
+    ImVec2 tsz = ImGui::CalcTextSize(label);
+    ImGui::SetCursorPos(ImVec2(pos.x + (size.x - tsz.x) * 0.5f, pos.y + size.y + 3));
     ImGui::TextDisabled("%s", label);
-    (void)cur;
     return changed;
 }
 
@@ -448,73 +601,68 @@ void afterEquipmentChange(AppContext& ctx) {
 // ---------------------------------------------------------------------------
 
 void renderInventoryUI(AppContext& ctx, GLFWwindow* window) {
-    int fbW = 0, fbH = 0;
-    glfwGetFramebufferSize(window, &fbW, &fbH);
-    if (fbW <= 0) fbW = WINDOW_WIDTH;
-    if (fbH <= 0) fbH = WINDOW_HEIGHT;
+    EquipScreenLayout L = computeEquipScreen();
 
-    const int   cols = 6;
-    const int   rows = 4;
-    const float cellSize = 56.0f;
-    const float pad      = 6.0f;
-    const float gridW    = cols * cellSize + (cols - 1) * pad;
-    const float winW     = gridW + 30.0f;
-    const float winH     = rows * cellSize + (rows - 1) * pad + 150.0f;
-
-    // Inventory panel sits on the right; character loadout sits on the
-    // left (see renderCharacterLoadoutUI). They line up vertically.
-    float winX = (fbW * 0.5f) + 20.0f;
-    float winY = (fbH - winH) * 0.5f;
-
-    ImGui::SetNextWindowPos(ImVec2(winX, winY), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(winW, winH), ImGuiCond_Always);
+    ImGui::SetNextWindowPos(L.bagPos, ImGuiCond_Always);
+    ImGui::SetNextWindowSize(L.bagSize, ImGuiCond_Always);
     ImGui::Begin("Inventory", nullptr,
                  ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
-                 ImGuiWindowFlags_NoCollapse);
+                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar |
+                 ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    drawWindowInnerFrame();
+    titleBanner("BACKPACK");
 
     int filled = 0;
     for (int i = 0; i < ctx.inventory.capacity(); i++)
         if (ctx.inventory.at(i)) filled++;
-    ImGui::TextColored(ImVec4(0.96f, 0.85f, 0.5f, 1.0f),
-                       "Bag  %d / %d", filled, ctx.inventory.capacity());
+    int cap = ctx.inventory.capacity();
 
-    // Procedural generation buttons — same as before but slimmer now.
-    // Pass the player's level so generated gear stays equippable.
-    if (ImGui::SmallButton("Random")) {
-        ctx.inventory.addItem(
-            generateRandomItem(std::random_device{}(), ctx.playerLevel));
-    }
+    // Count read-out: "Items   N / M" — N turns red when the bag is full.
+    ImGui::TextColored(ImVec4(0.96f, 0.85f, 0.5f, 1.0f), "Items");
     ImGui::SameLine();
-    if (ImGui::SmallButton("Clothing")) {
-        ctx.inventory.addItem(
-            generateRandomClothing(std::random_device{}(), ctx.playerLevel));
-    }
+    ImVec4 cntCol = (filled >= cap) ? ImVec4(0.95f, 0.45f, 0.40f, 1.0f)
+                                    : ImVec4(0.90f, 0.86f, 0.70f, 1.0f);
+    ImGui::TextColored(cntCol, "%d / %d", filled, cap);
     ImGui::SameLine();
-    if (ImGui::SmallButton("Weapon")) {
-        ctx.inventory.addItem(
-            generateRandomWeapon(std::random_device{}(), ctx.playerLevel));
-    }
-    ImGui::TextDisabled("Drag to reorder, drag onto a slot to equip, right-click to toggle.");
+    ImGui::TextDisabled("   Drag to a slot to equip  /  Right-click to toggle  /  Q to drop");
 
     ImGui::Separator();
+    ImGui::Spacing();
 
-    // 6x4 grid of cells.
-    bool changed = false;
+    // The bag grid, centred within the content region.
+    bool   changed    = false;
     ImVec2 gridOrigin = ImGui::GetCursorPos();
-    for (int r = 0; r < rows; r++) {
-        for (int col = 0; col < cols; col++) {
-            int idx = r * cols + col;
-            ImGui::SetCursorPos(ImVec2(gridOrigin.x + col * (cellSize + pad),
-                                       gridOrigin.y + r   * (cellSize + pad)));
+    float  gridW = L.cols * L.cell + (L.cols - 1) * L.pad;
+    float  avail = ImGui::GetContentRegionAvail().x;
+    float  gx    = gridOrigin.x + std::max(0.0f, (avail - gridW) * 0.5f);
+
+    for (int r = 0; r < L.rows; r++) {
+        for (int col = 0; col < L.cols; col++) {
+            int idx = r * L.cols + col;
+            ImGui::SetCursorPos(ImVec2(gx           + col * (L.cell + L.pad),
+                                       gridOrigin.y + r   * (L.cell + L.pad)));
             Item* it = ctx.inventory.at(idx);
-            if (drawItemCell(ctx, ImVec2(cellSize, cellSize), idx, it, idx))
+            if (drawItemCell(ctx, ImVec2(L.cell, L.cell), idx, it, idx))
                 changed = true;
         }
     }
-    ImGui::SetCursorPos(ImVec2(gridOrigin.x,
-                               gridOrigin.y + rows * (cellSize + pad) + 6));
 
-    if (ImGui::Button("Close (I / C / Esc)", ImVec2(-1, 28))) {
+    // Footer pinned to the panel's bottom edge: a dim "conjure" row for
+    // testing gear, then the close button.
+    ImGui::SetCursorPos(ImVec2(14.0f, L.bagSize.y - 80.0f));
+    ImGui::Separator();
+    ImGui::TextDisabled("Conjure:");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Any"))
+        ctx.inventory.addItem(generateRandomItem(std::random_device{}(), ctx.playerLevel));
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Armor"))
+        ctx.inventory.addItem(generateRandomClothing(std::random_device{}(), ctx.playerLevel));
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Weapon"))
+        ctx.inventory.addItem(generateRandomWeapon(std::random_device{}(), ctx.playerLevel));
+
+    if (ImGui::Button("Close   ( I / C / Esc )", ImVec2(-1, 28))) {
         ctx.showInventory = false;
         ctx.showCharacterLoadout = false;
         glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
@@ -526,66 +674,73 @@ void renderInventoryUI(AppContext& ctx, GLFWwindow* window) {
 }
 
 void renderCharacterLoadoutUI(AppContext& ctx, GLFWwindow* window) {
-    int fbW = 0, fbH = 0;
-    glfwGetFramebufferSize(window, &fbW, &fbH);
-    if (fbW <= 0) fbW = WINDOW_WIDTH;
-    if (fbH <= 0) fbH = WINDOW_HEIGHT;
+    (void)window;
+    EquipScreenLayout L = computeEquipScreen();
+    const float cellSize = 56.0f;
 
-    const float cellSize = 60.0f;
-    const float winW = 320.0f;
-    const float winH = 480.0f;
-    float winX = (fbW * 0.5f) - winW - 20.0f;
-    float winY = (fbH - winH) * 0.5f;
-
-    ImGui::SetNextWindowPos(ImVec2(winX, winY), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(winW, winH), ImGuiCond_Always);
+    ImGui::SetNextWindowPos(L.loadoutPos, ImGuiCond_Always);
+    ImGui::SetNextWindowSize(L.loadoutSize, ImGuiCond_Always);
     ImGui::Begin("Character Loadout", nullptr,
                  ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
-                 ImGuiWindowFlags_NoCollapse);
+                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar |
+                 ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    drawWindowInnerFrame();
+    titleBanner("EQUIPMENT");
 
     ImGui::TextColored(ImVec4(0.96f, 0.85f, 0.5f, 1.0f), "%s", ctx.playerName);
+    ImGui::SameLine();
+    ImGui::TextDisabled("Lv %d", ctx.playerLevel);
     ImGui::Separator();
 
-    // Humanoid layout — slots positioned roughly where they sit on the
-    // body. Coordinates are in window-content space (after the title bar).
+    // --- Paper-doll diagram -------------------------------------------
+    // Slot columns are laid out in window-local coordinates; the backing
+    // board and connector lines are drawn behind them in screen space.
     //
-    //                    +--------+
-    //                    | Helmet |
-    //                    +--------+
-    //                    +--------+
-    //                    |Should. |
-    //                    +--------+
-    //          +--------+ +-------+ +--------+
-    //          |MainHand| | Chest | |OffHand |
-    //          +--------+ +-------+ +--------+
-    //                    +--------+
-    //                    |  Legs  |
-    //                    +--------+
-    //                    +--------+
-    //                    |  Feet  |
-    //                    +--------+
-    const float colCenter = (winW - cellSize) * 0.5f;
-    const float colLeft   = colCenter - cellSize - 16.0f;
-    const float colRight  = colCenter + cellSize + 16.0f;
-    const float startY    = 42.0f;
-    const float rowGap    = cellSize + 18.0f;
+    //              [ Helmet ]
+    //            [ Shoulders ]
+    //   [Main] ── [ Chest ] ── [Off]
+    //              [  Legs  ]
+    //              [  Feet  ]
+    const float colCenter = (L.loadoutSize.x - cellSize) * 0.5f;
+    const float colLeft   = colCenter - cellSize - 14.0f;
+    const float colRight  = colCenter + cellSize + 14.0f;
+    const float startY    = ImGui::GetCursorPosY() + 8.0f;
+    const float rowGap    = cellSize + 14.0f;
+    const float half      = cellSize * 0.5f;
+
+    ImVec2 winPos = ImGui::GetWindowPos();
+    auto scr = [&](float lx, float ly) { return ImVec2(winPos.x + lx, winPos.y + ly); };
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    // Backing board behind the cluster.
+    ImVec2 bTL = scr(colLeft - 12.0f, startY - 12.0f);
+    ImVec2 bBR = scr(colRight + cellSize + 12.0f,
+                     startY + rowGap * 4 + cellSize + 12.0f);
+    dl->AddRectFilled(bTL, bBR, IM_COL32(18, 12, 8, 150));
+    dl->AddRect(bTL, bBR, COL_GOLD_DIM, 0.0f, 0, 1.0f);
+
+    // Connector "diagram" lines: a spine down the body and arms to the hands.
+    dl->AddLine(scr(colCenter + half, startY + half),
+                scr(colCenter + half, startY + rowGap * 4 + half),
+                COL_GOLD_DIM, 1.5f);
+    dl->AddLine(scr(colLeft + half,  startY + rowGap * 2 + half),
+                scr(colRight + half, startY + rowGap * 2 + half),
+                COL_GOLD_DIM, 1.5f);
 
     bool changed = false;
-    auto slot = [&](ImVec2 pos, EquipSlot s, const char* label) {
-        if (drawEquipSlotCell(ctx, pos, ImVec2(cellSize, cellSize), s, label))
+    auto slot = [&](float lx, float ly, EquipSlot s, const char* label) {
+        if (drawEquipSlotCell(ctx, ImVec2(lx, ly), ImVec2(cellSize, cellSize), s, label))
             changed = true;
     };
+    slot(colCenter, startY + rowGap * 0, EquipSlot::Helmet,    "Helmet");
+    slot(colCenter, startY + rowGap * 1, EquipSlot::Shoulders, "Shoulders");
+    slot(colLeft,   startY + rowGap * 2, EquipSlot::MainHand,  "Main Hand");
+    slot(colCenter, startY + rowGap * 2, EquipSlot::Chest,     "Chest");
+    slot(colRight,  startY + rowGap * 2, EquipSlot::OffHand,   "Off Hand");
+    slot(colCenter, startY + rowGap * 3, EquipSlot::Legs,      "Legs");
+    slot(colCenter, startY + rowGap * 4, EquipSlot::Feet,      "Feet");
 
-    slot(ImVec2(colCenter, startY + rowGap * 0), EquipSlot::Helmet,    "Helmet");
-    slot(ImVec2(colCenter, startY + rowGap * 1), EquipSlot::Shoulders, "Shoulders");
-    slot(ImVec2(colLeft,   startY + rowGap * 2), EquipSlot::MainHand,  "Main Hand");
-    slot(ImVec2(colCenter, startY + rowGap * 2), EquipSlot::Chest,     "Chest");
-    slot(ImVec2(colRight,  startY + rowGap * 2), EquipSlot::OffHand,   "Off Hand");
-    slot(ImVec2(colCenter, startY + rowGap * 3), EquipSlot::Legs,      "Legs");
-    slot(ImVec2(colCenter, startY + rowGap * 4), EquipSlot::Feet,      "Feet");
-
-    // Aggregate stats at the bottom.
-    ImGui::SetCursorPos(ImVec2(16.0f, startY + rowGap * 5 + 12.0f));
+    // --- Aggregate stats, pinned to the bottom ------------------------
     float defense = 0.0f, attack = 0.0f;
     for (int i = 0; i < ctx.inventory.capacity(); i++) {
         Item* it = ctx.inventory.at(i);
@@ -596,9 +751,12 @@ void renderCharacterLoadoutUI(AppContext& ctx, GLFWwindow* window) {
             && rev->second == EquipSlot::MainHand)
             attack += it->attackPower;
     }
-    ImGui::Text("Attack:  %.0f", attack);
-    ImGui::Text("Defense: %.0f", defense);
-    ImGui::TextDisabled("Drag from the bag to a slot, or right-click an item.");
+    ImGui::SetCursorPos(ImVec2(14.0f, L.loadoutSize.y - 76.0f));
+    ImGui::Separator();
+    ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.45f, 1.0f), "Attack");
+    ImGui::SameLine(120.0f); ImGui::Text("%.0f", attack);
+    ImGui::TextColored(ImVec4(0.55f, 0.75f, 1.00f, 1.0f), "Defense");
+    ImGui::SameLine(120.0f); ImGui::Text("%.0f", defense);
 
     ImGui::End();
 

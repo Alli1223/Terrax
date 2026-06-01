@@ -43,6 +43,8 @@ enum class PacketType : uint8_t {
     LootPickupRequest = 17,     // client -> server: I'm trying to pick up drop N
     LootRemoved = 18,           // server -> all: drop N is gone (picked up / expired)
     DropItemRequest = 19,       // client -> server: drop one of my items at pos P
+    PlayerHeal = 20,            // client -> server -> all: a heal applied to a player
+    SpellEffect = 21,           // client -> server -> all: cosmetic spell effect to spawn
 };
 
 #pragma pack(push, 1)
@@ -230,6 +232,31 @@ struct DropItemRequestPacket {
     char     setName[24];
     uint8_t  element;
 };
+
+// Client -> server -> all: a heal applied to one player. The caster sends
+// one packet per healed target; the server rebroadcasts (skipping the
+// caster). The targeted client adds `amount` to its own health (health is
+// client-owned, same as damage), and EVERY client spawns a heal sparkle at
+// (x,y,z) so the heal reads visibly for spectators too. This is the heal
+// mirror of PlayerHealthPacket.
+struct PlayerHealPacket {
+    uint32_t targetID;
+    float    amount;     // HP restored (same 0..100 scale as PlayerHealthPacket.damage)
+    float    x, y, z;    // world position for the heal sparkle
+};
+
+// Client -> server -> all: a cosmetic spell effect for spectators to spawn.
+// The caster already renders its own copy locally; the server rebroadcasts
+// to the other clients so they see the chain beam / healing zone as well.
+// No gameplay authority rides on this packet — actual healing travels via
+// PlayerHealPacket.
+struct SpellEffectPacket {
+    uint32_t casterID;
+    uint8_t  kind;        // 0 = healing zone, 1 = chain-heal burst
+    float    x, y, z;
+    float    radius;      // zone radius in world units (0 for point effects)
+    float    ttl;         // seconds the effect should live
+};
 #pragma pack(pop)
 
 // A melee/ranged hit a client landed on an NPC; the server game loop
@@ -414,7 +441,10 @@ public:
     std::vector<AnimalStatePacket>  animalUpdates;   // drained by gameplay each frame
     std::vector<LootSpawnPacket>    lootSpawns;      // drained by gameplay each frame
     std::vector<LootRemovedPacket>  lootRemovals;    // drained by gameplay each frame
+    std::vector<PlayerHealPacket>   healEvents;      // heals to apply/show, drained by gameplay
+    std::vector<SpellEffectPacket>  spellEffects;    // cosmetic spell fx, drained by gameplay
     float pendingSelfDamage = 0.0f;                  // damage dealt to us, drained by gameplay
+    float pendingSelfHeal   = 0.0f;                  // heal dealt to us, drained by gameplay
 
 private:
     void doReceiveUDP();

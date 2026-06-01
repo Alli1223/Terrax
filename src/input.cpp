@@ -39,6 +39,14 @@ static void mouse_button_callback(GLFWwindow* window, int button, int action, in
     // placing a block. Right release lowers it. Block-place still works
     // when no shield is equipped.
     if (button == GLFW_MOUSE_BUTTON_RIGHT) {
+        // A main-hand weapon with a secondary attack (the healing staff's AOE)
+        // owns the right button — gameplay polls it per frame, so swallow the
+        // click here instead of placing a block.
+        Item* mh = ctx.inventory.equipped(EquipSlot::MainHand);
+        if (mh && mh->getKind() == ItemKind::Weapon
+            && static_cast<WeaponItem*>(mh)->hasSecondaryAttack())
+            return;
+
         Item* off = ctx.inventory.equipped(EquipSlot::OffHand);
         bool hasShield = off && off->getKind() == ItemKind::Weapon
             && static_cast<WeaponItem*>(off)->getType() == WeaponType::Shield;

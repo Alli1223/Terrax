@@ -147,7 +147,7 @@ private:
 // right subclass is instantiated for each WeaponType.
 //
 // `slot` is auto-set from `type` (shield → OffHand, else MainHand).
-class AppContext;   // forward-decl so onPrimaryAttack can take a ref
+struct AppContext;  // forward-decl so onPrimaryAttack can take a ref
                     // without dragging app_context.h into items.h.
 class NPC;
 

@@ -3,6 +3,16 @@
 #ifndef TERRAX_TESTING
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
+// GLFW defines APIENTRY for its callback typedefs and never undefs it (it only
+// records GLFW_APIENTRY_DEFINED). When Boost.Asio later pulls in <windows.h>,
+// that redefines APIENTRY and warns (C4005). gl_loader uses GL_APIENTRY (below),
+// not APIENTRY, so undo GLFW's leak here and let <windows.h> define it cleanly.
+// Guarding on GLFW_APIENTRY_DEFINED means we only drop the definition GLFW
+// itself added (no-op if <windows.h> was already included first).
+#ifdef GLFW_APIENTRY_DEFINED
+#undef APIENTRY
+#undef GLFW_APIENTRY_DEFINED
+#endif
 #endif
 #include <stddef.h>
 

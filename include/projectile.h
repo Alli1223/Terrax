@@ -140,5 +140,5 @@ public:
 // update because GameObject::update() doesn't get the ObjectManager —
 // this keeps the projectile class self-contained while still allowing
 // it to react via the virtual onHitNpc() hook.
-class AppContext;
+struct AppContext;
 void updateProjectileCollisions(AppContext& ctx);

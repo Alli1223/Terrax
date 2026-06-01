@@ -70,6 +70,14 @@ public:
     float     idleTimer = 0.0f;
     bool      goingHome = false;        // villager night routine: heading to / staying home
 
+    // Server-only: set to true the first time loot was rolled for this
+    // NPC's death so we don't spawn loot on every overkill swing.
+    bool      lootDropped = false;
+
+    // Read-only access for systems that need to inspect a dying NPC's
+    // voxels (e.g. the death-explosion particle spawner).
+    const BipedalRig* getRig() const { return rig; }
+
 private:
     BipedalRig* rig = nullptr;          // client-only, owned
 };
@@ -132,7 +140,8 @@ public:
     // Resolves a melee hit a player landed on an NPC: damages it (unless it is
     // protected townsfolk in a town), and flags the attacker wanted / panics
     // villagers as appropriate.
-    void playerHitNpc(uint32_t attackerId, uint32_t npcId, glm::vec3 attackerPos);
+    void playerHitNpc(uint32_t attackerId, uint32_t npcId, glm::vec3 attackerPos,
+                       float damageScale = 1.0f);
 
     // Damage NPCs dealt to players this tick; the server loop drains it.
     std::vector<PlayerDamage> pendingDamage;

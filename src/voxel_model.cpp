@@ -96,6 +96,37 @@ bool VoxelVolume::raycast(glm::vec3 ro, glm::vec3 rd, float maxDist, glm::ivec3&
     return false;
 }
 
+// Small voxel lantern — dark metal frame around a glowing yellow
+// "flame" cell, plus a tiny handle on top. Built once per rig and
+// cached on `lanternMeshCache`; the lantern CharacterNode borrows the
+// pointer when visible and we null it out before the destructor runs
+// to avoid the node's automatic delete double-freeing our cache.
+static VoxelVolume* buildLanternMesh() {
+    VoxelVolume* v = new VoxelVolume(3, 5, 3);
+    Voxel frame = { 55,  45,  35, 255};
+    Voxel cap   = { 35,  28,  22, 255};
+    Voxel flame = {255, 215, 110, 255};
+    Voxel ember = {255, 165,  60, 255};
+
+    // Bottom base — dark frame perimeter.
+    for (int x = 0; x < 3; x++) for (int z = 0; z < 3; z++)
+        v->setVoxel(x, 0, z, frame);
+    // Two flame rows — bright centre with darker corners (so it reads
+    // as a glowing cell behind a corner frame).
+    for (int x = 0; x < 3; x++) for (int z = 0; z < 3; z++) {
+        bool corner = (x != 1 && z != 1);
+        v->setVoxel(x, 1, z, corner ? frame : flame);
+        v->setVoxel(x, 2, z, corner ? frame : ember);
+    }
+    // Cap.
+    for (int x = 0; x < 3; x++) for (int z = 0; z < 3; z++)
+        v->setVoxel(x, 3, z, cap);
+    // Handle — single voxel above centre.
+    v->setVoxel(1, 4, 1, cap);
+    v->updateMesh();
+    return v;
+}
+
 BipedalRig::BipedalRig() {
     root = new CharacterNode("Root");
     torso = new CharacterNode("Torso");
@@ -104,7 +135,13 @@ BipedalRig::BipedalRig() {
     rArm = new CharacterNode("RArm");
     lLeg = new CharacterNode("LLeg");
     rLeg = new CharacterNode("RLeg");
-    sword = new CharacterNode("Sword");
+    sword       = new CharacterNode("MainHandWeapon");
+    offHand     = new CharacterNode("OffHandWeapon");
+    bowString   = new CharacterNode("BowString");
+    quiver      = new CharacterNode("Quiver");
+    lantern     = nullptr;   // retired — see lanternBelt + lanternHand below
+    lanternBelt = new CharacterNode("LanternBelt");
+    lanternHand = new CharacterNode("LanternHand");
     root->addChild(torso);
     torso->addChild(head);
     torso->addChild(lArm);
@@ -112,6 +149,39 @@ BipedalRig::BipedalRig() {
     torso->addChild(lLeg);
     torso->addChild(rLeg);
     rArm->addChild(sword);
+    lArm->addChild(offHand);
+    // The bow body lives on the off-hand (see weapon_builder.cpp). The
+    // string is a child of the bow so it pivots with the arm.
+    offHand->addChild(bowString);
+    // Quiver attached to the upper back of the torso.
+    torso->addChild(quiver);
+    // Two lantern anchor points — the belt version hangs from the
+    // torso (left hip) and the hand version is a child of rArm so it
+    // follows the right hand naturally when the arm raises. Only one
+    // is ever visible at a time (volume swap each frame in update()).
+    torso->addChild(lanternBelt);
+    rArm->addChild(lanternHand);
+    lanternMeshCache = buildLanternMesh();
+    // Pivot at the bottom-centre of the lantern so localPos points at
+    // the hook the lantern is hanging from.
+    lanternBelt->pivot = glm::vec3(1.0f, 4.0f, 1.0f);
+    lanternHand->pivot = glm::vec3(1.0f, 4.0f, 1.0f);
+    // Resting positions — tweaked to read as "on the belt" / "in hand".
+    // Belt: left hip, low on the torso. Hand: at the grip of the right
+    // hand (which is at y=-6 from the shoulder in rArm-local space).
+    lanternBelt->localPos = glm::vec3(1.0f, 2.0f, 4.0f);
+    lanternHand->localPos = glm::vec3(3.0f, -7.0f, 3.0f);
+}
+
+// Custom destructor — clear BOTH lantern nodes' borrowed volume
+// pointers so the inherited CharacterNode destructor doesn't try to
+// double-free the cached mesh we own here. Base CharacterRig
+// destructor then deletes root + children without touching the cache.
+BipedalRig::~BipedalRig() {
+    if (lanternBelt) lanternBelt->volume = nullptr;
+    if (lanternHand) lanternHand->volume = nullptr;
+    delete lanternMeshCache;
+    lanternMeshCache = nullptr;
 }
 
 void BipedalRig::setupDefaultHuman(bool male) {
@@ -174,6 +244,197 @@ void BipedalRig::setupDefaultHuman(bool male) {
     applyCustomization();
 }
 
+// ---------------------------------------------------------------------------
+// Animation pipeline
+// ---------------------------------------------------------------------------
+// `update()` composes the per-frame pose from a small number of named
+// pose helpers. Each helper is responsible for ONE thing and writes to
+// the body parts it owns. Later helpers in the chain override earlier
+// ones for the parts they touch — that's how combat overlays beat
+// walking, and clips beat both.
+//
+// Order matters:
+//   1. Breathing          (torso + head)
+//   2. Base locomotion    (arms + legs walk/idle)
+//   3. Combat overlays    (attack / block / bow draw / cast)
+//   4. Carry overlays     (lantern hold)
+//   5. One-shot clips     (wave / cheer / etc — last word)
+//   6. Misc child-node bookkeeping (bow string slide, lantern visibility)
+
+static void approachAngle(float& cur, float target, float dt, float speed) {
+    cur = glm::mix(cur, target, std::min(1.0f, dt * speed));
+}
+
+void BipedalRig::playClip(ClipKind kind, float durationSeconds) {
+    AnimationClip c;
+    c.kind     = kind;
+    c.duration = (durationSeconds > 0.0f) ? durationSeconds : 1.0f;
+    c.elapsed  = 0.0f;
+    activeClips.push_back(c);
+}
+
+// ---- Pose helpers ----------------------------------------------------
+
+namespace {
+
+// Breath rocks the upper body gently so a standing-still character
+// looks alive instead of frozen.
+void applyBreathingPose(BipedalRig& r, float /*dt*/) {
+    float breathe = sinf(r.animTime * 2.0f) * 1.5f;
+    if (r.torso) r.torso->localRot.x = breathe;
+    if (r.head)  r.head->localRot.x  = -breathe * 0.5f;
+}
+
+// Arms swing opposite the legs in a sin wave when walking; relaxes
+// smoothly back to zero when standing still.
+void applyBaseLocomotion(BipedalRig& r, float dt, float velocity) {
+    if (!r.lArm || !r.rArm || !r.lLeg || !r.rLeg) return;
+    if (velocity > 0.1f) {
+        float swing = sinf(r.animTime * velocity * 0.5f * 5.0f) * 30.0f;
+        r.lArm->localRot = glm::vec3(swing, 0.0f, 0.0f);
+        r.rArm->localRot = glm::vec3(-swing, 0.0f, 0.0f);
+        r.lLeg->localRot.x = -swing;
+        r.rLeg->localRot.x =  swing;
+    } else {
+        approachAngle(r.lArm->localRot.x, 0.0f, dt, 5.0f);
+        approachAngle(r.lArm->localRot.y, 0.0f, dt, 5.0f);
+        approachAngle(r.lArm->localRot.z, 0.0f, dt, 5.0f);
+        approachAngle(r.rArm->localRot.x, 0.0f, dt, 5.0f);
+        approachAngle(r.rArm->localRot.y, 0.0f, dt, 5.0f);
+        approachAngle(r.rArm->localRot.z, 0.0f, dt, 5.0f);
+        approachAngle(r.lLeg->localRot.x, 0.0f, dt, 5.0f);
+        approachAngle(r.rLeg->localRot.x, 0.0f, dt, 5.0f);
+    }
+}
+
+// Right-arm sword swing — bell curve over `attackAnim` clamped to 1.0.
+// Clears `isAttacking` when the swing finishes.
+void applyAttackPose(BipedalRig& r, float dt) {
+    if (!r.isAttacking || !r.rArm) return;
+    r.attackAnim += dt * 5.0f;
+    if (r.attackAnim > 1.0f) { r.isAttacking = false; r.attackAnim = 0.0f; }
+    float swing = sinf(r.attackAnim * 3.14159f) * 90.0f;
+    r.rArm->localRot.x = -swing;
+    r.rArm->localRot.y =  swing * 0.5f;
+}
+
+// Both arms raise forward in a casting motion (used by staves).
+void applyCastingPose(BipedalRig& r, float dt) {
+    if (!r.isCasting) return;
+    r.castAnim += dt * 4.5f;
+    if (r.castAnim > 1.0f) { r.isCasting = false; r.castAnim = 0.0f; }
+    float bell = std::sin(r.castAnim * 3.14159f);
+    float lift = -65.0f - bell * 25.0f;
+    if (r.rArm) {
+        r.rArm->localRot.x = lift;
+        r.rArm->localRot.y = -10.0f - bell * 15.0f;
+        r.rArm->localRot.z =  10.0f * bell;
+    }
+    if (r.lArm) {
+        r.lArm->localRot.x = lift;
+        r.lArm->localRot.y =  10.0f + bell * 15.0f;
+        r.lArm->localRot.z = -10.0f * bell;
+    }
+}
+
+// Off-hand shield raised in front when blocking.
+void applyBlockingPose(BipedalRig& r, float dt) {
+    if (!r.isBlocking || !r.lArm) return;
+    approachAngle(r.lArm->localRot.x, -85.0f, dt, 12.0f);
+    approachAngle(r.lArm->localRot.y,  15.0f, dt, 12.0f);
+}
+
+// Right arm pulls back, left arm extends forward to hold the bow.
+void applyBowDrawPose(BipedalRig& r, float dt) {
+    if (r.bowDrawAmount <= 0.0f || r.isAttacking) return;
+    float pullBack = r.bowDrawAmount * 95.0f;
+    if (r.rArm) {
+        approachAngle(r.rArm->localRot.x, -pullBack, dt, 10.0f);
+        approachAngle(r.rArm->localRot.y,   25.0f,   dt, 10.0f);
+    }
+    if (r.lArm && !r.isBlocking) {
+        approachAngle(r.lArm->localRot.x, -88.0f, dt, 10.0f);
+        approachAngle(r.lArm->localRot.y, -10.0f, dt, 10.0f);
+    }
+}
+
+// Right arm raised to hold the lantern out in front. Only kicks in
+// when the player has the lantern AND lanternHeld is true AND no
+// higher-priority animation is playing.
+void applyLanternHoldPose(BipedalRig& r, float dt) {
+    if (!r.hasLantern || !r.lanternHeld || !r.rArm) return;
+    if (r.isAttacking || r.isCasting || r.bowDrawAmount > 0.0f) return;
+    approachAngle(r.rArm->localRot.x, -75.0f, dt, 8.0f);
+    approachAngle(r.rArm->localRot.y, -15.0f, dt, 8.0f);
+    approachAngle(r.rArm->localRot.z,   0.0f, dt, 8.0f);
+}
+
+// Toggle lantern mesh between belt anchor (child of torso) and hand
+// anchor (child of rArm). Only one is ever visible at a time so the
+// cached mesh is "borrowed" by whichever node is on duty.
+void applyLanternVisibility(BipedalRig& r) {
+    if (!r.lanternBelt || !r.lanternHand) return;
+    if (r.hasLantern && r.lanternHeld) {
+        r.lanternBelt->volume = nullptr;
+        r.lanternHand->volume = r.lanternMeshCache;
+    } else if (r.hasLantern) {
+        r.lanternBelt->volume = r.lanternMeshCache;
+        r.lanternHand->volume = nullptr;
+    } else {
+        r.lanternBelt->volume = nullptr;
+        r.lanternHand->volume = nullptr;
+    }
+}
+
+// Bow string slide + counter-rotate the bow body so it stays vertical
+// regardless of the left arm's pitch.
+void applyBowStringPose(BipedalRig& r) {
+    if (!r.bowString || !r.bowString->volume || !r.offHand || !r.lArm) return;
+    r.offHand->localRot.x = -r.lArm->localRot.x;
+    r.offHand->localRot.y = -r.lArm->localRot.y;
+    r.bowString->localPos.z = -r.bowDrawAmount * 4.0f;
+}
+
+// Per-clip pose: each ClipKind expresses its own animation as a
+// function of `t = elapsed / duration` (0..1). Wins over whatever the
+// base + overlays set because clips run last.
+void applyClipPose(BipedalRig& r, const AnimationClip& clip) {
+    float t = (clip.duration > 0.0f) ? (clip.elapsed / clip.duration) : 1.0f;
+    if (t > 1.0f) t = 1.0f;
+    switch (clip.kind) {
+        case ClipKind::Wave: {
+            // Right arm straight up, hand sways side-to-side.
+            if (r.rArm) {
+                r.rArm->localRot.x = -160.0f;
+                r.rArm->localRot.y = 0.0f;
+                r.rArm->localRot.z = 35.0f * std::sin(t * 12.0f);
+            }
+            break;
+        }
+        case ClipKind::Cheer: {
+            // Both arms up in a celebratory pump, head tilts back.
+            float bob = std::sin(t * 6.0f);
+            if (r.rArm) { r.rArm->localRot.x = -150.0f - 20.0f * bob;
+                          r.rArm->localRot.z =   20.0f; }
+            if (r.lArm) { r.lArm->localRot.x = -150.0f - 20.0f * bob;
+                          r.lArm->localRot.z =  -20.0f; }
+            if (r.head)  r.head->localRot.x = -8.0f;
+            break;
+        }
+        case ClipKind::Crouch: {
+            // Torso drops, knees fold forward. Time-aware so the
+            // crouch eases in over the first 30% then holds.
+            float drop = std::min(1.0f, t / 0.3f) * 20.0f;
+            if (r.torso) r.torso->localRot.x = drop;
+            if (r.lLeg)  r.lLeg->localRot.x  = -drop * 1.4f;
+            if (r.rLeg)  r.rLeg->localRot.x  = -drop * 1.4f;
+            break;
+        }
+    }
+}
+
+}  // namespace
+
 void BipedalRig::update(float dt, float velocity) {
     animTime += dt;
 
@@ -210,36 +471,61 @@ void BipedalRig::update(float dt, float velocity) {
             lArm->localRot.z = glm::mix(lArm->localRot.z,  20.0f, k);
             rArm->localRot.z = glm::mix(rArm->localRot.z, -20.0f, k);
         }
+        // Even while seated/lying keep the lantern hidden-or-shown state and
+        // its gravity hang correct, then bail before locomotion.
+        applyLanternVisibility(*this);
+        if (lanternHand && lanternHand->volume && rArm) {
+            lanternHand->localRot.x = -rArm->localRot.x;
+            lanternHand->localRot.y = -rArm->localRot.y;
+            lanternHand->localRot.z = -rArm->localRot.z;
+        }
         return;
     }
 
     // Standing: ease the root tilt and arm twist back to neutral after a pose.
-    if (root->localRot.x != 0.0f || root->localRot.z != 0.0f ||
-        lArm->localRot.z != 0.0f || rArm->localRot.z != 0.0f) {
+    // (My modular pipeline below doesn't touch root->localRot, so this is what
+    // recovers the body from a lying tilt once the player stands up.)
+    if (root->localRot.x != 0.0f || root->localRot.z != 0.0f) {
         float k = std::min(1.0f, dt * 8.0f);
-        root->localRot   = glm::mix(root->localRot,   glm::vec3(0.0f), k);
-        lArm->localRot.z = glm::mix(lArm->localRot.z, 0.0f, k);
-        rArm->localRot.z = glm::mix(rArm->localRot.z, 0.0f, k);
+        root->localRot = glm::mix(root->localRot, glm::vec3(0.0f), k);
     }
 
-    float breathe = sinf(animTime * 2.0f) * 1.5f;
-    torso->localRot.x = breathe;
-    head->localRot.x = -breathe * 0.5f;
-    if (isAttacking) {
-        attackAnim += dt * 5.0f;
-        if (attackAnim > 1.0f) { isAttacking = false; attackAnim = 0.0f; }
-        float swing = sinf(attackAnim * 3.14159f) * 90.0f;
-        rArm->localRot.x = -swing;
-        rArm->localRot.y = swing * 0.5f;
-    } else if (velocity > 0.1f) {
-        float swing = sinf(animTime * velocity * 0.5f * 5.0f) * 30.0f;
-        lArm->localRot.x = swing; rArm->localRot.x = -swing;
-        lLeg->localRot.x = -swing; rLeg->localRot.x = swing;
-    } else {
-        lArm->localRot.x = glm::mix(lArm->localRot.x, 0.0f, dt * 5.0f);
-        rArm->localRot.x = glm::mix(rArm->localRot.x, 0.0f, dt * 5.0f);
-        lLeg->localRot.x = glm::mix(lLeg->localRot.x, 0.0f, dt * 5.0f);
-        rLeg->localRot.x = glm::mix(rLeg->localRot.x, 0.0f, dt * 5.0f);
+    applyBreathingPose(*this, dt);
+    applyBaseLocomotion(*this, dt, velocity);
+
+    // Combat overlays — later ones win for any part they touch.
+    applyAttackPose(*this, dt);
+    applyCastingPose(*this, dt);
+    applyBlockingPose(*this, dt);
+    applyBowDrawPose(*this, dt);
+
+    // Carry overlay — the arm raises to "hold" the lantern (only fires
+    // if no higher-priority animation is currently using rArm).
+    applyLanternHoldPose(*this, dt);
+
+    // Per-frame derived state — lantern visibility, bow string offset.
+    applyLanternVisibility(*this);
+    applyBowStringPose(*this);
+
+    // One-shot clips — wins over everything for the parts they touch.
+    for (auto& clip : activeClips) {
+        clip.elapsed += dt;
+        applyClipPose(*this, clip);
+    }
+    activeClips.erase(
+        std::remove_if(activeClips.begin(), activeClips.end(),
+                       [](const AnimationClip& c){ return c.done(); }),
+        activeClips.end());
+
+    // Held lantern hangs from the handle — counter-rotate against the
+    // final right-arm orientation (after every other animation pass has
+    // settled it) so the lantern body always points world-down, like
+    // gravity is pulling it. The pivot at the top of the lantern mesh
+    // means the body swings beneath wherever the handle ends up.
+    if (lanternHand && lanternHand->volume && rArm) {
+        lanternHand->localRot.x = -rArm->localRot.x;
+        lanternHand->localRot.y = -rArm->localRot.y;
+        lanternHand->localRot.z = -rArm->localRot.z;
     }
 }
 
@@ -456,16 +742,9 @@ void BipedalRig::applyCustomization() {
             break;
     }
 
-    // --- Armor ---
-    Voxel armorCol = {0,0,0,0};
-    if (armorType == 1) armorCol = {40, 120, 40, 255};
-    else if (armorType == 2) armorCol = {100, 60, 30, 255};
-    else if (armorType == 3) armorCol = {180, 180, 200, 255};
-    if (armorType > 0) {
-        for(int x=0; x<10; x++) for(int y=0; y<8; y++) for(int z=0; z<8; z++) {
-            if (x==0 || x==9 || z==0 || z==7 || y==0 || y==7) torso->volume->setVoxel(x, y, z, armorCol);
-        }
-    }
+    // Old monolithic `armorType` torso overlay removed — armour is now an
+    // Item layered on top of the base body via paintClothingOnto() in
+    // items.cpp.
 
     torso->scale.x = weightScale;
     torso->scale.z = weightScale;
@@ -480,6 +759,32 @@ void BipedalRig::applyCustomization() {
 
     head->volume->updateMesh();
     torso->volume->updateMesh();
+}
+
+void BipedalRig::resetBaseBody() {
+    Voxel skin = skinColor;
+    if (torso && torso->volume) {
+        for (int x = 0; x < 10; x++) for (int y = 0; y < 8; y++) for (int z = 0; z < 8; z++)
+            torso->volume->setVoxel(x, y, z, skin);
+        torso->volume->updateMesh();
+    }
+    for (auto arm : {lArm, rArm}) {
+        if (!arm || !arm->volume) continue;
+        for (int x = 0; x < 6; x++) for (int y = 0; y < 8; y++) for (int z = 0; z < 6; z++)
+            arm->volume->setVoxel(x, y, z, {0, 0, 0, 0});
+        // Forearm core + shoulder cap → bare skin.
+        for (int x = 1; x < 5; x++) for (int y = 0; y < 7; y++) for (int z = 1; z < 5; z++)
+            arm->volume->setVoxel(x, y, z, skin);
+        for (int x = 0; x < 6; x++) for (int y = 6; y < 8; y++) for (int z = 0; z < 6; z++)
+            arm->volume->setVoxel(x, y, z, skin);
+        arm->volume->updateMesh();
+    }
+    for (auto leg : {lLeg, rLeg}) {
+        if (!leg || !leg->volume) continue;
+        for (int x = 0; x < 7; x++) for (int y = 0; y < 7; y++) for (int z = 0; z < 7; z++)
+            leg->volume->setVoxel(x, y, z, skin);
+        leg->volume->updateMesh();
+    }
 }
 
 void BipedalRig::randomizeAppearance() {

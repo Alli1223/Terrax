@@ -1,4 +1,5 @@
 #include "network.h"
+#include "inventory.h"
 #include "game_session.h"
 #include <GLFW/glfw3.h>
 #include <cstring>
@@ -158,6 +159,182 @@ std::string NetworkServer::getPlayerName(uint32_t clientId) {
     auto it = playerNames.find(clientId);
     if (it != playerNames.end()) return it->second;
     return "Player" + std::to_string(clientId);
+}
+
+int NetworkServer::getPlayerLevel(uint32_t clientId) {
+    std::lock_guard<std::mutex> lock(modelsMutex);
+    auto it = playerModels.find(clientId);
+    if (it != playerModels.end() && it->second.playerLevel > 0)
+        return it->second.playerLevel;
+    return 1;
+}
+
+// --- Server-authoritative loot drops --------------------------------------
+// Items roll once on the server, get broadcast to every client, and the
+// server owns the canonical "is this drop still here?" state. Pickups go
+// through the server so two players can't both grab the same item.
+
+#include "item_generator.h"
+#include "items.h"
+#include <cstring>
+
+static void itemToLootPacket(const Item* item, LootSpawnPacket& pkt) {
+    if (item->getKind() == ItemKind::Clothing) {
+        const ClothingItem* c = static_cast<const ClothingItem*>(item);
+        pkt.kind        = 1;
+        pkt.subtype     = (uint8_t)c->getTier();
+        pkt.slot        = (uint8_t)c->getSlot();
+        pkt.primary     = c->primaryColor;
+        pkt.accent      = c->accentColor;
+        pkt.patternSeed = c->patternSeed;
+    } else if (item->getKind() == ItemKind::Weapon) {
+        const WeaponItem* w = static_cast<const WeaponItem*>(item);
+        pkt.kind        = 2;
+        pkt.subtype     = (uint8_t)w->getType();
+        pkt.slot        = (uint8_t)w->getSlot();
+        pkt.primary     = w->primaryColor;
+        pkt.accent      = w->accentColor;
+        pkt.patternSeed = 0;
+        pkt.element     = (uint8_t)w->element;
+    }
+    pkt.rarity       = (uint8_t)item->rarity;
+    pkt.level        = item->level;
+    pkt.attackPower  = item->attackPower;
+    pkt.defenseValue = item->defenseValue;
+    // Copy name + set tag with explicit clamp so MSVC's safe-string
+    // overloads stay out of our way and we never overshoot.
+    {
+        const std::string& s = item->getName();
+        size_t n = std::min(s.size(), sizeof(pkt.name) - 1);
+        std::memcpy(pkt.name, s.data(), n);
+        pkt.name[n] = '\0';
+    }
+    {
+        const std::string& s = item->setKey;
+        size_t n = std::min(s.size(), sizeof(pkt.setName) - 1);
+        std::memcpy(pkt.setName, s.data(), n);
+        pkt.setName[n] = '\0';
+    }
+}
+
+void NetworkServer::spawnLootForKill(uint32_t attackerId, const glm::vec3& pos) {
+    int level = getPlayerLevel(attackerId);
+    static std::mt19937 rng((uint32_t)std::chrono::steady_clock::now()
+                              .time_since_epoch().count());
+    int dropCount = std::uniform_int_distribution<int>(1, 3)(rng);
+    auto frand = [&](float lo, float hi) {
+        return std::uniform_real_distribution<float>(lo, hi)(rng);
+    };
+
+    std::vector<LootSpawnPacket> toBroadcast;
+    toBroadcast.reserve(dropCount);
+    {
+        std::lock_guard<std::mutex> lock(lootMutex);
+        for (int i = 0; i < dropCount; i++) {
+            auto item = generateRandomItem(rng(), level);
+            if (!item) continue;
+            LootSpawnPacket pkt {};
+            pkt.dropId = nextLootId++;
+            pkt.x = pos.x + frand(-0.4f, 0.4f);
+            pkt.y = pos.y + 1.2f;
+            pkt.z = pos.z + frand(-0.4f, 0.4f);
+            itemToLootPacket(item.get(), pkt);
+            ServerLootEntry entry;
+            entry.pkt = pkt;
+            entry.spawnTime = (double)std::chrono::duration<double>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+            activeLoot.push_back(entry);
+            toBroadcast.push_back(pkt);
+        }
+    }
+    for (auto& pkt : toBroadcast)
+        broadcast(PacketType::LootSpawn, &pkt, sizeof(pkt));
+}
+
+void NetworkServer::handleLootPickup(uint32_t clientId, uint32_t dropId,
+                                      const glm::vec3& clientPos) {
+    LootRemovedPacket out {};
+    bool granted = false;
+    {
+        std::lock_guard<std::mutex> lock(lootMutex);
+        for (auto it = activeLoot.begin(); it != activeLoot.end(); ++it) {
+            if (it->pkt.dropId != dropId) continue;
+            glm::vec3 dropPos(it->pkt.x, it->pkt.y, it->pkt.z);
+            // Reject obvious cheats — pickup range is ~3 blocks client-side,
+            // give a generous 5 here for lag tolerance.
+            if (glm::distance(dropPos, clientPos) > 5.0f) return;
+            out.dropId     = dropId;
+            out.newOwnerId = clientId;
+            activeLoot.erase(it);
+            granted = true;
+            break;
+        }
+    }
+    if (granted) broadcast(PacketType::LootRemoved, &out, sizeof(out));
+}
+
+void NetworkServer::handleDropItemRequest(uint32_t clientId,
+                                           const DropItemRequestPacket& req) {
+    // Convert the client's drop request into a regular LootSpawn —
+    // assign a fresh drop ID, copy fields straight over, broadcast.
+    // The server-authoritative loot store then treats it identically
+    // to enemy-killed loot (pickup contention, expiry, etc).
+    LootSpawnPacket pkt {};
+    pkt.dropId       = 0;
+    pkt.x            = req.x;
+    pkt.y            = req.y;
+    pkt.z            = req.z;
+    pkt.kind         = req.kind;
+    pkt.subtype      = req.subtype;
+    pkt.slot         = req.slot;
+    pkt.rarity       = req.rarity;
+    pkt.level        = req.level;
+    pkt.primary      = req.primary;
+    pkt.accent       = req.accent;
+    pkt.patternSeed  = req.patternSeed;
+    pkt.attackPower  = req.attackPower;
+    pkt.defenseValue = req.defenseValue;
+    std::memcpy(pkt.name,    req.name,    sizeof(pkt.name));
+    std::memcpy(pkt.setName, req.setName, sizeof(pkt.setName));
+    pkt.name[sizeof(pkt.name) - 1]       = '\0';
+    pkt.setName[sizeof(pkt.setName) - 1] = '\0';
+    pkt.element = req.element;
+
+    // Position-sanity: refuse drops too far from the requester so a
+    // bad/hostile client can't litter loot across the world.
+    glm::vec3 here(req.x, req.y, req.z);
+    if (glm::distance(here, getPlayerPosition(clientId)) > 6.0f) return;
+
+    {
+        std::lock_guard<std::mutex> lock(lootMutex);
+        pkt.dropId = nextLootId++;
+        ServerLootEntry entry;
+        entry.pkt = pkt;
+        entry.spawnTime = (double)std::chrono::duration<double>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        activeLoot.push_back(entry);
+    }
+    broadcast(PacketType::LootSpawn, &pkt, sizeof(pkt));
+}
+
+void NetworkServer::expireStaleLoot(double now, double maxAge) {
+    std::vector<LootRemovedPacket> toBroadcast;
+    {
+        std::lock_guard<std::mutex> lock(lootMutex);
+        for (auto it = activeLoot.begin(); it != activeLoot.end(); ) {
+            if (now - it->spawnTime > maxAge) {
+                LootRemovedPacket r {};
+                r.dropId     = it->pkt.dropId;
+                r.newOwnerId = 0;        // expired, no one claimed it
+                toBroadcast.push_back(r);
+                it = activeLoot.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+    for (auto& pkt : toBroadcast)
+        broadcast(PacketType::LootRemoved, &pkt, sizeof(pkt));
 }
 
 void NetworkServer::sendExistingPlayersTo(std::shared_ptr<Connection> client) {
@@ -371,8 +548,23 @@ void NetworkServer::update(World& world) {
             broadcast(PacketType::PlayerAttack, msg.data.data(), msg.data.size(), msg.client);
             if (msg.data.size() == sizeof(PlayerAttackPacket) && msg.client) {
                 PlayerAttackPacket* ap = (PlayerAttackPacket*)msg.data.data();
-                if (ap->targetNpcId != 0)
-                    npcHits.push_back({ msg.client->id, ap->targetNpcId });
+                if (ap->targetNpcId != 0) {
+                    float scale = ap->damageScale > 0.01f ? ap->damageScale : 1.0f;
+                    npcHits.push_back({ msg.client->id, ap->targetNpcId, scale });
+                }
+            }
+        } else if (msg.type == PacketType::LootPickupRequest) {
+            if (msg.data.size() == sizeof(LootPickupRequestPacket) && msg.client) {
+                LootPickupRequestPacket* rp =
+                    (LootPickupRequestPacket*)msg.data.data();
+                handleLootPickup(msg.client->id, rp->dropId,
+                                 getPlayerPosition(msg.client->id));
+            }
+        } else if (msg.type == PacketType::DropItemRequest) {
+            if (msg.data.size() == sizeof(DropItemRequestPacket) && msg.client) {
+                DropItemRequestPacket* dp =
+                    (DropItemRequestPacket*)msg.data.data();
+                handleDropItemRequest(msg.client->id, *dp);
             }
         } else if (msg.type == PacketType::Chat) {
             if (msg.data.size() == sizeof(ChatPacket) && msg.client) {
@@ -702,6 +894,7 @@ void NetworkClient::update(World& world, std::unordered_map<uint32_t, RemotePlay
                 rp.targetPitch    = p->pitch;
                 rp.targetYaw      = p->yaw;
                 rp.lanternHeld    = p->lanternHeld != 0;
+                rp.shieldRaised   = p->shieldRaised != 0;
                 
                 if (rp.lastUpdate == 0) {
                     rp.position = rp.targetPosition;
@@ -716,15 +909,15 @@ void NetworkClient::update(World& world, std::unordered_map<uint32_t, RemotePlay
                 auto& rp = players[h->clientID];
                 rp.id = h->clientID;
                 ensureRemoteRig(rp.rig);
-                rp.rig->hairStyle = h->hairStyle;
-                rp.rig->hairColor = h->hairColor;
-                rp.rig->eyeColor = h->eyeColor;
-                rp.rig->eyeType = h->eyeType;
-                rp.rig->noseStyle = h->noseStyle;
+                rp.rig->hairStyle    = h->hairStyle;
+                rp.rig->hairColor    = h->hairColor;
+                rp.rig->eyeColor     = h->eyeColor;
+                rp.rig->eyeType      = h->eyeType;
+                rp.rig->noseStyle    = h->noseStyle;
                 rp.rig->eyebrowStyle = h->eyebrowStyle;
-                rp.rig->earType = h->earType;
-                rp.rig->armorType = h->armorType;
-                rp.rig->applyCustomization();
+                rp.rig->earType      = h->earType;
+                rp.rig->armorType    = h->armorType;   // legacy, no-op
+                applyEquipmentToRig(*rp.rig, h->slots);
             }
         } else if (msg.type == PacketType::PlayerAttack) {
             if (msg.data.size() == sizeof(PlayerAttackPacket)) {
@@ -786,6 +979,17 @@ void NetworkClient::update(World& world, std::unordered_map<uint32_t, RemotePlay
             if (msg.data.size() == sizeof(AnimalStatePacket)) {
                 AnimalStatePacket* p = (AnimalStatePacket*)msg.data.data();
                 animalUpdates.push_back(*p);
+            }
+        } else if (msg.type == PacketType::LootSpawn) {
+            if (msg.data.size() == sizeof(LootSpawnPacket)) {
+                LootSpawnPacket* p = (LootSpawnPacket*)msg.data.data();
+                p->name[sizeof(p->name) - 1] = '\0';
+                lootSpawns.push_back(*p);
+            }
+        } else if (msg.type == PacketType::LootRemoved) {
+            if (msg.data.size() == sizeof(LootRemovedPacket)) {
+                LootRemovedPacket* p = (LootRemovedPacket*)msg.data.data();
+                lootRemovals.push_back(*p);
             }
         }
     }

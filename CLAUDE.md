@@ -108,10 +108,46 @@ in `AppContext`; the server thread keeps a separate authoritative `World`.
 
 Dynamic things layered on the voxel terrain are `GameObject`s:
 
-- `ObjectKind { Player, Prop, Vehicle, Door, NPC, Animal }`.
+- `ObjectKind { Player, Prop, Vehicle, Door, NPC, Animal, Loot, Projectile }`.
 - `GameObject` is abstract: `update(dt, world)`, `draw(modelLoc)`,
   `getAABB(mn, mx)`. It carries `position`, `yaw`, `id`, `dead`, and a
   `baseMatrix(scale)` helper.
+
+### Polymorphic hierarchies — the design rule for content
+
+Anything that exists as multiple variants (items, projectiles, future
+spell effects) goes through a polymorphic base class, **never** a giant
+`switch` on a type enum at the call site. New variants are added by
+subclassing — callers stay the same.
+
+The existing hierarchies that follow this rule:
+
+- **`Item`** (`include/items.h`) — abstract base. `ClothingItem` and
+  `WeaponItem` inherit. `WeaponItem` itself has subclasses for weapons
+  that need unique behaviour (`StaffItem` overrides `onPrimaryAttack` to
+  fire `MagicBoltProjectile` instead of a melee swing). Concrete items
+  are built via the **`createWeaponItem(name, type)`** factory in
+  `items.cpp` so call sites don't hardcode subclasses.
+- **`Projectile`** (`include/projectile.h`) — abstract base extending
+  `GameObject`. Concrete subclasses: `ArrowProjectile` (gravity, drag,
+  sticks in terrain), `MagicBoltProjectile` (gravity=0, trail particles,
+  faster). New projectile types add a subclass; everything else (spawn,
+  physics, collision sweep) stays generic.
+- **`CharacterRig`** (`include/voxel_model.h`) — `BipedalRig` and
+  `QuadrupedRig` inherit. Rigs drive animal/npc/player animation via
+  the virtual `update(dt, velocity)`.
+
+**Rules of thumb for new content:**
+
+1. New weapon ability → new `WeaponItem` subclass, override the
+   relevant virtual method (`onPrimaryAttack`, `isInstantRanged`, etc).
+2. New projectile type → new `Projectile` subclass; override
+   `onHitGround` / `onHitNpc` / `update` as needed.
+3. New item category that isn't a weapon/clothing → new `Item`
+   subclass alongside the existing two. Implement `buildVoxelVolume`.
+4. Avoid `switch (weapon.getType()) { case Sword: ...; case Bow: ... }`
+   in call sites. If you find yourself writing one, push the behaviour
+   into a virtual method.
 - `ObjectManager` owns all of them as `unique_ptr<GameObject>`. The renderer
   iterates it kind-agnostically. The local player is the one exception — held
   directly on `AppContext`.

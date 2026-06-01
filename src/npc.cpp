@@ -2,6 +2,8 @@
 #include "voxel_model.h"
 #include "town.h"
 #include "world.h"
+#include "network.h"
+#include "npc_appearance.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -82,13 +84,12 @@ void NPC::initClientVisual() {
     rig->setupDefaultHuman(true);
     std::mt19937 arng(appearanceSeed ? appearanceSeed : 1u);
     rig->randomizeAppearance(arng);
-    if (type == NPCType::Enemy) {
-        rig->armorType = 2;          // brown leather — a rough bandit look
-        rig->applyCustomization();
-    } else if (type == NPCType::Guard) {
-        rig->armorType = 3;          // steel — a town guard
-        rig->applyCustomization();
-    }
+    // Paint a coherent themed loadout — villagers get cloth peasant
+    // outfits with no weapon, bandits get matching dark leather sets
+    // with a melee/ranged weapon, guards get plate town-livery with
+    // sword/axe + shield. All five clothing slots share one palette so
+    // each NPC reads as one outfit, not five mismatched pieces.
+    applyNpcThemedLoadout(*rig, appearanceSeed, type);
 }
 
 void NPC::update(float dt, World& world) {
@@ -656,7 +657,7 @@ bool NpcDirector::inAnyTown(glm::vec2 worldXZ) const {
 }
 
 void NpcDirector::playerHitNpc(uint32_t attackerId, uint32_t npcId,
-                               glm::vec3 attackerPos) {
+                               glm::vec3 attackerPos, float damageScale) {
     for (auto& n : active) {
         if (n->id != npcId || n->dyingTimer > 0.0f) continue;
         float dx = n->position.x - attackerPos.x;
@@ -672,10 +673,16 @@ void NpcDirector::playerHitNpc(uint32_t attackerId, uint32_t npcId,
             if (inAnyTown(glm::vec2(n->position.x, n->position.z)))
                 return;                                        // townsfolk are safe in towns
         }
-        n->health -= 25.0f;
+        n->health -= 25.0f * damageScale;
         if (n->health <= 0.0f) {
             n->health     = 0.0f;
             n->dyingTimer = 2.0f;
+            // Spawn server-authoritative loot exactly once per kill. Only
+            // bandits (Enemy) drop loot — villagers and guards don't.
+            if (!n->lootDropped && n->type == NPCType::Enemy && g_server) {
+                n->lootDropped = true;
+                g_server->spawnLootForKill(attackerId, n->position);
+            }
         }
         return;
     }

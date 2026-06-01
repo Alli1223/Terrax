@@ -47,10 +47,11 @@ Shader::Shader(const char* vertPath, const char* fragPath) {
 }
 
 void Shader::setLanternLights(int count, const glm::vec3* pos, const float* intensity,
-                              const float* radius) const {
+                              const float* radius, const glm::vec3* color) const {
     glUniform1i(glGetUniformLocation(id, "u_lanternCount"), count);
     if (count <= 0) return;
-    glUniform3fv(glGetUniformLocation(id, "u_lanternPos"), count, &pos[0][0]);
+    glUniform3fv(glGetUniformLocation(id, "u_lanternPos"),       count, &pos[0][0]);
     glUniform1fv(glGetUniformLocation(id, "u_lanternIntensity"), count, intensity);
-    glUniform1fv(glGetUniformLocation(id, "u_lanternRadius"), count, radius);
+    glUniform1fv(glGetUniformLocation(id, "u_lanternRadius"),    count, radius);
+    glUniform3fv(glGetUniformLocation(id, "u_lanternColor"),     count, &color[0][0]);
 }

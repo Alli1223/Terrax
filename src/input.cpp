@@ -18,6 +18,7 @@ static void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
     AppContext& ctx = *static_cast<AppContext*>(glfwGetWindowUserPointer(window));
     if (ImGui::GetIO().WantCaptureMouse) return;
     if (ctx.state == GameState::Paused || ctx.chatOpen || ctx.showMap) return;
+    if (ctx.showInventory || ctx.showCharacterLoadout) return;
     if (ctx.state != GameState::Playing && ctx.state != GameState::CharacterEditor) return;
     if (ctx.firstMouse) { ctx.lastMouseX = xpos; ctx.lastMouseY = ypos; ctx.firstMouse = false; }
     float xoff = (float)(xpos - ctx.lastMouseX);
@@ -31,7 +32,24 @@ static void mouse_button_callback(GLFWwindow* window, int button, int action, in
     AppContext& ctx = *static_cast<AppContext*>(glfwGetWindowUserPointer(window));
     if (ImGui::GetIO().WantCaptureMouse) return;
     if (ctx.state != GameState::Playing || ctx.paused || ctx.chatOpen) return;
-    if (action != GLFW_PRESS || !ctx.client || ctx.showMap) return;
+    if (ctx.showInventory || ctx.showCharacterLoadout) return;
+    if (!ctx.client || ctx.showMap) return;
+
+    // Right mouse with a shield equipped raises the shield instead of
+    // placing a block. Right release lowers it. Block-place still works
+    // when no shield is equipped.
+    if (button == GLFW_MOUSE_BUTTON_RIGHT) {
+        Item* off = ctx.inventory.equipped(EquipSlot::OffHand);
+        bool hasShield = off && off->getKind() == ItemKind::Weapon
+            && static_cast<WeaponItem*>(off)->getType() == WeaponType::Shield;
+        if (hasShield) {
+            ctx.shieldRaised = (action == GLFW_PRESS);
+            return;
+        }
+    }
+
+    if (action != GLFW_PRESS) return;
+
     glm::ivec3 hitBlock, hitNormal;
     if (ctx.world.raycast(ctx.camera.position + glm::vec3(0.0f, 1.6f, 0.0f),
                           ctx.camera.front, REACH, hitBlock, hitNormal)) {
@@ -68,6 +86,13 @@ static void key_callback(GLFWwindow* window, int key, int, int action, int) {
                 ctx.firstMouse = true;
                 return;
             }
+            if (ctx.showInventory || ctx.showCharacterLoadout) {
+                ctx.showInventory = false;
+                ctx.showCharacterLoadout = false;
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+                ctx.firstMouse = true;
+                return;
+            }
             if (ctx.housePreviewActive) { ctx.housePreviewActive = false; return; }
             ctx.paused = !ctx.paused;
             ctx.state  = ctx.paused ? GameState::Paused : GameState::Playing;
@@ -95,7 +120,30 @@ static void key_callback(GLFWwindow* window, int key, int, int action, int) {
 
     if (ImGui::GetIO().WantCaptureKeyboard && ctx.state != GameState::JoinMenu) return;
 
+    // Inventory / character loadout toggles must fire even while an overlay
+    // is open (so the same key closes it). Movement keys are cleared on
+    // open so we don't get "stuck" forward motion while the menu is up.
     if (ctx.state == GameState::Playing && !ctx.paused && !ctx.chatOpen) {
+        auto clearMovement = [&]() {
+            ctx.keyFwd = ctx.keyBack = ctx.keyLeft = ctx.keyRight = 0;
+            ctx.keyJump = ctx.keySprint = 0;
+        };
+        // I and C both pull up the unified equipment screen (inventory grid
+        // + character loadout, side by side) so the player can drag-drop
+        // between them. Pressing either while it's open closes the whole
+        // screen.
+        if ((key == GLFW_KEY_I || key == GLFW_KEY_C) && action == GLFW_PRESS) {
+            bool open = !(ctx.showInventory || ctx.showCharacterLoadout);
+            ctx.showInventory        = open;
+            ctx.showCharacterLoadout = open;
+            glfwSetInputMode(window, GLFW_CURSOR, open ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
+            if (open) clearMovement(); else ctx.firstMouse = true;
+            return;
+        }
+    }
+
+    if (ctx.state == GameState::Playing && !ctx.paused && !ctx.chatOpen
+        && !ctx.showInventory && !ctx.showCharacterLoadout) {
         if (key == GLFW_KEY_M && action == GLFW_PRESS) {
             ctx.showMap = !ctx.showMap;
             if (ctx.showMap) {
@@ -126,6 +174,11 @@ static void key_callback(GLFWwindow* window, int key, int, int action, int) {
         if (key == GLFW_KEY_LEFT_SHIFT) { if(action==GLFW_PRESS) ctx.keySprint=1; else if(action==GLFW_RELEASE) ctx.keySprint=0; }
         if (key == GLFW_KEY_F && action == GLFW_PRESS) ctx.lanternHeld = !ctx.lanternHeld;
         if (key == GLFW_KEY_E && action == GLFW_PRESS) ctx.interactPressed = true;
+        // V — one-shot wave animation. Easy template for any future
+        // emote: pick a ClipKind, call playClip on the rig with a
+        // duration. The animation system handles the rest.
+        if (key == GLFW_KEY_V && action == GLFW_PRESS && ctx.playerRig)
+            ctx.playerRig->playClip(ClipKind::Wave, 1.6f);
     }
 }
 

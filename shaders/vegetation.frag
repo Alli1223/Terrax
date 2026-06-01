@@ -19,6 +19,7 @@ uniform int   u_lanternCount;
 uniform vec3  u_lanternPos[MAX_LANTERNS];
 uniform float u_lanternIntensity[MAX_LANTERNS];
 uniform float u_lanternRadius[MAX_LANTERNS];
+uniform vec3  u_lanternColor[MAX_LANTERNS];
 
 // Warm point lights — lanterns, street lamps, campfires.
 const vec3 LANTERN_COLOR = vec3(1.00, 0.76, 0.40);
@@ -29,7 +30,7 @@ vec3 calcLanternLight(vec3 worldPos) {
         if (ldist >= u_lanternRadius[i]) continue;
         float falloff = 1.0 - ldist / u_lanternRadius[i];
         falloff *= falloff;
-        contrib += falloff * u_lanternIntensity[i] * LANTERN_COLOR;
+        contrib += falloff * u_lanternIntensity[i] * u_lanternColor[i];
     }
     return contrib;
 }

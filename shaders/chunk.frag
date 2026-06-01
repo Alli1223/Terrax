@@ -21,6 +21,9 @@ uniform int   u_lanternCount;
 uniform vec3  u_lanternPos[MAX_LANTERNS];
 uniform float u_lanternIntensity[MAX_LANTERNS];
 uniform float u_lanternRadius[MAX_LANTERNS];
+uniform vec3  u_lanternColor[MAX_LANTERNS];   // per-light tint (warm orange
+                                              // for lanterns, magic colours
+                                              // for in-flight bolts)
 uniform float time;
 uniform float u_weather;             // 0 = clear .. 1 = full storm
 uniform float u_snowAmount;          // 0 .. 1, tints `Snowable` faces toward white
@@ -59,7 +62,7 @@ vec3 calcLanternLight(vec3 worldPos, vec3 nrm) {
         float falloff = 1.0 - ldist / u_lanternRadius[i];
         falloff *= falloff;
         float vis = lightVisibility(worldPos, u_lanternPos[i], nrm);
-        contrib += falloff * u_lanternIntensity[i] * vis * LANTERN_COLOR;
+        contrib += falloff * u_lanternIntensity[i] * vis * u_lanternColor[i];
     }
     return contrib;
 }

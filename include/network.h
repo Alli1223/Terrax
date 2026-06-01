@@ -39,12 +39,30 @@ enum class PacketType : uint8_t {
     EntityState = 13,
     NPCState = 14,
     AnimalState = 15,
+    LootSpawn = 16,             // server -> all: a new world loot drop appeared
+    LootPickupRequest = 17,     // client -> server: I'm trying to pick up drop N
+    LootRemoved = 18,           // server -> all: drop N is gone (picked up / expired)
+    DropItemRequest = 19,       // client -> server: drop one of my items at pos P
 };
 
 #pragma pack(push, 1)
 struct PacketHeader {
     PacketType type;
     uint32_t size;
+};
+
+// Equipped-item entry shared in PlayerModelHeader. One per slot in the order
+// [Helmet, Shoulders, Chest, Legs, Feet, MainHand, OffHand]. kind=0 means
+// the slot is empty; kind=1 is clothing (variant = ClothingTier); kind=2 is
+// a weapon (variant = WeaponType). `rarity` (ItemRarity) drives the extra
+// visual flourishes painted by the receiver. The two colour fields drive
+// the remote-side rendering — no item names or stats are synced.
+struct EquippedSlotState {
+    uint8_t kind;
+    uint8_t variant;
+    uint8_t rarity;
+    Voxel   primary;
+    Voxel   accent;
 };
 
 struct PlayerModelHeader {
@@ -56,12 +74,15 @@ struct PlayerModelHeader {
     int noseStyle;
     int eyebrowStyle;
     int earType;
-    int armorType;
+    int armorType;                  // legacy, kept zeroed by new clients
+    EquippedSlotState slots[7];     // current loadout
+    int32_t playerLevel;            // 1+; used by server to scale loot rolls
 };
 
 struct PlayerAttackPacket {
     uint32_t clientID;
     uint32_t targetNpcId;   // NPC the swing landed on, 0 = none
+    float    damageScale;   // 1.0 = melee default; bow scales by charge
 };
 
 // Server -> client: damage an NPC dealt to a player.
@@ -79,6 +100,7 @@ struct PlayerPosPacket {
     float x, y, z;
     float pitch, yaw;
     uint8_t lanternHeld;
+    uint8_t shieldRaised;   // 1 = off-hand shield in block stance
 };
 
 struct BlockUpdatePacket {
@@ -150,12 +172,73 @@ struct AnimalStatePacket {
     float    yaw;
     float    vx, vy, vz;
 };
+
+// Server -> all clients: a new world-space loot drop has spawned. Carries
+// the full item data so clients can reconstruct an identical Item object
+// without rerunning the procedural generator (which would otherwise
+// diverge between clients/server). Name is null-terminated, truncated.
+struct LootSpawnPacket {
+    uint32_t dropId;
+    float    x, y, z;
+    uint8_t  kind;          // 1 = clothing, 2 = weapon
+    uint8_t  subtype;       // ClothingTier or WeaponType
+    uint8_t  slot;          // EquipSlot
+    uint8_t  rarity;        // ItemRarity
+    int32_t  level;
+    Voxel    primary;
+    Voxel    accent;
+    int32_t  patternSeed;
+    float    attackPower;
+    float    defenseValue;
+    char     name[64];
+    char     setName[24];   // empty string = free-roll, no set
+    uint8_t  element;       // WeaponElement value (None/Fire/Ice/Arcane)
+};
+
+// Client -> server: I want to pick up drop N. Server validates distance
+// and replies with LootRemoved if accepted.
+struct LootPickupRequestPacket {
+    uint32_t dropId;
+};
+
+// Server -> all clients: drop N has been removed from the world.
+// `newOwnerId` is the clientID that picked it up, or 0 if the drop
+// expired without being claimed.
+struct LootRemovedPacket {
+    uint32_t dropId;
+    uint32_t newOwnerId;
+};
+
+// Client -> server: I want to drop this item from my inventory into the
+// world at my feet. The server takes the included item data (same
+// payload as a LootSpawn except no dropId — server assigns one) and
+// broadcasts it as a regular world drop so all players see it. This is
+// how the player shares loot with teammates.
+struct DropItemRequestPacket {
+    float    x, y, z;
+    uint8_t  kind;          // 1 = clothing, 2 = weapon
+    uint8_t  subtype;
+    uint8_t  slot;
+    uint8_t  rarity;
+    int32_t  level;
+    Voxel    primary;
+    Voxel    accent;
+    int32_t  patternSeed;
+    float    attackPower;
+    float    defenseValue;
+    char     name[64];
+    char     setName[24];
+    uint8_t  element;
+};
 #pragma pack(pop)
 
-// A melee hit a client landed on an NPC; the server game loop resolves it.
+// A melee/ranged hit a client landed on an NPC; the server game loop
+// resolves it. `damageScale` is 1.0 for a default melee swing and scales
+// with bow charge / weapon power.
 struct NpcHitEvent {
     uint32_t attackerId;
     uint32_t npcId;
+    float    damageScale;
 };
 
 struct ChatMessage {
@@ -204,6 +287,7 @@ struct RemotePlayer {
     bool isAttacking = false;
     float attackAnim = 0.0f;
     bool lanternHeld = false;
+    bool shieldRaised = false;
 };
 
 class NetworkServer {
@@ -226,6 +310,43 @@ public:
 
     // Melee hits clients landed on NPCs this frame; drained by the game loop.
     std::vector<NpcHitEvent> npcHits;
+
+    // Server-owned list of active world loot drops. Each entry mirrors the
+    // LootSpawnPacket payload plus a spawn timestamp for expiry. Adding /
+    // removing entries is the canonical operation — broadcasts wrap that.
+    struct ServerLootEntry {
+        LootSpawnPacket pkt;
+        double          spawnTime;   // glfwGetTime() / steady_clock when spawned
+    };
+    std::vector<ServerLootEntry> activeLoot;
+    std::mutex                   lootMutex;
+    uint32_t                     nextLootId = 1;
+
+    // Convenience for callers (npc.cpp, game_session.cpp) that don't want
+    // to deal with the playerModels map directly.
+    int  getPlayerLevel(uint32_t clientId);
+
+    // Spawn server-side loot for an enemy killed by `attackerId` at `pos`.
+    // Rolls items using the attacker's level (or fallback 1), records each
+    // entry in `activeLoot`, and broadcasts a LootSpawnPacket per drop.
+    void spawnLootForKill(uint32_t attackerId, const glm::vec3& pos);
+
+    // Try to honour a client's pickup request. If the drop still exists
+    // and the requester is within range, removes it and broadcasts
+    // LootRemoved naming the requester as the new owner.
+    void handleLootPickup(uint32_t clientId, uint32_t dropId,
+                          const glm::vec3& clientPos);
+
+    // Player wants to drop one of their items into the world (to share
+    // with a teammate, free up bag space, etc). The packet carries the
+    // full item payload — server assigns a drop ID, records the entry,
+    // broadcasts a LootSpawn so every client sees it.
+    void handleDropItemRequest(uint32_t clientId,
+                                const DropItemRequestPacket& req);
+
+    // Drop entries older than `maxAge` (seconds). Broadcasts LootRemoved
+    // with newOwnerId=0 for each. Call once per tick from the game loop.
+    void expireStaleLoot(double now, double maxAge);
 
     static bool isAllowedBlockType(BlockType t);
     static bool validateBlockUpdate(const BlockUpdatePacket& pkt, const glm::vec3& playerPos, World& world);
@@ -288,10 +409,12 @@ public:
     bool dayTimeUpdated = false;
     std::vector<ChatMessage> chatLog;
     static constexpr size_t MAX_CHAT_LOG = 100;
-    std::vector<EntityStatePacket> entityUpdates;   // drained by gameplay each frame
-    std::vector<NPCStatePacket>    npcUpdates;      // drained by gameplay each frame
-    std::vector<AnimalStatePacket> animalUpdates;   // drained by gameplay each frame
-    float pendingSelfDamage = 0.0f;                 // damage dealt to us, drained by gameplay
+    std::vector<EntityStatePacket>  entityUpdates;   // drained by gameplay each frame
+    std::vector<NPCStatePacket>     npcUpdates;      // drained by gameplay each frame
+    std::vector<AnimalStatePacket>  animalUpdates;   // drained by gameplay each frame
+    std::vector<LootSpawnPacket>    lootSpawns;      // drained by gameplay each frame
+    std::vector<LootRemovedPacket>  lootRemovals;    // drained by gameplay each frame
+    float pendingSelfDamage = 0.0f;                  // damage dealt to us, drained by gameplay
 
 private:
     void doReceiveUDP();

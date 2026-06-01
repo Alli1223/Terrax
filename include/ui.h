@@ -23,6 +23,15 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
 // Renders the pause overlay.
 void renderPauseMenuUI(AppContext& ctx, GLFWwindow* window);
 
+// In-game inventory overlay (I key). Lists items in the bag, lets the
+// player equip/unequip them. Called by renderPlayUI when ctx.showInventory.
+void renderInventoryUI(AppContext& ctx, GLFWwindow* window);
+
+// In-game character loadout overlay (C key). Shows the equipped slots and
+// a quick switcher for each one. Called by renderPlayUI when
+// ctx.showCharacterLoadout.
+void renderCharacterLoadoutUI(AppContext& ctx, GLFWwindow* window);
+
 // Renders the loading screen (centred progress bar + stage name) while the
 // background worker spawned by beginLoading() pre-warms the world plan.
 // Returns true once both the worker AND the main-thread finalisation step

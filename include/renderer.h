@@ -45,6 +45,10 @@ private:
     GLuint shadowFBO = 0, shadowMapTex = 0;
     GLuint reflFBO = 0, reflColorTex = 0, reflDepthRBO = 0;
     GLuint particleVao = 0, particleVbo = 0;
+    // Separate VBO for voxel-death-explosion particles. Uses the
+    // char-shader vertex layout (pos + normal + colour) rather than the
+    // chunk-shader's atlas-textured layout the leaf particles need.
+    GLuint voxelDeathVao = 0, voxelDeathVbo = 0;
 
     // Scene framebuffer + fullscreen post pass (volumetric light shafts).
     GLuint sceneFBO = 0, sceneColorTex = 0, sceneDepthTex = 0;

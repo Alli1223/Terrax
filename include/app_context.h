@@ -9,6 +9,7 @@
 #include "object_manager.h"
 #include "player_object.h"
 #include "prop.h"
+#include "inventory.h"
 #include "interactable.h"
 #include <glm/glm.hpp>
 #include <string>
@@ -40,6 +41,18 @@ struct AmbientParticle {
     uint8_t   kind     = 0;      // 0 = pollen, 1 = firefly, 2 = campfire ember
 };
 
+// A single small voxel cube spat out when an enemy dies. Sampled from the
+// dead NPC's rig — the swarm settles into a "pile of voxels" silhouette
+// where the body fell. Has gravity, lands on terrain, fades out.
+struct VoxelDeathParticle {
+    glm::vec3 pos{0.0f}, vel{0.0f};
+    Voxel     color{255, 255, 255, 255};
+    float     life     = 0.0f;
+    float     maxLife  = 1.0f;
+    float     size     = 0.06f;   // world-units per cube edge
+    bool      grounded = false;
+};
+
 
 struct AppContext {
     // --- State ---
@@ -62,6 +75,31 @@ struct AppContext {
     int  spawnX = 8, spawnZ = 8;   // world column the player spawns at
     float playerHealth     = 1.0f;
     float regenDelay       = 0.0f;   // delay before out-of-combat health regen
+
+    // --- Combat input state ---
+    // Driven by the mouse handlers in input.cpp; consumed by gameplay
+    // each frame to drive the rig animation and to scale attack damage.
+    bool  shieldRaised   = false;   // right mouse held while shield equipped
+    bool  bowChargingHeld = false;  // left mouse held while bow equipped
+    float bowCharge      = 0.0f;    // 0..1, fills while held, snaps to 0 on release
+
+    // --- Inventory / equipment ---
+    Inventory inventory;
+    bool showInventory       = false;   // I key
+    bool showCharacterLoadout = false;  // C key
+
+    // --- Progression ---
+    int   playerLevel = 1;
+    float playerXp    = 0.0f;   // cumulative XP toward `playerLevel + 1`
+
+    // Transient HUD messages — "+25 XP", "Looted: Iron Sword", "Level Up!"
+    // etc. Each entry counts down; gameplay/UI prune expired ones.
+    struct HudToast {
+        std::string text;
+        Voxel       color    = {255, 220, 120, 255};
+        float       lifeTime = 3.5f;   // seconds remaining
+    };
+    std::vector<HudToast> toasts;
 
     // --- Camera / mouse ---
     Camera camera;
@@ -163,6 +201,9 @@ struct AppContext {
     std::vector<AmbientParticle> ambientParticles;
     float ambientSpawnTimer = 0.0f;
 
+    // --- Voxel-explosion particles spat out when enemies die ---
+    std::vector<VoxelDeathParticle> voxelParticles;
+
     // --- Player pose (sit / lie / …) ---
     // Set by the interactable system when the player presses E on a chair or
     // bed; cleared on E-again or any movement key. While non-Standing the
@@ -181,6 +222,12 @@ struct AppContext {
     std::string talkName;
     std::string talkLine;
     int         talkCount = 0;             // advances the flavour line each talk
+
+    // --- Loot drop interaction ---
+    // The closest pickup-eligible drop in range, refreshed each frame by
+    // updateLootPickup. Drives the "[E] Pick up ..." HUD prompt.
+    std::string lootHintName;
+    Voxel       lootHintColor{255, 220, 120, 255};
 
     AppContext();
     ~AppContext();

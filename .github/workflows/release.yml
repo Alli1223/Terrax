@@ -38,7 +38,8 @@ jobs:
         # Integrating the preinstalled vcpkg makes MSBuild restore glfw3/glm/
         # boost-asio, add their include/lib paths, and copy dependent DLLs
         # (glfw3.dll) next to the exe automatically.
-        run: & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" integrate install
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" integrate install
 
       - name: Build Terrax (Release | x64)
         shell: pwsh
@@ -63,15 +64,16 @@ jobs:
           Copy-Item "$rel/Terrax.exe" $stage
           Copy-Item "$rel/*.dll" $stage            # glfw3.dll and any other runtime DLLs
           Copy-Item "shaders" "$stage/shaders" -Recurse
-          @"
-          Terrax — Windows x64
-
-          Run Terrax.exe to play. `Terrax.exe --server` runs a dedicated server (port 12345).
-          Keep glfw3.dll and the shaders\ folder next to Terrax.exe.
-
-          If the game fails to start, install the Microsoft Visual C++ Redistributable:
-          https://aka.ms/vs/17/release/vc_redist.x64.exe
-          "@ | Out-File -Encoding utf8 "$stage/README.txt"
+          $readme = @(
+            'Terrax - Windows x64',
+            '',
+            'Run Terrax.exe to play. "Terrax.exe --server" runs a dedicated server (port 12345).',
+            'Keep glfw3.dll and the shaders\ folder next to Terrax.exe.',
+            '',
+            'If the game will not start, install the Microsoft Visual C++ Redistributable:',
+            'https://aka.ms/vs/17/release/vc_redist.x64.exe'
+          )
+          Set-Content -Path "$stage/README.txt" -Value $readme -Encoding utf8
           Get-ChildItem -Recurse $stage | Select-Object FullName
 
       - name: Package zip

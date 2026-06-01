@@ -51,9 +51,14 @@ jobs:
         env:
           TOOLSET: ${{ github.event.inputs.toolset || 'v143' }}
         run: |
+          # VcpkgEnableManifest=true makes the vcpkg MSBuild integration restore
+          # glfw3/glm/boost-asio from vcpkg.json into vcpkg_installed (and copy
+          # glfw3.dll next to the exe). Without it, manifest mode is off on the
+          # runner and the headers aren't found.
           msbuild Terrax.vcxproj `
             /p:Configuration=Release /p:Platform=x64 `
             /p:PlatformToolset=$env:TOOLSET `
+            /p:VcpkgEnableManifest=true `
             /m /v:minimal /clp:Summary
           if ($LASTEXITCODE -ne 0) { throw "MSBuild failed ($LASTEXITCODE)" }
 

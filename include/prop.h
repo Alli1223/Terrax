@@ -9,9 +9,22 @@ class VoxelVolume;
 static constexpr float PROP_SCALE = 0.06f;
 
 // Furniture and town decorations. The order matters: PropLibrary indexes by it.
+// New entries should be appended just before Count so existing PropType ids
+// stay stable (the furniture builders in furniture.cpp are looked up by id).
 enum class PropType : uint8_t {
-    Bookshelf = 0, Bed, Lantern, Cooker, Table, Chair, Crockery,   // furniture
-    StreetLamp, PottedPlant, Bush, Bench, Fence,                   // decorations
+    // Generic / living-room furniture
+    Bookshelf = 0, Bed, Lantern, Cooker, Table, Chair, Crockery,
+    // Decorations
+    StreetLamp, PottedPlant, Bush, Bench, Fence,
+    // Room-specific furniture (Phase 2)
+    Sink, KitchenCounter, Wardrobe, Desk, Couch, SideTable,
+    // Special-building furniture (Phase 3)
+    Anvil, Forge, BarCounter, BarStool, Cauldron, AlchemyTable,
+    // Trade signs (hanging from a wooden post outside special buildings):
+    // each is a distinct PropType so the placer can pick the right icon for
+    // the building kind. Adding a new role just means adding a new PropType
+    // here, a builder in furniture.cpp, and a case in placeTradeSign().
+    SignAnvil, SignMug, SignStar, SignWheat,
     Count
 };
 
@@ -45,6 +58,11 @@ public:
     void draw(GLuint modelLoc) const override;
     void getAABB(glm::vec3& mn, glm::vec3& mx) const override;
 
+    // Maps the prop's `type` to a sit / lie / etc. offer. Beds offer LieBed,
+    // chairs and bar stools offer SitChair; everything else returns false.
+    // Add new offers here as more PropTypes become interactive.
+    bool getInteraction(Interaction& out) const override;
+
     PropType type;
     uint32_t placementIndex = 0xFFFFFFFFu;   // index into getPropPlacements()
 
@@ -56,12 +74,17 @@ private:
 // opening — see buildDoor).
 static constexpr float DOOR_SCALE = 0.2f;
 
-// A house front door that swings open as the local player approaches and shuts
-// again when they leave. Borrows the shared door mesh from the PropLibrary.
+class ObjectManager;
+
+// A house front door that swings open as the local player or any nearby NPC
+// approaches and shuts again when they leave. Borrows the shared door mesh
+// from the PropLibrary; the `objects` pointer is the ObjectManager that
+// owns this door, used to scan the local-region NPC list each tick.
 class Door : public GameObject {
 public:
     Door(glm::vec3 hinge, float closedYawDeg, glm::ivec2 doorCell, glm::ivec2 alongWall,
-         int variant, const PropLibrary* lib, const glm::vec3* playerPos);
+         int variant, const PropLibrary* lib, const glm::vec3* playerPos,
+         const ObjectManager* objects);
 
     void update(float dt, World& world) override;
     void draw(GLuint modelLoc) const override;
@@ -78,6 +101,7 @@ private:
     int   variant    = 0;                    // door style/colour index
     float closedYaw  = 0.0f;
     float openAmount = 0.0f;                 // 0 = shut, 1 = fully open
-    const PropLibrary* library   = nullptr;  // borrowed
-    const glm::vec3*   playerPos = nullptr;  // borrowed — local player position
+    const PropLibrary*  library   = nullptr; // borrowed
+    const glm::vec3*    playerPos = nullptr; // borrowed — local player position
+    const ObjectManager* objects  = nullptr; // borrowed — for NPC proximity queries
 };

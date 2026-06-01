@@ -30,19 +30,42 @@ static bool isNight(float gameTime) {
 
 static constexpr int CAMP_GRID = 256;   // bandit-camp survey cell size, blocks
 
-// Snaps an NPC's Y onto the surface directly under it. Scans downward from the
-// feet so a roof or ceiling is never mistaken for the floor; if the chunk isn't
-// loaded yet getBlock reads Air and the previous height is kept.
+// Snaps an NPC's Y onto the surface directly under it.
+//
+// NPCs intentionally don't collide with blocks (they ghost through interior
+// partition walls so the AI can route them straight to a bed), but a naive
+// "stand on the first solid block below me" rule then turns a building's
+// exterior wall into a stair: a villager walking into the wall finds the
+// wall block under their feet, snaps onto it, and the same trick repeats
+// next frame, climbing one block per tick all the way up to the roof. Once
+// up there the short 7-block downward scan can't reach the ground again,
+// so they wander around in the sky.
+//
+// Two rules avoid both halves of that:
+//   1. Never snap UP by more than one block per call — natural slopes and
+//      stairs are fine (one-block rises), but a 4-block-tall wall can't be
+//      climbed because each frame the new ground is too far above the last
+//      one, so the snap is refused and the NPC keeps its previous Y. They
+//      ghost through the wall at floor level instead of climbing it.
+//   2. The downward scan is generous (~30 blocks) so a previously-stranded
+//      NPC, or one stepping off a ledge, can drop back to the real ground.
 static void groundSnap(NPC& n, World& world) {
     int wx = (int)floorf(n.position.x), wz = (int)floorf(n.position.z);
-    int yTop = (int)floorf(n.position.y);
-    int yBot = std::max(1, yTop - 7);
+    int prevI = (int)floorf(n.groundY);
+    int yTop = std::min(prevI + 1, CHUNK_HEIGHT - 2);
+    int yBot = std::max(1, prevI - 30);
     for (int y = yTop; y >= yBot; y--) {
         BlockType b = world.getBlock(wx, y, wz);
-        if (b != BlockType::Air && b != BlockType::Water) {
-            n.groundY = (float)(y + 1);
-            break;
+        if (b == BlockType::Air || b == BlockType::Water) continue;
+        float newGround = (float)(y + 1);
+        if (newGround > n.groundY + 1.0f + 1e-3f) {
+            // The only standable spot in this column is above stepping
+            // height — almost certainly a wall the NPC has ghosted into.
+            // Refuse the snap and keep the previous Y so they pass through.
+            return;
         }
+        n.groundY = newGround;
+        break;
     }
     n.position.y = n.groundY;
 }
@@ -296,7 +319,10 @@ void NpcDirector::populateTown(int ti) {
     int local = 0;
     for (int bi = 0; bi < (int)t.buildings.size(); bi++) {
         const TownBuilding& b = t.buildings[bi];
-        if (b.kind != 1) continue;   // houses only
+        // Spawn villagers in any building that has interior rooms — houses,
+        // pubs, blacksmiths and mage towers all qualify. Centrepieces and
+        // farms have empty rooms and are skipped.
+        if (b.rooms.empty()) continue;
 
         float cx = (float)b.wx + b.dimX * 0.5f;
         float cz = (float)b.wz + b.dimZ * 0.5f;
@@ -307,6 +333,28 @@ void NpcDirector::populateTown(int ti) {
         glm::vec2 home   = nav.nearestWalkable(centre + doorDir * (halfAlong + 3.0f));
         glm::vec2 door   = hasDoor ? (centre + doorDir * (halfAlong + 0.5f)) : home;
         glm::vec2 inside = hasDoor ? (centre + doorDir * (halfAlong - 2.5f)) : home;
+
+        // Collect ground-floor bedrooms — these are the preferred sleep spots
+        // for each villager, so the night-time routine ends at a bed instead
+        // of in the doorway (which kept the door's 4-block trigger active).
+        // Upper-floor bedrooms are skipped here: there's no in-house stair
+        // pathfinder yet, so we'd walk into the underside of a slab.
+        int minFloorY = (1 << 30);
+        for (const Room& r : b.rooms)
+            if (r.type == RoomType::Bedroom && r.floorY < minFloorY)
+                minFloorY = r.floorY;
+        std::vector<glm::vec2> bedrooms;
+        for (const Room& r : b.rooms) {
+            if (r.type != RoomType::Bedroom) continue;
+            if (r.floorY > minFloorY + 2) continue;   // ground-floor only
+            float rx = (float)b.wx + (float)(r.x0 + r.x1) * 0.5f + 0.5f;
+            float rz = (float)b.wz + (float)(r.z0 + r.z1) * 0.5f + 0.5f;
+            bedrooms.push_back(glm::vec2(rx, rz));
+        }
+        // Fallback: a point a few blocks further inward than insidePos so the
+        // villager at least clears the door trigger when there's no usable
+        // ground-floor bedroom (Tower / Manor / Hall / etc.).
+        glm::vec2 bedFallback = inside + doorDir * -4.0f;
 
         int occupants = 1 + (int)(hashU32((uint32_t)ti * 131u + (uint32_t)bi,
                                           0xA17u) % 2u);
@@ -321,6 +369,9 @@ void NpcDirector::populateTown(int ti) {
             n->homePos   = home;
             n->doorPos   = door;
             n->insidePos = inside;
+            // Different occupants get different bedrooms where possible.
+            n->bedPos = bedrooms.empty() ? bedFallback
+                                         : bedrooms[k % bedrooms.size()];
             n->position  = glm::vec3(home.x, n->groundY, home.y);
             n->idleTimer = frand01(rng) * 3.0f;
             active.push_back(std::move(n));
@@ -401,13 +452,19 @@ void NpcDirector::stepVillager(NPC& n, float dt, World& world, float gameTime) {
         return;
     }
 
-    // Routes to the doorstep, then appends a waypoint inside the house — the
-    // final leg is a short straight step in through the doorway.
+    // Routes to the doorstep, then appends straight-line waypoints in through
+    // the door and on to the assigned bed. The indoor leg is unguided by
+    // TownNav (which treats whole building footprints as blocked) — villagers
+    // walk straight to the bed, phasing through any interior partition walls
+    // on the way. That's a deliberate simplification until there's a proper
+    // in-house pathfinder; the win is that the villager ends up at the bed
+    // rather than standing in the doorway keeping the door triggered.
     auto routeHome = [&]() {
         n.path = nav.findPath(glm::vec2(n.position.x, n.position.z), n.homePos);
         if (!n.path.empty()) {
             n.path.push_back(n.doorPos);     // line up on the doorway...
-            n.path.push_back(n.insidePos);   // ...then step inside
+            n.path.push_back(n.insidePos);   // ...step inside...
+            n.path.push_back(n.bedPos);      // ...and walk to the bed
         }
         n.pathIndex = 0;
     };
@@ -439,12 +496,14 @@ void NpcDirector::stepVillager(NPC& n, float dt, World& world, float gameTime) {
 
         glm::vec2 cur(n.position.x, n.position.z);
         if (n.goingHome) {
-            // Settled indoors for the night — just wait it out.
-            if (glm::distance(cur, n.insidePos) < 2.0f) {
+            // Settled at the bed for the night — just wait it out. The bed
+            // is well clear of the door's 4-block trigger, so the door
+            // closes properly behind the villager.
+            if (glm::distance(cur, n.bedPos) < 2.0f) {
                 n.idleTimer = 4.0f + frand01(rng) * 4.0f;
                 return;
             }
-            routeHome();                       // not inside yet — (re)route home
+            routeHome();                       // not at the bed yet — (re)route home
             if (n.path.empty())
                 n.idleTimer = 1.0f + frand01(rng) * 2.0f;
             return;

@@ -7,6 +7,7 @@
 #include "gameplay.h"
 #include "town.h"
 #include "npc.h"
+#include "prop_placement.h"
 #include "graphics_settings.h"
 #include "gl_loader.h"
 #include "imgui.h"
@@ -18,6 +19,8 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <thread>
+#include <iostream>
 
 // ---------------------------------------------------------------------------
 // ImGui theme
@@ -258,9 +261,8 @@ void renderMenuUI(AppContext& ctx, GLFWwindow* window, Renderer* renderer) {
             ctx.sessionMode  = SessionMode::Singleplayer;
             ctx.connectHost  = "127.0.0.1";
             ctx.connectPort  = DEFAULT_SERVER_PORT;
-            startEmbeddedServer(ctx.connectPort, ctx.settings.renderDistance);
             ctx.weOwnServer  = true;
-            ctx.state        = GameState::Playing;
+            beginLoading(ctx);                  // spawns the worker + state=Loading
         }
         if (ImGui::Button("Host Game", ImVec2(-1, 36))) {
             disconnectFromGame(ctx);
@@ -268,9 +270,8 @@ void renderMenuUI(AppContext& ctx, GLFWwindow* window, Renderer* renderer) {
             ctx.sessionMode  = SessionMode::Host;
             ctx.connectHost  = "127.0.0.1";
             ctx.connectPort  = DEFAULT_SERVER_PORT;
-            startEmbeddedServer(ctx.connectPort, ctx.settings.renderDistance);
             ctx.weOwnServer  = true;
-            ctx.state        = GameState::Playing;
+            beginLoading(ctx);
         }
         if (ImGui::Button("Join Game", ImVec2(-1, 36))) {
             ctx.state = GameState::JoinMenu;
@@ -313,13 +314,165 @@ void renderMenuUI(AppContext& ctx, GLFWwindow* window, Renderer* renderer) {
             ctx.connectHost = hostBuf;
             ctx.connectPort = (unsigned short)port;
             ctx.weOwnServer = false;
-            ctx.state       = GameState::Playing;
+            beginLoading(ctx);
         }
         if (ImGui::Button("Back", ImVec2(-1, 36))) {
             ctx.state = GameState::MainMenu;
         }
         ImGui::End();
     }
+}
+
+// ---------------------------------------------------------------------------
+// Loading screen (background world generation)
+// ---------------------------------------------------------------------------
+
+// The high-level loading stages. Indexes into ctx.loadingHighStage.
+// 0..(N-2) cover the town survey + finalisation; the last name "Ready" is
+// briefly shown right before the transition to Playing.
+namespace {
+const char* const kLoadingStageNames[] = {
+    "Starting server",
+    "Generating world",   // covers all the town survey sub-stages
+    "Placing furniture",
+    "Building meshes",
+    "Connecting",
+    "Ready",
+};
+constexpr int kLoadingStageCount = (int)(sizeof(kLoadingStageNames)
+                                      / sizeof(kLoadingStageNames[0]));
+
+void setHighStage(AppContext& ctx, int stage, float frac) {
+    ctx.loadingHighStage.store(stage, std::memory_order_release);
+    ctx.loadingHighFraction.store(frac, std::memory_order_release);
+}
+}  // namespace
+
+void beginLoading(AppContext& ctx) {
+    // If a previous loading run is still hanging around, join it before
+    // starting a new one — clicking Host twice in a row is otherwise UB.
+    if (ctx.loadingThread.joinable()) ctx.loadingThread.join();
+
+    ctx.loadingWorkerDone.store(false, std::memory_order_release);
+    ctx.loadingFinalised = false;
+    setHighStage(ctx, 0, 0.0f);
+    ctx.state = GameState::Loading;
+
+    // The worker runs every step that doesn't need the GL context. propLibrary
+    // mesh upload happens on the main thread in renderLoadingUI() once this
+    // worker reports done.
+    ctx.loadingThread = std::thread([&ctx]() {
+        try {
+            // Stage 0 — boot the embedded server (no-op for Join mode).
+            if (ctx.weOwnServer) {
+                setHighStage(ctx, 0, 0.2f);
+                startEmbeddedServer(ctx.connectPort, ctx.settings.renderDistance);
+                setHighStage(ctx, 0, 1.0f);
+
+                // Stage 1 — survey, town layout, road routing. This is the
+                // expensive one; the town atomics report fine-grained progress.
+                setHighStage(ctx, 1, 0.0f);
+                (void)getTownPlan();
+                setHighStage(ctx, 1, 1.0f);
+
+                // Stage 2 — derive furniture and door placements (depend on
+                // the town plan, no GL needed).
+                setHighStage(ctx, 2, 0.0f);
+                (void)getPropPlacements();
+                (void)getDoorPlacements();
+                setHighStage(ctx, 2, 1.0f);
+            } else {
+                // Join mode skips straight to the connect stage.
+                setHighStage(ctx, 4, 0.5f);
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "[Loading] worker exception: " << e.what() << std::endl;
+        } catch (...) {
+            std::cerr << "[Loading] worker exception: unknown" << std::endl;
+        }
+        ctx.loadingWorkerDone.store(true, std::memory_order_release);
+    });
+}
+
+bool renderLoadingUI(AppContext& ctx, GLFWwindow* /*window*/) {
+    // Compute the displayed fraction. While stage 1 (town survey) is running,
+    // sub-fractions come from gTownBuildFraction so the bar moves continuously
+    // during the long terrain sweep. Other stages use loadingHighFraction.
+    const int highStage = ctx.loadingHighStage.load(std::memory_order_acquire);
+    float overall = 0.0f;
+    const char* sub = nullptr;
+    if (highStage == 1 && !ctx.loadingWorkerDone.load(std::memory_order_acquire)) {
+        const int   ts = gTownBuildStage.load(std::memory_order_acquire);
+        const float tf = gTownBuildFraction.load(std::memory_order_acquire);
+        // Stage 1 spans [0.10, 0.85] of the total bar, divided across the
+        // town sub-stages. Anything past the survey lives in [0.85, 1.0].
+        const float low = 0.10f, high = 0.85f;
+        const float perSub = (high - low) / (float)kTownBuildStageCount;
+        overall = low + perSub * ((float)ts + std::clamp(tf, 0.0f, 1.0f));
+        if (ts >= 0 && ts < kTownBuildStageCount) sub = kTownBuildStageNames[ts];
+    } else {
+        // Highstage 0 → [0.00, 0.10], 1 done → 0.85, 2 → [0.85, 0.92],
+        // 3 (meshes, set on main thread) → [0.92, 0.97], 4 (connect) → 0.99.
+        static const float bounds[][2] = {
+            {0.00f, 0.10f}, {0.10f, 0.85f}, {0.85f, 0.92f},
+            {0.92f, 0.97f}, {0.97f, 0.99f}, {1.00f, 1.00f},
+        };
+        const int s = std::clamp(highStage, 0, kLoadingStageCount - 1);
+        const float f = std::clamp(
+            ctx.loadingHighFraction.load(std::memory_order_acquire), 0.0f, 1.0f);
+        overall = bounds[s][0] + (bounds[s][1] - bounds[s][0]) * f;
+        sub = kLoadingStageNames[s];
+    }
+
+    // Centred translucent loading window.
+    const float W = 460.0f, H = 160.0f;
+    ImGui::SetNextWindowPos(ImVec2((WINDOW_WIDTH - W) * 0.5f,
+                                   (WINDOW_HEIGHT - H) * 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(W, H));
+    ImGui::Begin("Loading", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                 ImGuiWindowFlags_NoSavedSettings);
+
+    ImGui::TextUnformatted("Loading world");
+    ImGui::Separator();
+    ImGui::Dummy(ImVec2(0, 6));
+
+    // Animated label so the user sees movement even when an individual stage
+    // hasn't moved its fraction in a moment (e.g. routing highways).
+    static const char DOTS[] = {' ', '.', ':', '*'};
+    int dot = (int)(ImGui::GetTime() * 3.0f) & 3;
+    char label[128];
+    snprintf(label, sizeof(label), "%s%c", sub ? sub : "Working", DOTS[dot]);
+    ImGui::TextUnformatted(label);
+    ImGui::Dummy(ImVec2(0, 4));
+
+    ImGui::ProgressBar(std::clamp(overall, 0.0f, 1.0f),
+                       ImVec2(-1, 18), nullptr);
+    ImGui::Dummy(ImVec2(0, 6));
+    ImGui::TextDisabled("This only happens the first time you enter a world.");
+
+    ImGui::End();
+
+    // Main-thread finalisation: once the worker reports done, build the prop
+    // library on the main thread (it issues GL calls and must run here).
+    if (ctx.loadingWorkerDone.load(std::memory_order_acquire) &&
+        !ctx.loadingFinalised)
+    {
+        setHighStage(ctx, 3, 0.0f);
+        ctx.propLibrary.buildAll();
+        setHighStage(ctx, 3, 1.0f);
+        // The actual network connect happens on the first gameplay frame.
+        // Mark the high-level stage so the bar shows "Connecting" briefly.
+        setHighStage(ctx, 4, 0.5f);
+        ctx.loadingFinalised = true;
+    }
+
+    if (ctx.loadingFinalised) {
+        if (ctx.loadingThread.joinable()) ctx.loadingThread.join();
+        setHighStage(ctx, 5, 1.0f);
+        return true;
+    }
+    return false;
 }
 
 void renderPauseMenuUI(AppContext& ctx, GLFWwindow* window) {
@@ -555,10 +708,12 @@ void renderHouseEditorUI(AppContext& ctx, GLFWwindow* window, Renderer& renderer
         ImGui::Text("Template");
         if (ImGui::Combo("##template", &house->templateType,
                 "Bungalow\0Two-Story\0Cottage\0Tower\0Cabin\0"
-                "Longhouse\0Townhouse\0Manor\0Hall\0Keep\0"))
+                "Longhouse\0Townhouse\0Manor\0Hall\0Keep\0"
+                "Norse Longhouse\0Norse Mead Hall\0"
+                "Tavern (Pub)\0Blacksmith\0Mage Tower\0"))
             house->rebuild();
         if (ImGui::Combo("Roof", &house->roofType,
-                "Flat\0Gabled\0Hipped\0Pyramid\0"))
+                "Flat\0Gabled\0Hipped\0Pyramid\0Steep Gable (Norse)\0"))
             house->rebuild();
         if (ImGui::Combo("Material", &house->material,
                 "Timber\0Cottage\0Stone\0Manor\0Cabin\0"
@@ -1112,6 +1267,32 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
         drawNametag(p.position + glm::vec3(0.0f, 2.1f, 0.0f), label,
                     renderer.frameView, renderer.frameProj,
                     renderer.frameFbW, renderer.frameFbH);
+    }
+
+    // Interactable prop in front of the player (chair, bed, etc.) — show the
+    // E-hint just below the crosshair. The hint comes from the interactable
+    // system so adding new actions only takes a new InteractAction case.
+    if (ctx.pendingInteraction.action != InteractAction::None &&
+        ctx.playerPose == PlayerPose::Standing) {
+        ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH / 2 - 110, WINDOW_HEIGHT / 2 + 36));
+        ImGui::SetNextWindowSize(ImVec2(220, 26));
+        ImGui::Begin("InteractHint", nullptr,
+                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground |
+                     ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoInputs);
+        ImGui::TextColored(ImVec4(0.96f, 0.90f, 0.70f, 1.0f), "%s",
+                           ctx.pendingInteraction.hint
+                               ? ctx.pendingInteraction.hint : "[E] Interact");
+        ImGui::End();
+    }
+    // While seated / lying, surface a clear "press E to stand" prompt.
+    if (ctx.playerPose != PlayerPose::Standing) {
+        ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH / 2 - 90, WINDOW_HEIGHT / 2 + 36));
+        ImGui::SetNextWindowSize(ImVec2(180, 26));
+        ImGui::Begin("PoseExitHint", nullptr,
+                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground |
+                     ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoInputs);
+        ImGui::TextColored(ImVec4(0.96f, 0.90f, 0.70f, 1.0f), "[E] Get up");
+        ImGui::End();
     }
 
     // NPC interaction — nametag + talk prompt for the villager being faced,

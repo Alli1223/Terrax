@@ -6,6 +6,7 @@ in float BlockLight;
 in vec3  FragWorldPos;
 in vec3  FragNormal;
 in vec4  FragPosLightSpace;
+in float Snowable;
 
 out vec4 FragColor;
 
@@ -25,6 +26,7 @@ uniform vec3  u_lanternColor[MAX_LANTERNS];   // per-light tint (warm orange
                                               // for in-flight bolts)
 uniform float time;
 uniform float u_weather;             // 0 = clear .. 1 = full storm
+uniform float u_snowAmount;          // 0 .. 1, tints `Snowable` faces toward white
 
 uniform sampler3D u_lightVol;        // block opacity around the player (R8)
 uniform vec3      u_lightVolOrigin;  // world position of texel (0,0,0)
@@ -113,6 +115,13 @@ void main() {
     vec4 texSample = texture(atlas, TexCoord);
     if (texSample.a < 0.5) discard;
     vec3 base = texSample.rgb;
+
+    // Weather: paint surfaces flagged at mesh-build time (Snowable=1 on
+    // sky-exposed roof / chimney tops) blend toward fresh-snow white in
+    // proportion to u_snowAmount. The lighting pass below then shadows /
+    // tints the result so it sits naturally in the scene.
+    float snowMask = Snowable * clamp(u_snowAmount, 0.0, 1.0);
+    base = mix(base, vec3(0.96, 0.97, 1.00), snowMask);
 
     // Directional sun: NdotL with soft ramp
     float NdotL   = max(dot(FragNormal, u_sunDir), 0.0);

@@ -315,6 +315,23 @@ void Chunk::buildMesh(World* world) {
                     float u0, v0, u1, v1;
                     tileUV(tile, u0, v0, u1, v1);
 
+                    // Snowable detection — only +Y faces of painted (building)
+                    // blocks qualify, and only when the column above is open to
+                    // sky. The air-column count discriminates roof tops (sky
+                    // above for many cells) from indoor floor tiles (a ceiling
+                    // 5-11 cells up). Threshold 16 covers even the tall Hall
+                    // template's 11-block ceiling without flagging it.
+                    float snowable = 0.0f;
+                    if (face == 2 && (int)bt >= (int)BlockType::PaintFirst) {
+                        int airAbove = 0;
+                        for (int dy = 1; dy <= 16; dy++) {
+                            BlockType up = worldGet(wx, y + dy, wz);
+                            if (up != BlockType::Air) break;
+                            airAbove = dy;
+                        }
+                        if (airAbove >= 12) snowable = 1.0f;
+                    }
+
                     Vertex quad[4];
                     for (int vi = 0; vi < 4; vi++) {
                         float sd = (isWater && face == 2)
@@ -324,7 +341,7 @@ void Chunk::buildMesh(World* world) {
                             (float)wx + FV[face][vi][0], (float)y + FV[face][vi][1], (float)wz + FV[face][vi][2],
                             FNX[face], FNY[face], FNZ[face],
                             u0 + LU[vi] * (u1 - u0), v0 + LV[vi] * (v1 - v0),
-                            (float)bt, skyL, blockL, sd
+                            (float)bt, skyL, blockL, sd, snowable
                         };
                     }
                     pushQuad(isWater ? wverts : (isGlass ? gverts : verts), quad);
@@ -395,6 +412,8 @@ static void setupVertexAttribs() {
     glEnableVertexAttribArray(5);
     glVertexAttribPointer(6, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, shoreDistance));
     glEnableVertexAttribArray(6);
+    glVertexAttribPointer(7, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, snowable));
+    glEnableVertexAttribArray(7);
 }
 
 static void setupVegVertexAttribs() {
@@ -978,6 +997,33 @@ static void generateChunk(Chunk* c) {
                     if (gn > 0.44f) bt = BlockType::Glowstone;
                 }
                 c->set(x, y, z, bt);
+            }
+        }
+    }
+
+    // Pass 1.5: hard town-level — within a town's flat zone (settlement
+    // footprint + a buffer), force the terrain top to be exactly the town's
+    // baseY. The density pass only *biases* toward townFlattenedHeight, so
+    // the actual surface still wobbles a few blocks; without this snap, the
+    // gravel path traced over the surface ends up at a slightly different
+    // height to the house foundation, and the path can blockade the front
+    // door. We fill stone up to baseY and clear any blocks above so the
+    // surface pass that follows lays grass / snow on a perfectly flat top.
+    for (int x = 0; x < CHUNK_SIZE; x++) {
+        for (int z = 0; z < CHUNK_SIZE; z++) {
+            int flatY = townFlatLevelAt(ox + x, oz + z);
+            if (flatY < 1) continue;
+            for (int y = 1; y <= flatY && y < CHUNK_HEIGHT; y++) {
+                BlockType cur = c->get(x, y, z);
+                if (cur == BlockType::Air || cur == BlockType::Water)
+                    c->set(x, y, z, BlockType::Stone);
+            }
+            for (int y = flatY + 1; y < CHUNK_HEIGHT; y++) {
+                BlockType cur = c->get(x, y, z);
+                if (cur == BlockType::Air) continue;
+                if (isAnyLeaves(cur)) continue;
+                if (cur == BlockType::Wood || cur == BlockType::Cactus) continue;
+                c->set(x, y, z, BlockType::Air);
             }
         }
     }

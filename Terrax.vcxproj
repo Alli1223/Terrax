@@ -107,6 +107,7 @@
     <ClCompile Include="src\npc.cpp" />
     <ClCompile Include="src\animal.cpp" />
     <ClCompile Include="src\vegetation.cpp" />
+    <ClCompile Include="src\building.cpp" />
     <ClCompile Include="src\items.cpp" />
     <ClCompile Include="src\inventory.cpp" />
     <ClCompile Include="src\clothing_painter.cpp" />
@@ -177,6 +178,8 @@
     <ClInclude Include="include\projectile.h" />
     <ClInclude Include="include\npc_appearance.h" />
     <ClInclude Include="include\voxel_model.h" />
+    <ClInclude Include="include\building.h" />
+    <ClInclude Include="include\interactable.h" />
     <ClInclude Include="include\world.h" />
     <ClInclude Include="src\noise.h" />
   </ItemGroup>

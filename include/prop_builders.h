@@ -15,6 +15,29 @@ VoxelVolume* buildTable();
 VoxelVolume* buildChair();
 VoxelVolume* buildCrockery();
 
+// Phase 2: room-specific furniture.
+VoxelVolume* buildSink();
+VoxelVolume* buildKitchenCounter();
+VoxelVolume* buildWardrobe();
+VoxelVolume* buildDesk();
+VoxelVolume* buildCouch();
+VoxelVolume* buildSideTable();
+
+// Phase 3: special-building furniture.
+VoxelVolume* buildAnvil();
+VoxelVolume* buildForge();
+VoxelVolume* buildBarCounter();
+VoxelVolume* buildBarStool();
+VoxelVolume* buildCauldron();
+VoxelVolume* buildAlchemyTable();
+
+// Trade signs hanging from a wooden post — one builder per icon. Each shares
+// the same post + frame geometry; the body of the shield differs.
+VoxelVolume* buildTradeSignAnvil();
+VoxelVolume* buildTradeSignMug();
+VoxelVolume* buildTradeSignStar();
+VoxelVolume* buildTradeSignWheat();
+
 // Decoration builders (decorations.cpp).
 VoxelVolume* buildStreetLamp();
 VoxelVolume* buildPottedPlant();

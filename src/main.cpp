@@ -83,6 +83,16 @@ int main(int argc, char** argv) {
             renderHouseEditorUI(ctx, window, renderer);
             break;
 
+        case GameState::Loading:
+            // Background worker pre-warms the world plan and prop placements
+            // so the first frame of Playing isn't a multi-second stall.
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+            glClearColor(0.08f, 0.05f, 0.04f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            if (renderLoadingUI(ctx, window))
+                ctx.state = GameState::Playing;
+            break;
+
         case GameState::Playing:
         case GameState::Paused:
             updateGameplay(ctx, window);

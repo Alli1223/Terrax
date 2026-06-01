@@ -3,6 +3,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <cstdint>
 #include "gl_loader.h"
+#include "interactable.h"
 
 class World;
 
@@ -28,6 +29,12 @@ public:
 
     // World-space AABB, for culling / streaming / collision broadphase.
     virtual void getAABB(glm::vec3& mn, glm::vec3& mx) const = 0;
+
+    // Returns true if this object offers an E-interaction (sit on chair, lie
+    // on bed, trade with shopkeeper, …). The base implementation says "no" so
+    // most objects need not override. The gameplay layer scans nearby
+    // GameObjects, picks the best candidate, and dispatches on action.
+    virtual bool getInteraction(Interaction& out) const { (void)out; return false; }
 
     ObjectKind kind;
     glm::vec3  position{0.0f};

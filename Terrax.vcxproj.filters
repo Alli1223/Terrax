@@ -35,6 +35,7 @@
     <ClCompile Include="src\npc.cpp"><Filter>Source</Filter></ClCompile>
     <ClCompile Include="src\animal.cpp"><Filter>Source</Filter></ClCompile>
     <ClCompile Include="src\vegetation.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\building.cpp"><Filter>Source</Filter></ClCompile>
     <ClCompile Include="src\items.cpp"><Filter>Source</Filter></ClCompile>
     <ClCompile Include="src\inventory.cpp"><Filter>Source</Filter></ClCompile>
     <ClCompile Include="src\clothing_painter.cpp"><Filter>Source</Filter></ClCompile>
@@ -103,6 +104,8 @@
     <ClInclude Include="include\projectile.h"><Filter>Headers</Filter></ClInclude>
     <ClInclude Include="include\npc_appearance.h"><Filter>Headers</Filter></ClInclude>
     <ClInclude Include="include\voxel_model.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\building.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="include\interactable.h"><Filter>Headers</Filter></ClInclude>
     <ClInclude Include="include\world.h"><Filter>Headers</Filter></ClInclude>
     <ClInclude Include="src\noise.h"><Filter>Headers</Filter></ClInclude>
   </ItemGroup>

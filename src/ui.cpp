@@ -23,6 +23,24 @@
 #include <iostream>
 
 // ---------------------------------------------------------------------------
+// Viewport-relative placement
+// ---------------------------------------------------------------------------
+// Every ImGui window must be positioned in the main viewport's coordinate
+// space (logical display units). That space updates every frame, so panels
+// follow live resolution changes and HiDPI scaling. The WINDOW_WIDTH /
+// WINDOW_HEIGHT constants only describe the *initial* window — positioning
+// from them leaves the whole HUD stranded the moment the resolution changes.
+namespace {
+ImVec2 vpPos()  { return ImGui::GetMainViewport()->Pos; }
+ImVec2 vpSize() { return ImGui::GetMainViewport()->Size; }
+// Top-left for a window of size (w,h) centred in the viewport.
+ImVec2 vpCentered(float w, float h) {
+    ImVec2 p = vpPos(), s = vpSize();
+    return ImVec2(p.x + (s.x - w) * 0.5f, p.y + (s.y - h) * 0.5f);
+}
+}  // namespace
+
+// ---------------------------------------------------------------------------
 // ImGui theme
 // ---------------------------------------------------------------------------
 
@@ -174,13 +192,8 @@ static void applyGraphicsSettingsAndSync(GLFWwindow* window, AppContext& ctx, Re
 }
 
 static void renderSettingsUI(AppContext& ctx, GLFWwindow* window, Renderer* renderer) {
-    int winW = 0, winH = 0;
-    glfwGetWindowSize(window, &winW, &winH);
-    if (winW <= 0) winW = WINDOW_WIDTH;
-    if (winH <= 0) winH = WINDOW_HEIGHT;
-
-    ImGui::SetNextWindowPos(ImVec2(winW / 2 - 200, winH / 2 - 240));
-    ImGui::SetNextWindowSize(ImVec2(400, 480));
+    ImGui::SetNextWindowPos(vpCentered(400.0f, 480.0f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(400, 480), ImGuiCond_Always);
     ImGui::Begin("Settings", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove);
 
     ImGui::Text("SETTINGS");
@@ -246,8 +259,8 @@ void renderMenuUI(AppContext& ctx, GLFWwindow* window, Renderer* renderer) {
         return;
     }
     if (ctx.state == GameState::MainMenu) {
-        ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH / 2 - 160, WINDOW_HEIGHT / 2 - 230));
-        ImGui::SetNextWindowSize(ImVec2(320, 468));
+        ImGui::SetNextWindowPos(vpCentered(320.0f, 468.0f), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(320, 468), ImGuiCond_Always);
         ImGui::Begin("Main Menu", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove);
 
         ImGui::Text("TERRAX");
@@ -298,8 +311,8 @@ void renderMenuUI(AppContext& ctx, GLFWwindow* window, Renderer* renderer) {
         static char hostBuf[128] = "127.0.0.1";
         static int  port = (int)DEFAULT_SERVER_PORT;
 
-        ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH / 2 - 160, WINDOW_HEIGHT / 2 - 120));
-        ImGui::SetNextWindowSize(ImVec2(320, 240));
+        ImGui::SetNextWindowPos(vpCentered(320.0f, 240.0f), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(320, 240), ImGuiCond_Always);
         ImGui::Begin("Join Game", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove);
 
         ImGui::Text("Server Address");
@@ -426,9 +439,8 @@ bool renderLoadingUI(AppContext& ctx, GLFWwindow* /*window*/) {
 
     // Centred translucent loading window.
     const float W = 460.0f, H = 160.0f;
-    ImGui::SetNextWindowPos(ImVec2((WINDOW_WIDTH - W) * 0.5f,
-                                   (WINDOW_HEIGHT - H) * 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(W, H));
+    ImGui::SetNextWindowPos(vpCentered(W, H), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(W, H), ImGuiCond_Always);
     ImGui::Begin("Loading", nullptr,
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                  ImGuiWindowFlags_NoSavedSettings);
@@ -476,8 +488,8 @@ bool renderLoadingUI(AppContext& ctx, GLFWwindow* /*window*/) {
 }
 
 void renderPauseMenuUI(AppContext& ctx, GLFWwindow* window) {
-    ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH / 2 - 140, WINDOW_HEIGHT / 2 - 100));
-    ImGui::SetNextWindowSize(ImVec2(280, 200));
+    ImGui::SetNextWindowPos(vpCentered(280.0f, 200.0f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(280, 200), ImGuiCond_Always);
     ImGui::Begin("Paused", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove);
 
     if (ImGui::Button("Resume", ImVec2(-1, 32))) {
@@ -516,8 +528,8 @@ void renderCharacterEditorUI(AppContext& ctx, GLFWwindow* window, Renderer& rend
     renderer.renderEditorCharacter(ctx, model, view, proj);
 
     // ImGui panel
-    ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(300, (float)fbH), ImGuiCond_Always);
+    ImGui::SetNextWindowPos(vpPos(), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(300, vpSize().y), ImGuiCond_Always);
     ImGui::Begin("Character Editor", nullptr,
         ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus);
@@ -695,8 +707,8 @@ void renderHouseEditorUI(AppContext& ctx, GLFWwindow* window, Renderer& renderer
     renderer.renderEditorHouse(ctx, model, view, proj);
 
     // ImGui panel
-    ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(300, (float)fbH), ImGuiCond_Always);
+    ImGui::SetNextWindowPos(vpPos(), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(300, vpSize().y), ImGuiCond_Always);
     ImGui::Begin("House Editor", nullptr,
         ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus);
@@ -849,9 +861,7 @@ static void renderMapUI(AppContext& ctx) {
     // ── ImGui window ─────────────────────────────────────────────────────────
     const float WIN = DISP + 80.0f;
     ImGui::SetNextWindowSize(ImVec2(WIN, WIN + 44.0f), ImGuiCond_Always);
-    ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH * 0.5f - WIN * 0.5f,
-                                   WINDOW_HEIGHT * 0.5f - (WIN + 44.0f) * 0.5f),
-                            ImGuiCond_Always);
+    ImGui::SetNextWindowPos(vpCentered(WIN, WIN + 44.0f), ImGuiCond_Always);
     ImGui::Begin("World Map", &ctx.showMap, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse);
 
     // Canvas invisible button captures mouse events
@@ -1195,8 +1205,8 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
     // Underwater tint
     if (ctx.headUnderwater) {
         ImDrawList* dl = ImGui::GetBackgroundDrawList();
-        dl->AddRectFilled(ImVec2(0, 0), ImVec2((float)WINDOW_WIDTH, (float)WINDOW_HEIGHT),
-                          IM_COL32(15, 60, 140, 90));
+        ImVec2 o = vpPos(), s = vpSize();
+        dl->AddRectFilled(o, ImVec2(o.x + s.x, o.y + s.y), IM_COL32(15, 60, 140, 90));
     }
 
     // Bow draw charge bar — visible while the player is holding left
@@ -1205,8 +1215,8 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
     // as the draw approaches full.
     if (ctx.bowChargingHeld && ctx.bowCharge > 0.0f) {
         float w = 220.0f;
-        ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH / 2 - w * 0.5f,
-                                       WINDOW_HEIGHT / 2 - 80));
+        ImVec2 vp = vpPos(), vs = vpSize();
+        ImGui::SetNextWindowPos(ImVec2(vp.x + (vs.x - w) * 0.5f, vp.y + vs.y * 0.5f - 80.0f));
         ImGui::SetNextWindowSize(ImVec2(w, 22));
         ImGui::Begin("BowCharge", nullptr,
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground |
@@ -1222,7 +1232,8 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
 
     // Breath bar
     if (ctx.breathTime < 29.9f) {
-        ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH / 2 - 150, WINDOW_HEIGHT - 100));
+        ImVec2 vp = vpPos(), vs = vpSize();
+        ImGui::SetNextWindowPos(ImVec2(vp.x + vs.x * 0.5f - 150.0f, vp.y + vs.y - 100.0f));
         ImGui::SetNextWindowSize(ImVec2(300, 18));
         ImGui::Begin("Breath", nullptr,
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground |
@@ -1237,7 +1248,8 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
     }
 
     // HUD — health, level + XP bar.
-    ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH / 2 - 150, WINDOW_HEIGHT - 90));
+    ImVec2 hudVp = vpPos(), hudVs = vpSize();
+    ImGui::SetNextWindowPos(ImVec2(hudVp.x + hudVs.x * 0.5f - 150.0f, hudVp.y + hudVs.y - 90.0f));
     ImGui::SetNextWindowSize(ImVec2(300, 78));
     ImGui::Begin("HUD", nullptr,
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground |
@@ -1274,7 +1286,8 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
     // system so adding new actions only takes a new InteractAction case.
     if (ctx.pendingInteraction.action != InteractAction::None &&
         ctx.playerPose == PlayerPose::Standing) {
-        ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH / 2 - 110, WINDOW_HEIGHT / 2 + 36));
+        ImVec2 vp = vpPos(), vs = vpSize();
+        ImGui::SetNextWindowPos(ImVec2(vp.x + vs.x * 0.5f - 110.0f, vp.y + vs.y * 0.5f + 36.0f));
         ImGui::SetNextWindowSize(ImVec2(220, 26));
         ImGui::Begin("InteractHint", nullptr,
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground |
@@ -1286,7 +1299,8 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
     }
     // While seated / lying, surface a clear "press E to stand" prompt.
     if (ctx.playerPose != PlayerPose::Standing) {
-        ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH / 2 - 90, WINDOW_HEIGHT / 2 + 36));
+        ImVec2 vp = vpPos(), vs = vpSize();
+        ImGui::SetNextWindowPos(ImVec2(vp.x + vs.x * 0.5f - 90.0f, vp.y + vs.y * 0.5f + 36.0f));
         ImGui::SetNextWindowSize(ImVec2(180, 26));
         ImGui::Begin("PoseExitHint", nullptr,
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground |
@@ -1302,7 +1316,8 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
                     ctx.talkTargetName, renderer.frameView, renderer.frameProj,
                     renderer.frameFbW, renderer.frameFbH);
         if (ctx.talkTimer <= 0.0f) {
-            ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH / 2 - 70, WINDOW_HEIGHT / 2 + 36));
+            ImVec2 vp = vpPos(), vs = vpSize();
+            ImGui::SetNextWindowPos(ImVec2(vp.x + vs.x * 0.5f - 70.0f, vp.y + vs.y * 0.5f + 36.0f));
             ImGui::SetNextWindowSize(ImVec2(140, 26));
             ImGui::Begin("TalkHint", nullptr,
                          ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground |
@@ -1312,7 +1327,8 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
         }
     }
     if (ctx.talkTimer > 0.0f) {
-        ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH / 2 - 220, WINDOW_HEIGHT - 172));
+        ImVec2 vp = vpPos(), vs = vpSize();
+        ImGui::SetNextWindowPos(ImVec2(vp.x + vs.x * 0.5f - 220.0f, vp.y + vs.y - 172.0f));
         ImGui::SetNextWindowSize(ImVec2(440, 80));
         ImGui::Begin("NpcDialogue", nullptr,
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
@@ -1328,8 +1344,8 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
     // to read it.
     if (!ctx.lootHintName.empty()) {
         float boxW = 320.0f;
-        ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH / 2 - boxW * 0.5f,
-                                       WINDOW_HEIGHT / 2 + 60));
+        ImVec2 vp = vpPos(), vs = vpSize();
+        ImGui::SetNextWindowPos(ImVec2(vp.x + (vs.x - boxW) * 0.5f, vp.y + vs.y * 0.5f + 60.0f));
         ImGui::SetNextWindowSize(ImVec2(boxW, 32));
         ImGui::Begin("LootHint", nullptr,
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
@@ -1356,7 +1372,9 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
     // Chat
     if (ctx.client) {
         const float logH = 120.0f;
-        ImGui::SetNextWindowPos(ImVec2(12, WINDOW_HEIGHT - logH - (ctx.chatOpen ? 90.0f : 12.0f)));
+        ImVec2 vp = vpPos(), vs = vpSize();
+        ImGui::SetNextWindowPos(ImVec2(vp.x + 12.0f,
+                                       vp.y + vs.y - logH - (ctx.chatOpen ? 90.0f : 12.0f)));
         ImGui::SetNextWindowSize(ImVec2(420, logH));
         ImGui::Begin("ChatLog", nullptr,
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
@@ -1376,7 +1394,7 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
         ImGui::End();
 
         if (ctx.chatOpen) {
-            ImGui::SetNextWindowPos(ImVec2(12, WINDOW_HEIGHT - 72));
+            ImGui::SetNextWindowPos(ImVec2(vp.x + 12.0f, vp.y + vs.y - 72.0f));
             ImGui::SetNextWindowSize(ImVec2(420, 56));
             ImGui::Begin("ChatInput", nullptr,
                          ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove);
@@ -1398,7 +1416,8 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
 
     // Player list
     if (ctx.showPlayerList) {
-        ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH - 220, 12));
+        ImVec2 vp = vpPos(), vs = vpSize();
+        ImGui::SetNextWindowPos(ImVec2(vp.x + vs.x - 220.0f, vp.y + 12.0f));
         ImGui::SetNextWindowSize(ImVec2(200, 180));
         ImGui::Begin("Players", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove);
         ImGui::Text("Online");
@@ -1424,14 +1443,11 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
     // Newest at the bottom of the stack so the eye lands on the latest
     // message. Older entries fade out as their lifeTime ticks down.
     if (!ctx.toasts.empty()) {
-        int fbW = 0, fbH = 0;
-        glfwGetFramebufferSize(window, &fbW, &fbH);
-        if (fbW <= 0) fbW = WINDOW_WIDTH;
-        if (fbH <= 0) fbH = WINDOW_HEIGHT;
+        ImVec2 vp = vpPos(), vs = vpSize();
         float toastW = 320.0f;
         float lineH  = 22.0f;
         float winH   = (float)ctx.toasts.size() * lineH + 12.0f;
-        ImGui::SetNextWindowPos(ImVec2(fbW - toastW - 16.0f, 80.0f), ImGuiCond_Always);
+        ImGui::SetNextWindowPos(ImVec2(vp.x + vs.x - toastW - 16.0f, vp.y + 80.0f), ImGuiCond_Always);
         ImGui::SetNextWindowSize(ImVec2(toastW, winH), ImGuiCond_Always);
         ImGui::Begin("##toasts", nullptr,
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground |

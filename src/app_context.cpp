@@ -59,6 +59,8 @@ AppContext::AppContext()
     inventory.addItem(createWeaponItem("Wooden Shield",   WeaponType::Shield));
     inventory.addItem(createWeaponItem("Hunter's Bow",    WeaponType::Bow));
     inventory.addItem(createWeaponItem("Apprentice Staff",WeaponType::Staff));
+    inventory.addItem(createWeaponItem("Verdant Mending Staff", WeaponType::Staff,
+                                       WeaponElement::Holy));   // healing staff
     inventory.addItem(createWeaponItem("Hand Axe",        WeaponType::Axe));
 
     // Extra leather + plate pieces so the higher tiers can be tested from

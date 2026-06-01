@@ -553,6 +553,18 @@ void NetworkServer::update(World& world) {
                     npcHits.push_back({ msg.client->id, ap->targetNpcId, scale });
                 }
             }
+        } else if (msg.type == PacketType::PlayerHeal) {
+            // Relay a player heal to the other clients — the caster already
+            // applied + rendered it locally, so skip the sender to avoid a
+            // double heal. The targeted client adds it to its own health.
+            if (msg.data.size() == sizeof(PlayerHealPacket)) {
+                broadcast(PacketType::PlayerHeal, msg.data.data(), msg.data.size(), msg.client);
+            }
+        } else if (msg.type == PacketType::SpellEffect) {
+            // Pure cosmetic — fan the chain/zone visual out to spectators.
+            if (msg.data.size() == sizeof(SpellEffectPacket)) {
+                broadcast(PacketType::SpellEffect, msg.data.data(), msg.data.size(), msg.client);
+            }
         } else if (msg.type == PacketType::LootPickupRequest) {
             if (msg.data.size() == sizeof(LootPickupRequestPacket) && msg.client) {
                 LootPickupRequestPacket* rp =
@@ -974,6 +986,16 @@ void NetworkClient::update(World& world, std::unordered_map<uint32_t, RemotePlay
             if (msg.data.size() == sizeof(PlayerHealthPacket)) {
                 PlayerHealthPacket* p = (PlayerHealthPacket*)msg.data.data();
                 if (p->clientID == clientID) pendingSelfDamage += p->damage;
+            }
+        } else if (msg.type == PacketType::PlayerHeal) {
+            if (msg.data.size() == sizeof(PlayerHealPacket)) {
+                PlayerHealPacket* p = (PlayerHealPacket*)msg.data.data();
+                healEvents.push_back(*p);
+            }
+        } else if (msg.type == PacketType::SpellEffect) {
+            if (msg.data.size() == sizeof(SpellEffectPacket)) {
+                SpellEffectPacket* p = (SpellEffectPacket*)msg.data.data();
+                spellEffects.push_back(*p);
             }
         } else if (msg.type == PacketType::AnimalState) {
             if (msg.data.size() == sizeof(AnimalStatePacket)) {

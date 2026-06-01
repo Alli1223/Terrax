@@ -53,6 +53,22 @@ struct VoxelDeathParticle {
     bool      grounded = false;
 };
 
+// An active "Healing Sanctuary" — the AOE dropped by the healing staff's
+// secondary attack. Emits a green particle fountain and, on the owner's
+// client only, pulses health to any players standing inside `radius`.
+// Spectators spawn a cosmetic copy from a SpellEffectPacket (ownerClientId
+// won't match their own id, so they never run the heal logic).
+struct HealZone {
+    glm::vec3 pos{0.0f};
+    float     radius        = 4.0f;
+    float     ttl           = 0.0f;   // seconds remaining
+    float     maxTtl        = 0.0f;
+    float     pulseTimer    = 0.0f;   // counts down to the next heal tick
+    float     emitTimer     = 0.0f;   // counts down to the next particle burst
+    float     healPerPulse  = 0.0f;
+    uint32_t  ownerClientId = 0;
+};
+
 
 struct AppContext {
     // --- State ---
@@ -82,6 +98,15 @@ struct AppContext {
     bool  shieldRaised   = false;   // right mouse held while shield equipped
     bool  bowChargingHeld = false;  // left mouse held while bow equipped
     float bowCharge      = 0.0f;    // 0..1, fills while held, snaps to 0 on release
+
+    // --- Healing staff ---
+    // Cooldown timers for the staff's two abilities (counted down each frame
+    // in updateGameplay). `rmbWasDown` edge-detects the right button so one
+    // press drops one zone. Active zones live in `healZones`.
+    float healCdPrimary   = 0.0f;
+    float healCdSecondary = 0.0f;
+    bool  rmbWasDown      = false;
+    std::vector<HealZone> healZones;
 
     // --- Inventory / equipment ---
     Inventory inventory;

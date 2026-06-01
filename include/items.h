@@ -58,6 +58,7 @@ enum class WeaponElement {
     Fire,
     Ice,
     Arcane,
+    Holy,     // restorative — drives the healing staff (green/gold magic)
 };
 
 // Loot tier. Drives palette pools, name pools, stat scaling, and the extra
@@ -199,6 +200,18 @@ public:
     // call into AppContext/ObjectManager directly.
     virtual void onPrimaryAttack(AppContext& ctx, float chargeAmount, NPC* target);
 
+    // True if the weapon does something on the *secondary* (right-mouse)
+    // button instead of the default block-place / shield-raise. When true,
+    // gameplay routes right-click to onSecondaryAttack and input.cpp skips
+    // block placement. Default = false (right-click keeps its old meaning).
+    virtual bool hasSecondaryAttack() const { return false; }
+
+    // Called when the player triggers the secondary attack. Default no-op;
+    // subclasses (HealingStaffItem) override to drop an AOE, raise a ward,
+    // etc. Like onPrimaryAttack, the weapon reaches into AppContext to spawn
+    // effects / send packets.
+    virtual void onSecondaryAttack(AppContext& ctx) { (void)ctx; }
+
     Voxel primaryColor = {180, 180, 200, 255};
     Voxel accentColor  = {100, 60, 20, 255};
 
@@ -224,11 +237,42 @@ public:
     void onPrimaryAttack(AppContext& ctx, float chargeAmount, NPC* target) override;
 };
 
+// Healing staff — a support caster that restores health instead of dealing
+// damage. Shares the staff mesh / cast pose (type = Staff, element = Holy)
+// but completely different behaviour:
+//   * Primary (left)  — Chain Heal: heals the caster, then leaps between
+//                       nearby players, mending each in turn.
+//   * Secondary (right) — Healing Sanctuary: drops an AOE zone on the ground
+//                       that pulses health to any players standing in it.
+// `attackPower` is repurposed as the heal power. The heavy lifting (target
+// chaining, zone simulation, particles, heal packets) lives in gameplay.cpp
+// behind castChainHeal() / castHealZone(); this class just wires the buttons
+// to them and enforces cooldowns.
+class HealingStaffItem : public WeaponItem {
+public:
+    explicit HealingStaffItem(std::string name);
+
+    bool  isInstantRanged() const override    { return true; }
+    bool  usesCastAnimation() const override  { return true; }
+    bool  hasSecondaryAttack() const override { return true; }
+    float attackRange() const override        { return 18.0f; }
+    float attackFacing() const override       { return 0.95f; }
+    float cooldown() const override           { return 1.2f; }
+    float damageMultiplier() const override   { return 0.0f; }   // never harms
+
+    void onPrimaryAttack(AppContext& ctx, float chargeAmount, NPC* target) override;
+    void onSecondaryAttack(AppContext& ctx) override;
+};
+
 // Factory — pick the right concrete subclass for a given WeaponType.
 // All code that needs to build a weapon (procedural generator, network
 // reconstruction, AppContext seed loadout) routes through this so the
 // only place that knows the type→class mapping is items.cpp.
-std::unique_ptr<WeaponItem> createWeaponItem(std::string name, WeaponType type);
+// `element` lets the factory pick a behaviour-specific subclass for a staff
+// (Holy → HealingStaffItem); it defaults to None so existing call sites are
+// unchanged. The element is also stored on the item for the bolt-colour path.
+std::unique_ptr<WeaponItem> createWeaponItem(std::string name, WeaponType type,
+                                             WeaponElement element = WeaponElement::None);
 
 // Human-readable labels for the UI.
 const char* slotName(EquipSlot s);

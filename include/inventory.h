@@ -11,7 +11,7 @@
 // is user-controlled via `swap()` (used by the drag-drop UI).
 class Inventory {
 public:
-    static constexpr int CAPACITY = 24;   // 6 columns × 4 rows in the grid UI
+    static constexpr int CAPACITY = 48;   // 8 columns × 6 rows in the grid UI
 
     Inventory();
     ~Inventory();

@@ -1,58 +1,66 @@
 // GL stubs for headless (no GPU) test builds.
 // Provides all GL symbols used by the game as safe no-ops so VoxelVolume
 // and character rig code can be exercised without an OpenGL context.
+//
+// Every stub carries GL_APIENTRY so the calling convention matches the
+// declarations in gl_loader.h on every platform. On Linux GL_APIENTRY is
+// empty (no change); on Windows it is __stdcall, which is what the real GL
+// entry points and the PFN_* typedefs use — so the test suite links cleanly
+// under MSVC as well as g++.
 
 #include "gl_loader.h"
 
 // --- Function pointer stubs ---
-static void stub_glGenBuffers(GLsizei n, GLuint* ids) { for(int i=0;i<n;i++) ids[i]=(GLuint)(i+1); }
-static void stub_glBindBuffer(GLenum, GLuint) {}
-static void stub_glBufferData(GLenum, GLsizeiptr, const void*, GLenum) {}
-static void stub_glDeleteBuffers(GLsizei, const GLuint*) {}
-static void stub_glGenVertexArrays(GLsizei n, GLuint* ids) { for(int i=0;i<n;i++) ids[i]=(GLuint)(i+1); }
-static void stub_glBindVertexArray(GLuint) {}
-static void stub_glDeleteVertexArrays(GLsizei, const GLuint*) {}
-static void stub_glVertexAttribPointer(GLuint,GLint,GLenum,GLboolean,GLsizei,const void*) {}
-static void stub_glEnableVertexAttribArray(GLuint) {}
-static GLuint stub_glCreateShader(GLenum) { return 1; }
-static void stub_glShaderSource(GLuint,GLsizei,const GLchar* const*,const GLint*) {}
-static void stub_glCompileShader(GLuint) {}
-static void stub_glGetShaderiv(GLuint,GLenum,GLint* p) { if(p) *p=1; }
-static void stub_glGetShaderInfoLog(GLuint,GLsizei,GLsizei*,GLchar*) {}
-static void stub_glDeleteShader(GLuint) {}
-static GLuint stub_glCreateProgram() { return 1; }
-static void stub_glAttachShader(GLuint,GLuint) {}
-static void stub_glLinkProgram(GLuint) {}
-static void stub_glGetProgramiv(GLuint,GLenum,GLint* p) { if(p) *p=1; }
-static void stub_glGetProgramInfoLog(GLuint,GLsizei,GLsizei*,GLchar*) {}
-static void stub_glUseProgram(GLuint) {}
-static void stub_glDeleteProgram(GLuint) {}
-static GLint stub_glGetUniformLocation(GLuint,const GLchar*) { return 0; }
-static void stub_glUniform1i(GLint,GLint) {}
-static void stub_glUniform1f(GLint,GLfloat) {}
-static void stub_glUniform1fv(GLint,GLsizei,const GLfloat*) {}
-static void stub_glUniform3fv(GLint,GLsizei,const GLfloat*) {}
-static void stub_glUniform4fv(GLint,GLsizei,const GLfloat*) {}
-static void stub_glUniformMatrix4fv(GLint,GLsizei,GLboolean,const GLfloat*) {}
-static void stub_glGenTextures(GLsizei n, GLuint* ids) { for(int i=0;i<n;i++) ids[i]=(GLuint)(i+1); }
-static void stub_glDeleteTextures(GLsizei,const GLuint*) {}
-static void stub_glBindTexture(GLenum,GLuint) {}
-static void stub_glTexImage2D(GLenum,GLint,GLint,GLsizei,GLsizei,GLint,GLenum,GLenum,const void*) {}
-static void stub_glTexParameteri(GLenum,GLenum,GLint) {}
-static void stub_glTexParameterfv(GLenum,GLenum,const GLfloat*) {}
-static void stub_glActiveTexture(GLenum) {}
-static void stub_glGenerateMipmap(GLenum) {}
-static void stub_glGenFramebuffers(GLsizei n, GLuint* ids) { for(int i=0;i<n;i++) ids[i]=(GLuint)(i+1); }
-static void stub_glDeleteFramebuffers(GLsizei,const GLuint*) {}
-static void stub_glBindFramebuffer(GLenum,GLuint) {}
-static void stub_glFramebufferTexture2D(GLenum,GLenum,GLenum,GLuint,GLint) {}
-static void stub_glDrawBuffer(GLenum) {}
-static void stub_glReadBuffer(GLenum) {}
-static void stub_glGenRenderbuffers(GLsizei n, GLuint* ids) { for(int i=0;i<n;i++) ids[i]=(GLuint)(i+1); }
-static void stub_glDeleteRenderbuffers(GLsizei,const GLuint*) {}
-static void stub_glBindRenderbuffer(GLenum,GLuint) {}
-static void stub_glRenderbufferStorage(GLenum,GLenum,GLsizei,GLsizei) {}
-static void stub_glFramebufferRenderbuffer(GLenum,GLenum,GLenum,GLuint) {}
+static void GL_APIENTRY stub_glGenBuffers(GLsizei n, GLuint* ids) { for(int i=0;i<n;i++) ids[i]=(GLuint)(i+1); }
+static void GL_APIENTRY stub_glBindBuffer(GLenum, GLuint) {}
+static void GL_APIENTRY stub_glBufferData(GLenum, GLsizeiptr, const void*, GLenum) {}
+static void GL_APIENTRY stub_glDeleteBuffers(GLsizei, const GLuint*) {}
+static void GL_APIENTRY stub_glGenVertexArrays(GLsizei n, GLuint* ids) { for(int i=0;i<n;i++) ids[i]=(GLuint)(i+1); }
+static void GL_APIENTRY stub_glBindVertexArray(GLuint) {}
+static void GL_APIENTRY stub_glDeleteVertexArrays(GLsizei, const GLuint*) {}
+static void GL_APIENTRY stub_glVertexAttribPointer(GLuint,GLint,GLenum,GLboolean,GLsizei,const void*) {}
+static void GL_APIENTRY stub_glEnableVertexAttribArray(GLuint) {}
+static GLuint GL_APIENTRY stub_glCreateShader(GLenum) { return 1; }
+static void GL_APIENTRY stub_glShaderSource(GLuint,GLsizei,const GLchar* const*,const GLint*) {}
+static void GL_APIENTRY stub_glCompileShader(GLuint) {}
+static void GL_APIENTRY stub_glGetShaderiv(GLuint,GLenum,GLint* p) { if(p) *p=1; }
+static void GL_APIENTRY stub_glGetShaderInfoLog(GLuint,GLsizei,GLsizei*,GLchar*) {}
+static void GL_APIENTRY stub_glDeleteShader(GLuint) {}
+static GLuint GL_APIENTRY stub_glCreateProgram() { return 1; }
+static void GL_APIENTRY stub_glAttachShader(GLuint,GLuint) {}
+static void GL_APIENTRY stub_glLinkProgram(GLuint) {}
+static void GL_APIENTRY stub_glGetProgramiv(GLuint,GLenum,GLint* p) { if(p) *p=1; }
+static void GL_APIENTRY stub_glGetProgramInfoLog(GLuint,GLsizei,GLsizei*,GLchar*) {}
+static void GL_APIENTRY stub_glUseProgram(GLuint) {}
+static void GL_APIENTRY stub_glDeleteProgram(GLuint) {}
+static GLint GL_APIENTRY stub_glGetUniformLocation(GLuint,const GLchar*) { return 0; }
+static void GL_APIENTRY stub_glUniform1i(GLint,GLint) {}
+static void GL_APIENTRY stub_glUniform1f(GLint,GLfloat) {}
+static void GL_APIENTRY stub_glUniform1fv(GLint,GLsizei,const GLfloat*) {}
+static void GL_APIENTRY stub_glUniform3fv(GLint,GLsizei,const GLfloat*) {}
+static void GL_APIENTRY stub_glUniform4fv(GLint,GLsizei,const GLfloat*) {}
+static void GL_APIENTRY stub_glUniformMatrix4fv(GLint,GLsizei,GLboolean,const GLfloat*) {}
+static void GL_APIENTRY stub_glGenTextures(GLsizei n, GLuint* ids) { for(int i=0;i<n;i++) ids[i]=(GLuint)(i+1); }
+static void GL_APIENTRY stub_glDeleteTextures(GLsizei,const GLuint*) {}
+static void GL_APIENTRY stub_glBindTexture(GLenum,GLuint) {}
+static void GL_APIENTRY stub_glTexImage2D(GLenum,GLint,GLint,GLsizei,GLsizei,GLint,GLenum,GLenum,const void*) {}
+static void GL_APIENTRY stub_glTexImage3D(GLenum,GLint,GLint,GLsizei,GLsizei,GLsizei,GLint,GLenum,GLenum,const void*) {}
+static void GL_APIENTRY stub_glTexSubImage3D(GLenum,GLint,GLint,GLint,GLint,GLsizei,GLsizei,GLsizei,GLenum,GLenum,const void*) {}
+static void GL_APIENTRY stub_glTexParameteri(GLenum,GLenum,GLint) {}
+static void GL_APIENTRY stub_glTexParameterfv(GLenum,GLenum,const GLfloat*) {}
+static void GL_APIENTRY stub_glActiveTexture(GLenum) {}
+static void GL_APIENTRY stub_glGenerateMipmap(GLenum) {}
+static void GL_APIENTRY stub_glGenFramebuffers(GLsizei n, GLuint* ids) { for(int i=0;i<n;i++) ids[i]=(GLuint)(i+1); }
+static void GL_APIENTRY stub_glDeleteFramebuffers(GLsizei,const GLuint*) {}
+static void GL_APIENTRY stub_glBindFramebuffer(GLenum,GLuint) {}
+static void GL_APIENTRY stub_glFramebufferTexture2D(GLenum,GLenum,GLenum,GLuint,GLint) {}
+static void GL_APIENTRY stub_glDrawBuffer(GLenum) {}
+static void GL_APIENTRY stub_glReadBuffer(GLenum) {}
+static void GL_APIENTRY stub_glGenRenderbuffers(GLsizei n, GLuint* ids) { for(int i=0;i<n;i++) ids[i]=(GLuint)(i+1); }
+static void GL_APIENTRY stub_glDeleteRenderbuffers(GLsizei,const GLuint*) {}
+static void GL_APIENTRY stub_glBindRenderbuffer(GLenum,GLuint) {}
+static void GL_APIENTRY stub_glRenderbufferStorage(GLenum,GLenum,GLsizei,GLsizei) {}
+static void GL_APIENTRY stub_glFramebufferRenderbuffer(GLenum,GLenum,GLenum,GLuint) {}
 
 // --- Function pointer definitions ---
 PFN_glGenBuffers             glGenBuffers              = stub_glGenBuffers;
@@ -88,6 +96,8 @@ PFN_glGenTextures            glGenTextures             = stub_glGenTextures;
 PFN_glDeleteTextures         glDeleteTextures          = stub_glDeleteTextures;
 PFN_glBindTexture            glBindTexture             = stub_glBindTexture;
 PFN_glTexImage2D             glTexImage2D              = stub_glTexImage2D;
+PFN_glTexImage3D             glTexImage3D              = stub_glTexImage3D;
+PFN_glTexSubImage3D          glTexSubImage3D           = stub_glTexSubImage3D;
 PFN_glTexParameteri          glTexParameteri           = stub_glTexParameteri;
 PFN_glTexParameterfv         glTexParameterfv          = stub_glTexParameterfv;
 PFN_glActiveTexture          glActiveTexture           = stub_glActiveTexture;
@@ -106,18 +116,18 @@ PFN_glFramebufferRenderbuffer glFramebufferRenderbuffer = stub_glFramebufferRend
 
 // --- Direct GL 1.x symbol stubs ---
 extern "C" {
-void glEnable(GLenum) {}
-void glDisable(GLenum) {}
-void glClear(GLbitfield) {}
-void glClearColor(GLfloat,GLfloat,GLfloat,GLfloat) {}
-void glViewport(GLint,GLint,GLsizei,GLsizei) {}
-void glDepthMask(GLboolean) {}
-void glCullFace(GLenum) {}
-void glDrawArrays(GLenum,GLint,GLsizei) {}
-void glBlendFunc(GLenum,GLenum) {}
-void glLineWidth(GLfloat) {}
-void glPolygonMode(GLenum,GLenum) {}
-void glScissor(GLint,GLint,GLsizei,GLsizei) {}
+void GL_APIENTRY glEnable(GLenum) {}
+void GL_APIENTRY glDisable(GLenum) {}
+void GL_APIENTRY glClear(GLbitfield) {}
+void GL_APIENTRY glClearColor(GLfloat,GLfloat,GLfloat,GLfloat) {}
+void GL_APIENTRY glViewport(GLint,GLint,GLsizei,GLsizei) {}
+void GL_APIENTRY glDepthMask(GLboolean) {}
+void GL_APIENTRY glCullFace(GLenum) {}
+void GL_APIENTRY glDrawArrays(GLenum,GLint,GLsizei) {}
+void GL_APIENTRY glBlendFunc(GLenum,GLenum) {}
+void GL_APIENTRY glLineWidth(GLfloat) {}
+void GL_APIENTRY glPolygonMode(GLenum,GLenum) {}
+void GL_APIENTRY glScissor(GLint,GLint,GLsizei,GLsizei) {}
 }
 
 bool gl_load() { return true; }

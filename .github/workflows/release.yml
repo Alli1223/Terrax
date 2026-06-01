@@ -1,9 +1,10 @@
 name: Release
 
-# Tag a release (e.g. `git tag v1.0.0 && git push origin v1.0.0`) and this
-# builds a Windows x64 package and attaches it to the GitHub Release so it can
-# be downloaded from the Releases tab. workflow_dispatch lets you do a dry run
-# (produces a downloadable Actions artifact but does not publish a release).
+# Tag a release (e.g. `git tag v1.0.0 && git push origin v1.0.0`) and this builds
+# Windows x64 and Linux x64 packages and attaches both to the GitHub Release, so
+# they can be downloaded from the Releases tab. workflow_dispatch does a dry run:
+# both packages are produced as downloadable Actions artifacts, but no release is
+# published (the publish job only runs for tags).
 
 on:
   push:
@@ -11,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       toolset:
-        description: 'MSVC PlatformToolset to build with'
+        description: 'MSVC PlatformToolset for the Windows build'
         default: 'v143'
         type: string
 
@@ -23,7 +24,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  windows-release:
+  # ---------------------------------------------------------------------------
+  windows:
     name: Windows x64 package
     runs-on: windows-latest
     steps:
@@ -62,7 +64,7 @@ jobs:
             /m /v:minimal /clp:Summary
           if ($LASTEXITCODE -ne 0) { throw "MSBuild failed ($LASTEXITCODE)" }
 
-      - name: Stage package
+      - name: Stage + zip
         shell: pwsh
         run: |
           $rel   = "build/windows/Release"
@@ -81,30 +83,78 @@ jobs:
             'https://aka.ms/vs/17/release/vc_redist.x64.exe'
           )
           Set-Content -Path "$stage/README.txt" -Value $readme -Encoding utf8
-          Get-ChildItem -Recurse $stage | Select-Object FullName
-
-      - name: Package zip
-        shell: pwsh
-        run: |
           $ver = "${{ github.ref_name }}"
           if (-not $ver) { $ver = "dev" }
-          $zip = "Terrax-$ver-win64.zip"
-          Compress-Archive -Path "dist/Terrax/*" -DestinationPath $zip -Force
-          "ASSET=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append
-          Write-Host "Built $zip"
+          Compress-Archive -Path "dist/Terrax/*" -DestinationPath "Terrax-$ver-win64.zip" -Force
 
-      - name: Upload build artifact
+      - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Terrax-win64
-          path: ${{ env.ASSET }}
+          name: windows
+          path: Terrax-*-win64.zip
           if-no-files-found: error
 
+  # ---------------------------------------------------------------------------
+  linux:
+    name: Linux x64 package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive       # third_party/imgui is a submodule
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            g++ make libglm-dev libglfw3-dev libgl1-mesa-dev libboost-dev
+
+      - name: Build (make)
+        run: make -j"$(nproc)"
+
+      - name: Stage + tar.gz
+        run: |
+          ver="${GITHUB_REF_NAME:-dev}"
+          stage="dist/Terrax"
+          mkdir -p "$stage"
+          cp terrax "$stage/"
+          chmod +x "$stage/terrax"
+          cp -r shaders "$stage/"
+          printf '%s\n' \
+            'Terrax - Linux x64' \
+            '' \
+            'Run ./terrax to play. "./terrax --server" runs a dedicated server (port 12345).' \
+            'Keep the shaders/ folder next to the binary.' \
+            '' \
+            'Requires an OpenGL driver and GLFW at runtime. On Debian/Ubuntu:' \
+            '  sudo apt install libglfw3' \
+            > "$stage/README.txt"
+          tar -czf "Terrax-$ver-linux-x64.tar.gz" -C dist Terrax
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: Terrax-*-linux-x64.tar.gz
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  publish:
+    name: Publish GitHub Release
+    needs: [windows, linux]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download built packages
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true       # flatten both artifacts into dist/
+
       - name: Publish to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ env.ASSET }}
+          files: dist/*
           fail_on_unmatched_files: true
           # SemVer pre-release tags carry a hyphen (v0.1.0-rc.1); mark those as
           # prereleases so a plain vX.Y.Z stays the "Latest" release.

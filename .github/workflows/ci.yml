@@ -1,0 +1,70 @@
+name: CI
+
+# Build the application and run the headless unit-test suite.
+#
+#   linux-tests    g++  + `make test`         — headless unit tests (the canonical runner)
+#   linux-build    g++  + `make`              — builds the full game (the supported Linux build)
+#   windows-tests  MSVC + run_tests_msvc.ps1  — the same unit tests on the primary (Windows) toolchain
+#
+# Note: the full Windows game build (Terrax.vcxproj) targets PlatformToolset
+# v145 (VS 2026), which GitHub-hosted Windows runners do not yet ship, so it is
+# not built here. The Linux job covers "build the application"; the Windows job
+# compiles the test sources directly with cl.exe (any recent MSVC), so it does
+# not depend on v145. Add a Windows MSBuild job once hosted runners carry v145
+# (or use a self-hosted runner).
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-tests:
+    name: Linux • unit tests (g++)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install toolchain + glm
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends g++ make libglm-dev
+      - name: Build & run headless tests
+        run: make test
+
+  linux-build:
+    name: Linux • build game (g++)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive       # third_party/imgui is a submodule
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            g++ make libglm-dev libglfw3-dev libgl1-mesa-dev libboost-dev
+      - name: Build (make)
+        run: make -j"$(nproc)"
+
+  windows-tests:
+    name: Windows • unit tests (MSVC)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install glm (vcpkg)
+        shell: pwsh
+        # Install from outside the repo so vcpkg uses classic mode — running it
+        # in the repo root would pick up vcpkg.json (manifest mode) and reject
+        # the per-package argument. run_tests_msvc.ps1 auto-detects glm under
+        # the runner's $VCPKG_INSTALLATION_ROOT.
+        run: |
+          Push-Location $env:RUNNER_TEMP
+          vcpkg install glm:x64-windows
+          Pop-Location
+      - name: Build & run headless tests
+        shell: pwsh
+        run: ./tests/run_tests_msvc.ps1

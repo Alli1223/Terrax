@@ -28,9 +28,19 @@ DEPS := $(OBJS:.o=.d) $(IMGUI_OBJS:.o=.d) $(IMGUI_BACKEND_OBJS:.o=.d)
 TARGET := terrax
 
 # --- Test build (headless, no GL/GLFW) ---
+# Engine code under test links against the GL stub (tests/gl_stub.cpp) so it
+# runs without a GPU/context. Only files whose dependency closure stays clear
+# of GLFW / Boost.Asio / AppContext belong here.
 TEST_TARGET  := terrax_tests
-TEST_SRCS    := src/voxel_model.cpp src/building.cpp tests/gl_stub.cpp tests/test_main.cpp tests/test_voxel_model.cpp
-TEST_FLAGS   := -std=c++17 -O0 -g -Wall -Iinclude -Isrc -Itests -DTERRAX_TESTING
+TEST_ENGINE_SRCS := src/voxel_model.cpp src/building.cpp src/world.cpp src/town.cpp \
+                    src/vegetation.cpp src/atlas.cpp src/camera.cpp src/physics.cpp
+TEST_CASE_SRCS   := tests/test_main.cpp tests/test_voxel_model.cpp tests/test_noise.cpp \
+                    tests/test_camera.cpp tests/test_world.cpp tests/test_physics.cpp \
+                    tests/test_building.cpp tests/test_atlas.cpp
+TEST_SRCS    := $(TEST_ENGINE_SRCS) tests/gl_stub.cpp $(TEST_CASE_SRCS)
+# -pthread: World spawns std::thread chunk workers, so the test binary must
+# link the pthread runtime on Linux (harmless elsewhere).
+TEST_FLAGS   := -std=c++17 -O0 -g -Wall -pthread -Iinclude -Isrc -Itests -DTERRAX_TESTING
 
 $(shell mkdir -p build/imgui)
 

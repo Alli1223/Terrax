@@ -130,8 +130,12 @@ static void collectLanternLights(const AppContext& ctx, float flicker, LanternLi
 
     // Collected nearest-first so distant lights drop off the fixed-size list.
     const glm::vec3 cam = ctx.camera.position;
-    const float COLLECT2 = 112.0f * 112.0f;
-    const float t        = ctx.flickerTime;
+    // Gather town lights out to ~16 chunks so a whole nearby town stays lit at
+    // night. Candidates are sorted nearest-first below and the closest
+    // MAX_LANTERNS kept (player/NPC lanterns were already added above).
+    const float LIGHT_RANGE = 16.0f * (float)CHUNK_SIZE;   // 256 blocks (> 15 chunks)
+    const float COLLECT2     = LIGHT_RANGE * LIGHT_RANGE;
+    const float t            = ctx.flickerTime;
     struct Cand { glm::vec3 pos; float intensity, radius, d2; };
     std::vector<Cand> cand;
 

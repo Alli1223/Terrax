@@ -197,6 +197,20 @@ TEST_CASE(Watchtower_IsTallAndNarrow) {
     CHECK(dy > dx && dy > dz);            // taller than it is wide
 }
 
+TEST_CASE(Watchtower_MaxFloorsDoNotOverflow) {
+    // A "big" town builds a 5-storey watchtower (WatchtowerBuilding(mat, 5)).
+    // HouseSpec::plans[] must hold every storey — writing a 5th FloorPlan into a
+    // 4-element array is the stack-buffer overrun that aborted the server. This
+    // exercises that previously-crashing configuration.
+    WatchtowerBuilding w(2, 5);
+    std::vector<uint8_t> blocks; std::vector<Room> rooms;
+    int dx, dy, dz;
+    genAndCheck(w, 63u, blocks, rooms, dx, dy, dz);
+    CHECK_EQ((int)w.kind(), (int)BuildingKind::Watchtower);
+    CHECK(dy > dx && dy > dz);
+    CHECK(rooms.size() > 0);
+}
+
 // --- rotateBuilding ---
 
 TEST_CASE(RotateBuilding_Q0IsIdentity) {

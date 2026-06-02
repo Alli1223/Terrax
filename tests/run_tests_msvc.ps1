@@ -58,7 +58,11 @@ Write-Host "Using glm from: $GlmInclude"
 
 # --- Source set (keep in sync with Makefile TEST_SRCS) ---------------------
 $engine = @(
-    'src\voxel_model.cpp','src\building.cpp','src\world.cpp','src\town.cpp',
+    'src\voxel_model.cpp','src\voxel_rig.cpp','src\voxel_house.cpp',
+    'src\building.cpp','src\building_house.cpp',
+    'src\building_special.cpp','src\world.cpp','src\world_gen.cpp','src\town.cpp',
+    'src\town_stamp.cpp','src\town_roads.cpp','src\town_layout.cpp',
+    'src\town_buildings.cpp','src\town_terrain.cpp',
     'src\vegetation.cpp','src\atlas.cpp','src\camera.cpp','src\physics.cpp'
 )
 $cases = @(

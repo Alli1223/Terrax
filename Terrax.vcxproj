@@ -95,7 +95,13 @@
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\renderer.cpp" />
     <ClCompile Include="src\world.cpp" />
+    <ClCompile Include="src\world_gen.cpp" />
     <ClCompile Include="src\town.cpp" />
+    <ClCompile Include="src\town_stamp.cpp" />
+    <ClCompile Include="src\town_roads.cpp" />
+    <ClCompile Include="src\town_layout.cpp" />
+    <ClCompile Include="src\town_buildings.cpp" />
+    <ClCompile Include="src\town_terrain.cpp" />
     <ClCompile Include="src\object_manager.cpp" />
     <ClCompile Include="src\player_object.cpp" />
     <ClCompile Include="src\prop.cpp" />
@@ -108,6 +114,8 @@
     <ClCompile Include="src\animal.cpp" />
     <ClCompile Include="src\vegetation.cpp" />
     <ClCompile Include="src\building.cpp" />
+    <ClCompile Include="src\building_house.cpp" />
+    <ClCompile Include="src\building_special.cpp" />
     <ClCompile Include="src\items.cpp" />
     <ClCompile Include="src\inventory.cpp" />
     <ClCompile Include="src\clothing_painter.cpp" />
@@ -119,9 +127,18 @@
     <ClCompile Include="src\npc_appearance.cpp" />
     <ClCompile Include="src\network.cpp" />
     <ClCompile Include="src\ui.cpp" />
+    <ClCompile Include="src\ui_menus.cpp" />
+    <ClCompile Include="src\ui_editors.cpp" />
+    <ClCompile Include="src\ui_map.cpp" />
+    <ClCompile Include="src\ui_play.cpp" />
     <ClCompile Include="src\voxel_model.cpp" />
+    <ClCompile Include="src\voxel_rig.cpp" />
+    <ClCompile Include="src\voxel_house.cpp" />
     <ClCompile Include="src\shader.cpp" />
     <ClCompile Include="src\gameplay.cpp" />
+    <ClCompile Include="src\gameplay_entities.cpp" />
+    <ClCompile Include="src\gameplay_effects.cpp" />
+    <ClCompile Include="src\gameplay_spells.cpp" />
     <ClCompile Include="src\game_session.cpp" />
     <ClCompile Include="src\input.cpp" />
     <ClCompile Include="src\physics.cpp" />
@@ -182,6 +199,11 @@
     <ClInclude Include="include\interactable.h" />
     <ClInclude Include="include\world.h" />
     <ClInclude Include="src\noise.h" />
+    <ClInclude Include="src\world_internal.h" />
+    <ClInclude Include="src\town_internal.h" />
+    <ClInclude Include="src\building_internal.h" />
+    <ClInclude Include="src\ui_internal.h" />
+    <ClInclude Include="src\gameplay_internal.h" />
   </ItemGroup>
   <!-- Shader files (for easy access in VS, not compiled) -->
   <ItemGroup>

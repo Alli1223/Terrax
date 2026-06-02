@@ -29,12 +29,12 @@ jobs:
     name: Windows x64 package
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive       # third_party/imgui is a submodule
 
       - name: Add MSBuild to PATH
-        uses: microsoft/setup-msbuild@v2
+        uses: microsoft/setup-msbuild@v3
 
       - name: Enable vcpkg MSBuild integration
         shell: pwsh
@@ -88,7 +88,7 @@ jobs:
           Compress-Archive -Path "dist/Terrax/*" -DestinationPath "Terrax-$ver-win64.zip" -Force
 
       - name: Upload package artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: windows
           path: Terrax-*-win64.zip
@@ -99,7 +99,7 @@ jobs:
     name: Linux x64 package
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive       # third_party/imgui is a submodule
 
@@ -132,7 +132,7 @@ jobs:
           tar -czf "Terrax-$ver-linux-x64.tar.gz" -C dist Terrax
 
       - name: Upload package artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: linux
           path: Terrax-*-linux-x64.tar.gz
@@ -146,13 +146,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download built packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           path: dist
           merge-multiple: true       # flatten both artifacts into dist/
 
       - name: Publish to GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/*
           fail_on_unmatched_files: true

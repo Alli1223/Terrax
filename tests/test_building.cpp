@@ -101,6 +101,102 @@ TEST_CASE(MageTower_GeneratesValidGridWithRooms) {
     CHECK(dy > dx);                       // a tower is taller than it is wide
 }
 
+TEST_CASE(Stable_GeneratesValidGridWithStalls) {
+    StableBuilding s(6);
+    std::vector<uint8_t> blocks; std::vector<Room> rooms;
+    int dx, dy, dz;
+    genAndCheck(s, 58u, blocks, rooms, dx, dy, dz);
+    CHECK_EQ((int)s.kind(), (int)BuildingKind::Stable);
+    CHECK(rooms.size() > 0);
+    // The stall détail overlays wood-plank dividers — none come from the shell.
+    int wood = 0;
+    for (uint8_t v : blocks) if (v == (uint8_t)BlockType::Wood) wood++;
+    CHECK(wood > 0);
+}
+
+TEST_CASE(Chapel_GeneratesValidGridWithAltar) {
+    ChapelBuilding c(2);
+    std::vector<uint8_t> blocks; std::vector<Room> rooms;
+    int dx, dy, dz;
+    genAndCheck(c, 59u, blocks, rooms, dx, dy, dz);
+    CHECK_EQ((int)c.kind(), (int)BuildingKind::Chapel);
+    CHECK(rooms.size() > 0);
+    CHECK(dz > dx);                       // a long single nave
+    // Altar candle + wall sconces emit glowstone; the shell emits none.
+    int glow = 0;
+    for (uint8_t v : blocks) if (v == (uint8_t)BlockType::Glowstone) glow++;
+    CHECK(glow > 0);
+}
+
+TEST_CASE(Apothecary_GeneratesShopAndBackRoom) {
+    ApothecaryBuilding a(8);
+    std::vector<uint8_t> blocks; std::vector<Room> rooms;
+    int dx, dy, dz;
+    genAndCheck(a, 60u, blocks, rooms, dx, dy, dz);
+    CHECK_EQ((int)a.kind(), (int)BuildingKind::Apothecary);
+    CHECK(rooms.size() >= 2);             // shop + living quarters
+}
+
+// --- L / T / U composite houses + biome roofs ---
+
+TEST_CASE(House_CompositeShapesAreValid) {
+    // 12 L, 13 T, 14 U, 15 +, 16 courtyard, 17 H, 18 Z, 19 E — across several
+    // seeds each, since the proportions are randomised.
+    for (int t = 12; t <= 19; t++)
+        for (uint32_t s = 0; s < 6; s++) {
+            HouseBuilding h(t, 1, 0);
+            std::vector<uint8_t> blocks; std::vector<Room> rooms;
+            int dx, dy, dz;
+            genAndCheck(h, 200u + (uint32_t)t * 17u + s, blocks, rooms, dx, dy, dz);
+            CHECK(rooms.size() >= 2);     // a wing per room → at least two rooms
+        }
+}
+
+TEST_CASE(House_CompositeVariesWithSeed) {
+    // Composite footprints are seed-driven, so different seeds yield different
+    // houses — four seeds must produce at least two distinct grids.
+    HouseBuilding h(12, 1, 0);
+    std::vector<std::vector<uint8_t>> grids;
+    for (uint32_t s : { 111u, 222u, 333u, 444u }) {
+        std::vector<uint8_t> bl; std::vector<Room> rm;
+        int dx, dy, dz, ddx, ddz;
+        h.generate(s, bl, rm, dx, dy, dz, ddx, ddz);
+        bool isNew = true;
+        for (const auto& g : grids) if (g == bl) isNew = false;
+        if (isNew) grids.push_back(bl);
+    }
+    CHECK(grids.size() >= 2);
+}
+
+TEST_CASE(House_SteepRoofIsTallerThanFlat) {
+    // The biome rule drives roof style via roofType; flat (0) must be shorter
+    // than steep gable (4) for the same template, confirming both apply.
+    HouseBuilding flat(0, 0, 0), steep(0, 4, 0);
+    std::vector<uint8_t> bf, bs; std::vector<Room> rf, rs;
+    int fx, fy, fz, sx, sy, sz;
+    genAndCheck(flat,  9u, bf, rf, fx, fy, fz);
+    genAndCheck(steep, 9u, bs, rs, sx, sy, sz);
+    CHECK(sy > fy);
+}
+
+TEST_CASE(Bakery_GeneratesShopWithRooms) {
+    BakeryBuilding b(1);
+    std::vector<uint8_t> blocks; std::vector<Room> rooms;
+    int dx, dy, dz;
+    genAndCheck(b, 61u, blocks, rooms, dx, dy, dz);
+    CHECK_EQ((int)b.kind(), (int)BuildingKind::Bakery);
+    CHECK(rooms.size() >= 2);             // shop + back room
+}
+
+TEST_CASE(Watchtower_IsTallAndNarrow) {
+    WatchtowerBuilding w(2, 4);
+    std::vector<uint8_t> blocks; std::vector<Room> rooms;
+    int dx, dy, dz;
+    genAndCheck(w, 62u, blocks, rooms, dx, dy, dz);
+    CHECK_EQ((int)w.kind(), (int)BuildingKind::Watchtower);
+    CHECK(dy > dx && dy > dz);            // taller than it is wide
+}
+
 // --- rotateBuilding ---
 
 TEST_CASE(RotateBuilding_Q0IsIdentity) {

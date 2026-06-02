@@ -117,6 +117,27 @@ FurnitureRule furnitureForRoom(RoomType t) {
             r.wallLanternEvery = 2;
             r.allowTableTopper = false;
             break;
+        case RoomType::Apothecary:
+            r.wallPicks  = { PropType::BarCounter, PropType::Bookshelf,
+                             PropType::AlchemyTable, PropType::KitchenCounter };
+            r.openPicks  = { PropType::Cauldron, PropType::Table, PropType::Chair };
+            r.capMin = 5; r.capMax = 8;
+            r.wallLanternEvery = 3;
+            break;
+        case RoomType::Bakery:
+            r.wallPicks  = { PropType::Forge, PropType::KitchenCounter,
+                             PropType::BarCounter, PropType::Bookshelf };  // oven, counters, shelves
+            r.openPicks  = { PropType::Table, PropType::Chair };
+            r.capMin = 4; r.capMax = 7;
+            r.wallLanternEvery = 3;
+            break;
+        case RoomType::Stable:
+        case RoomType::Chapel:
+            // Stalls / pews / altar are built as block détail in building.cpp;
+            // keep the prop placer out of these rooms entirely.
+            r.wallLanternEvery = 0;
+            r.capMin = 0; r.capMax = 0;
+            break;
         case RoomType::LivingRoom:
         default:
             r.wallPicks  = { PropType::Couch, PropType::Bookshelf, PropType::Bookshelf,
@@ -491,12 +512,43 @@ void placeTradeSign(const TownBuilding& b) {
     g_placements.push_back({ t, glm::vec3(px, py, pz), yaw, 0 });
 }
 
+// A fenced paddock behind each stable — a rectangular run of fence posts,
+// skipping any that would land inside a building or below the sea, so horses
+// have a yard to graze. Gives stables a recognisable "fences outside" look.
+void placeStablePaddock(const TownPlan& plan, const TownBuilding& b) {
+    std::mt19937 rng(worldSeed() ^ (uint32_t)(b.wx * 2654435761u)
+                                 ^ (uint32_t)(b.wz * 40503u) ^ 0x5AB1Eu);
+    int cx = b.wx + b.dimX / 2, cz = b.wz + b.dimZ / 2;
+    int bdx = -b.doorDX, bdz = -b.doorDZ;            // out the back of the stable
+    if (bdx == 0 && bdz == 0) bdz = 1;
+    int ext = (bdx != 0) ? b.dimX / 2 : b.dimZ / 2;
+    const int half = 7;
+    int pcx = cx + bdx * (ext + 4 + half);
+    int pcz = cz + bdz * (ext + 4 + half);
+    auto post = [&](int x, int z, float yaw) {
+        if (insideAnyBuilding(plan, x, z)) return;
+        int gy = sampleSurfaceSolid(x, z);
+        if (gy < WORLD_SEA_LEVEL) return;
+        g_placements.push_back({ PropType::Fence,
+            glm::vec3((float)x + 0.5f, (float)(gy + 1), (float)z + 0.5f), yaw, rng() });
+    };
+    for (int x = pcx - half; x <= pcx + half; x += 2) {
+        post(x, pcz - half, 90.0f);
+        post(x, pcz + half, 90.0f);
+    }
+    for (int z = pcz - half + 2; z <= pcz + half - 2; z += 2) {
+        post(pcx - half, z, 0.0f);
+        post(pcx + half, z, 0.0f);
+    }
+}
+
 void build() {
     const TownPlan& plan = getTownPlan();
     for (const Town& t : plan.towns) {
         for (const TownBuilding& b : t.buildings) {
             if (!b.rooms.empty()) placeFurniture(b);
             placeTradeSign(b);
+            if (b.kind == (int)BuildingKind::Stable) placeStablePaddock(plan, b);
         }
         placeStreetLampProps(t);
         placeDecorations(t);

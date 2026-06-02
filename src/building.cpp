@@ -287,6 +287,99 @@ void cutDoorwayAlongX(Grid& g, int wallZ, int xA, int xB, int yFloor, int prefX)
     g.box(cx, cx + 1, yFloor + 1, yFloor + 3, wallZ, wallZ, BlockType::Air);
 }
 
+// Stamps a roof of the given style over the rectangle [x0,x1]×[z0,z1] (walls sit
+// at those coords, eaves one block beyond), returning the highest roof Y. Shared
+// by emitFromSpec (one rectangle) and emitFromWings (one call per wing of an
+// L/T/U house). Styles: 0 flat, 1 gabled, 2 hipped, 3 pyramid, 4 steep gable.
+int stampRoof(Grid& g, int roof, int x0, int x1, int z0, int z1,
+              int wallH, BlockType roofB, BlockType wallB) {
+    const int rx0 = x0 - 1, rx1 = x1 + 1, rz0 = z0 - 1, rz1 = z1 + 1;
+    const int ry = wallH + 1;
+    const int xspan = x1 - x0, zspan = z1 - z0;
+    const bool ridgeX = (xspan >= zspan);
+    int roofTopY = ry;
+    if (roof == 0) {
+        g.box(rx0, rx1, ry, ry, rz0, rz1, roofB);
+    } else if (roof == 3) {
+        int ax0 = rx0, ax1 = rx1, az0 = rz0, az1 = rz1, h = 0;
+        while (ax0 <= ax1 && az0 <= az1) {
+            g.box(ax0, ax1, ry + h, ry + h, az0, az1, roofB);
+            roofTopY = ry + h;
+            ax0++; ax1--; az0++; az1--; h++;
+        }
+    } else if (roof == 2) {
+        int ax0 = rx0, ax1 = rx1, az0 = rz0, az1 = rz1, h = 0;
+        if (ridgeX) {
+            while (az0 <= az1) {
+                g.box(ax0, ax1, ry + h, ry + h, az0, az1, roofB);
+                roofTopY = ry + h;
+                az0++; az1--;
+                if (ax1 - ax0 > 4) { ax0++; ax1--; }
+                h++;
+            }
+        } else {
+            while (ax0 <= ax1) {
+                g.box(ax0, ax1, ry + h, ry + h, az0, az1, roofB);
+                roofTopY = ry + h;
+                ax0++; ax1--;
+                if (az1 - az0 > 4) { az0++; az1--; }
+                h++;
+            }
+        }
+    } else if (roof == 4) {
+        int h = 0;
+        if (ridgeX) {
+            int az0 = rz0, az1 = rz1;
+            while (az0 <= az1) {
+                for (int ly = 0; ly < 2; ly++) {
+                    g.box(rx0, rx1, ry + h + ly, ry + h + ly, az0, az1, roofB);
+                    const int g0 = std::max(az0, z0), g1 = std::min(az1, z1);
+                    g.box(x0, x0, ry + h + ly, ry + h + ly, g0, g1, wallB);
+                    g.box(x1, x1, ry + h + ly, ry + h + ly, g0, g1, wallB);
+                    roofTopY = ry + h + ly;
+                }
+                az0++; az1--; h += 2;
+            }
+        } else {
+            int ax0 = rx0, ax1 = rx1;
+            while (ax0 <= ax1) {
+                for (int ly = 0; ly < 2; ly++) {
+                    g.box(ax0, ax1, ry + h + ly, ry + h + ly, rz0, rz1, roofB);
+                    const int g0 = std::max(ax0, x0), g1 = std::min(ax1, x1);
+                    g.box(g0, g1, ry + h + ly, ry + h + ly, z0, z0, wallB);
+                    g.box(g0, g1, ry + h + ly, ry + h + ly, z1, z1, wallB);
+                    roofTopY = ry + h + ly;
+                }
+                ax0++; ax1--; h += 2;
+            }
+        }
+    } else { // Gabled
+        int h = 0;
+        if (ridgeX) {
+            int az0 = rz0, az1 = rz1;
+            while (az0 <= az1) {
+                g.box(rx0, rx1, ry + h, ry + h, az0, az1, roofB);
+                const int g0 = std::max(az0, z0), g1 = std::min(az1, z1);
+                g.box(x0, x0, ry + h, ry + h, g0, g1, wallB);
+                g.box(x1, x1, ry + h, ry + h, g0, g1, wallB);
+                roofTopY = ry + h;
+                az0++; az1--; h++;
+            }
+        } else {
+            int ax0 = rx0, ax1 = rx1;
+            while (ax0 <= ax1) {
+                g.box(ax0, ax1, ry + h, ry + h, rz0, rz1, roofB);
+                const int g0 = std::max(ax0, x0), g1 = std::min(ax1, x1);
+                g.box(g0, g1, ry + h, ry + h, z0, z0, wallB);
+                g.box(g0, g1, ry + h, ry + h, z1, z1, wallB);
+                roofTopY = ry + h;
+                ax0++; ax1--; h++;
+            }
+        }
+    }
+    return roofTopY;
+}
+
 // Common shell-generation routine shared by HouseBuilding / PubBuilding /
 // BlacksmithBuilding / MageTowerBuilding. Reads `spec` (size, floors, room
 // layout per floor) and produces a tight-cropped, world-aligned block grid
@@ -502,93 +595,7 @@ void emitFromSpec(const HouseSpec& specIn, int material,
     }
 
     // Roof.
-    const int rx0 = x0 - 1, rx1 = x1 + 1, rz0 = z0 - 1, rz1 = z1 + 1;
-    const int ry = wallH + 1;
-    const bool ridgeX = (xspan >= zspan);
-    int roofTopY = ry;
-    if (spec.roof == 0) {
-        g.box(rx0, rx1, ry, ry, rz0, rz1, roofB);
-    } else if (spec.roof == 3) {
-        int ax0 = rx0, ax1 = rx1, az0 = rz0, az1 = rz1, h = 0;
-        while (ax0 <= ax1 && az0 <= az1) {
-            g.box(ax0, ax1, ry + h, ry + h, az0, az1, roofB);
-            roofTopY = ry + h;
-            ax0++; ax1--; az0++; az1--; h++;
-        }
-    } else if (spec.roof == 2) {
-        int ax0 = rx0, ax1 = rx1, az0 = rz0, az1 = rz1, h = 0;
-        if (ridgeX) {
-            while (az0 <= az1) {
-                g.box(ax0, ax1, ry + h, ry + h, az0, az1, roofB);
-                roofTopY = ry + h;
-                az0++; az1--;
-                if (ax1 - ax0 > 4) { ax0++; ax1--; }
-                h++;
-            }
-        } else {
-            while (ax0 <= ax1) {
-                g.box(ax0, ax1, ry + h, ry + h, az0, az1, roofB);
-                roofTopY = ry + h;
-                ax0++; ax1--;
-                if (az1 - az0 > 4) { az0++; az1--; }
-                h++;
-            }
-        }
-    } else if (spec.roof == 4) {
-        // Steep Gabled — Norse / stave-church pointy roof. Each "level" of the
-        // gable shrinks by 1 in Z (or X) but climbs by 2 in Y, doubling the
-        // pitch of the regular gabled roof. The result is a tall A-frame
-        // that reads as Viking-style from any angle.
-        int h = 0;
-        if (ridgeX) {
-            int az0 = rz0, az1 = rz1;
-            while (az0 <= az1) {
-                for (int ly = 0; ly < 2; ly++) {
-                    g.box(rx0, rx1, ry + h + ly, ry + h + ly, az0, az1, roofB);
-                    const int g0 = std::max(az0, z0), g1 = std::min(az1, z1);
-                    g.box(x0, x0, ry + h + ly, ry + h + ly, g0, g1, wallB);
-                    g.box(x1, x1, ry + h + ly, ry + h + ly, g0, g1, wallB);
-                    roofTopY = ry + h + ly;
-                }
-                az0++; az1--; h += 2;
-            }
-        } else {
-            int ax0 = rx0, ax1 = rx1;
-            while (ax0 <= ax1) {
-                for (int ly = 0; ly < 2; ly++) {
-                    g.box(ax0, ax1, ry + h + ly, ry + h + ly, rz0, rz1, roofB);
-                    const int g0 = std::max(ax0, x0), g1 = std::min(ax1, x1);
-                    g.box(g0, g1, ry + h + ly, ry + h + ly, z0, z0, wallB);
-                    g.box(g0, g1, ry + h + ly, ry + h + ly, z1, z1, wallB);
-                    roofTopY = ry + h + ly;
-                }
-                ax0++; ax1--; h += 2;
-            }
-        }
-    } else { // Gabled
-        int h = 0;
-        if (ridgeX) {
-            int az0 = rz0, az1 = rz1;
-            while (az0 <= az1) {
-                g.box(rx0, rx1, ry + h, ry + h, az0, az1, roofB);
-                const int g0 = std::max(az0, z0), g1 = std::min(az1, z1);
-                g.box(x0, x0, ry + h, ry + h, g0, g1, wallB);
-                g.box(x1, x1, ry + h, ry + h, g0, g1, wallB);
-                roofTopY = ry + h;
-                az0++; az1--; h++;
-            }
-        } else {
-            int ax0 = rx0, ax1 = rx1;
-            while (ax0 <= ax1) {
-                g.box(ax0, ax1, ry + h, ry + h, rz0, rz1, roofB);
-                const int g0 = std::max(ax0, x0), g1 = std::min(ax1, x1);
-                g.box(g0, g1, ry + h, ry + h, z0, z0, wallB);
-                g.box(g0, g1, ry + h, ry + h, z1, z1, wallB);
-                roofTopY = ry + h;
-                ax0++; ax1--; h++;
-            }
-        }
-    }
+    const int roofTopY = stampRoof(g, spec.roof, x0, x1, z0, z1, wallH, roofB, wallB);
 
     // Chimney — most residential buildings get a brick stack at the back.
     if (spec.chimney && xspan >= 7 && zspan >= 7) {
@@ -642,18 +649,292 @@ void emitFromSpec(const HouseSpec& specIn, int material,
     doorDX = 0; doorDZ = -1;
 }
 
+struct Wing { int x0, z0, x1, z1; };   // a footprint rectangle (inclusive), pre-margin
+
+// Generates an L / T / U-shaped single-storey house from 2-3 rectangular wings.
+// Walls follow the union's outline (a footprint cell becomes a wall where it
+// borders open ground), so adjoining wings share one open interior. Each wing
+// gets its own roof in the chosen style — overlaps simply stack — and one Room.
+// Output is tight-cropped like emitFromSpec; the door faces -Z on the front wing.
+void emitFromWings(std::vector<Wing> wings, int material, int roof, int floorH,
+                   const RoomType* wingRooms, int nWings,
+                   std::vector<uint8_t>& outBlocks, std::vector<Room>& outRooms,
+                   int& dimX, int& dimY, int& dimZ, int& doorDX, int& doorDZ)
+{
+    MaterialPalette pal = materialPalette(material);
+    const BlockType wallB = pal.wall, roofB = pal.roof;
+    const BlockType floorB = paint(12), foundationB = BlockType::Stone, windowB = BlockType::Glass;
+
+    std::vector<BlockType> work((size_t)HOUSE_VX * HOUSE_VY * HOUSE_VZ, BlockType::Air);
+    Grid g{ work.data(), HOUSE_VX, HOUSE_VY, HOUSE_VZ };
+
+    int bx0 = 1 << 30, bz0 = 1 << 30, bx1 = -(1 << 30), bz1 = -(1 << 30);
+    for (const Wing& w : wings) {
+        bx0 = std::min(bx0, w.x0); bx1 = std::max(bx1, w.x1);
+        bz0 = std::min(bz0, w.z0); bz1 = std::max(bz1, w.z1);
+    }
+    const int offX = marginFor(bx1 - bx0 + 1, HOUSE_VX) - bx0;
+    const int offZ = marginFor(bz1 - bz0 + 1, HOUSE_VZ) - bz0;
+    for (Wing& w : wings) { w.x0 += offX; w.x1 += offX; w.z0 += offZ; w.z1 += offZ; }
+
+    const int wallH = floorH;
+    auto inFoot = [&](int x, int z) {
+        for (const Wing& w : wings)
+            if (x >= w.x0 && x <= w.x1 && z >= w.z0 && z <= w.z1) return true;
+        return false;
+    };
+    auto perimAt = [&](int x, int z) {
+        return inFoot(x, z) && (!inFoot(x - 1, z) || !inFoot(x + 1, z) ||
+                                !inFoot(x, z - 1) || !inFoot(x, z + 1));
+    };
+
+    // Foundation, floor and perimeter walls following the union's outline.
+    for (int x = bx0 + offX - 1; x <= bx1 + offX + 1; x++)
+        for (int z = bz0 + offZ - 1; z <= bz1 + offZ + 1; z++) {
+            if (inFoot(x, z) || inFoot(x - 1, z) || inFoot(x + 1, z) ||
+                inFoot(x, z - 1) || inFoot(x, z + 1))
+                g.set(x, 0, z, foundationB);
+            if (!inFoot(x, z)) continue;
+            if (perimAt(x, z)) g.box(x, x, 1, wallH, z, z, wallB);
+            else               g.set(x, 0, z, floorB);
+        }
+
+    // The frontmost wing carries a 3-wide door on its -Z wall.
+    const Wing* front = &wings[0];
+    for (const Wing& w : wings) if (w.z0 < front->z0) front = &w;
+    const int dcx = (front->x0 + front->x1) / 2;
+    g.box(dcx - 1, dcx + 1, 1, 4, front->z0, front->z0, BlockType::Air);
+
+    for (const Wing& w : wings)                    // a roof per wing
+        stampRoof(g, roof, w.x0, w.x1, w.z0, w.z1, wallH, roofB, wallB);
+
+    // Sparse 2-tall windows along the perimeter walls (never over the door).
+    for (int x = bx0 + offX; x <= bx1 + offX; x++)
+        for (int z = bz0 + offZ; z <= bz1 + offZ; z++) {
+            if (!perimAt(x, z)) continue;
+            if (((x * 3 + z * 7) % 6) != 0) continue;
+            if (z == front->z0 && std::abs(x - dcx) <= 2) continue;
+            g.set(x, 2, z, windowB); g.set(x, 3, z, windowB);
+        }
+
+    // One Room per wing (interior, shrunk a block off the walls).
+    for (int i = 0; i < nWings; i++) {
+        Room r;
+        r.x0 = wings[i].x0 + 1; r.x1 = wings[i].x1 - 1;
+        r.z0 = wings[i].z0 + 1; r.z1 = wings[i].z1 - 1;
+        r.floorY = 1; r.ceilingY = wallH;
+        r.type = wingRooms[i];
+        if (r.x0 <= r.x1 && r.z0 <= r.z1 && r.type != RoomType::None)
+            outRooms.push_back(r);
+    }
+
+    // Tight-crop into the output (mirrors emitFromSpec's final pass).
+    int mnx = HOUSE_VX, mny = HOUSE_VY, mnz = HOUSE_VZ, mxx = -1, mxy = -1, mxz = -1;
+    for (int z = 0; z < HOUSE_VZ; z++)
+        for (int y = 0; y < HOUSE_VY; y++)
+            for (int x = 0; x < HOUSE_VX; x++)
+                if (g.get(x, y, z) != BlockType::Air) {
+                    mnx = std::min(mnx, x); mxx = std::max(mxx, x);
+                    mny = std::min(mny, y); mxy = std::max(mxy, y);
+                    mnz = std::min(mnz, z); mxz = std::max(mxz, z);
+                }
+    if (mxx < 0) { dimX = dimY = dimZ = 0; outBlocks.clear(); outRooms.clear();
+                   doorDX = 0; doorDZ = -1; return; }
+    dimX = mxx - mnx + 1; dimY = mxy - mny + 1; dimZ = mxz - mnz + 1;
+    outBlocks.assign((size_t)dimX * dimY * dimZ, (uint8_t)BlockType::Air);
+    for (int y = 0; y < dimY; y++)
+        for (int z = 0; z < dimZ; z++)
+            for (int x = 0; x < dimX; x++)
+                outBlocks[((size_t)y * dimZ + z) * dimX + x] =
+                    (uint8_t)g.get(mnx + x, mny + y, mnz + z);
+    for (Room& r : outRooms) {
+        r.x0 -= mnx; r.x1 -= mnx; r.z0 -= mnz; r.z1 -= mnz;
+        r.floorY -= mny; r.ceilingY -= mny;
+        r.x0 = std::max(0, r.x0); r.x1 = std::min(dimX - 1, r.x1);
+        r.z0 = std::max(0, r.z0); r.z1 = std::min(dimZ - 1, r.z1);
+    }
+    doorDX = 0; doorDZ = -1;
+}
+
+// Builds the wing list (and per-wing room types) for a composite house shape,
+// with seed-driven dimensions so no two L / T / U / + / courtyard houses are
+// alike. A small inline LCG avoids pulling in <random>.
+std::vector<Wing> makeCompositeWings(int shape, uint32_t seed,
+                                     RoomType* wr, int& nWings) {
+    uint32_t s = seed ? seed : 1u;
+    auto R = [&](int a, int b) {
+        s = s * 1664525u + 1013904223u;
+        return a + (int)((s >> 16) % (uint32_t)(b - a + 1));
+    };
+    auto coin = [&]() { s = s * 1664525u + 1013904223u; return ((s >> 20) & 1u) != 0u; };
+
+    std::vector<Wing> w;
+    switch (shape) {
+    default:
+    case 12: {  // L — a front bar with one back wing on a random side
+        int mw = R(15, 20), md = R(7, 9), aw = R(7, 10), ad = R(8, 12);
+        w.push_back({ 0, 0, mw - 1, md - 1 });
+        if (coin()) w.push_back({ mw - aw, md - 1, mw - 1, md - 1 + ad });
+        else        w.push_back({ 0,       md - 1, aw - 1, md - 1 + ad });
+        wr[0] = RoomType::LivingRoom; wr[1] = RoomType::Bedroom; nWings = 2;
+        break;
+    }
+    case 13: {  // T — a front bar with a central back stem
+        int mw = R(16, 20), md = R(6, 8), sw = R(6, 9), sd = R(8, 12);
+        int sx = (mw - sw) / 2;
+        w.push_back({ 0, 0, mw - 1, md - 1 });
+        w.push_back({ sx, md - 1, sx + sw - 1, md - 1 + sd });
+        wr[0] = RoomType::LivingRoom; wr[1] = RoomType::Kitchen; nWings = 2;
+        break;
+    }
+    case 14: {  // U — a front bar with two back arms (opens to the rear)
+        int mw = R(16, 20), md = R(6, 8), aw = R(5, 7), ad = R(8, 12);
+        w.push_back({ 0, 0, mw - 1, md - 1 });
+        w.push_back({ 0, md - 1, aw - 1, md - 1 + ad });
+        w.push_back({ mw - aw, md - 1, mw - 1, md - 1 + ad });
+        wr[0] = RoomType::LivingRoom; wr[1] = RoomType::Kitchen; wr[2] = RoomType::Bedroom;
+        nWings = 3;
+        break;
+    }
+    case 15: {  // + — a central block with four short arms
+        int cw = R(8, 11), cd = R(8, 11), aw = R(5, 6), al = R(4, 6);
+        int cx = al, cz = al;
+        int ax = cx + (cw - aw) / 2, az = cz + (cd - aw) / 2;
+        w.push_back({ cx, cz, cx + cw - 1, cz + cd - 1 });                // centre
+        w.push_back({ ax, 0,           ax + aw - 1, cz });                // front arm
+        w.push_back({ ax, cz + cd - 1, ax + aw - 1, cz + cd - 1 + al });  // back arm
+        w.push_back({ 0,           az, cx,          az + aw - 1 });        // left arm
+        w.push_back({ cx + cw - 1, az, cx + cw - 1 + al, az + aw - 1 });  // right arm
+        wr[0] = RoomType::LivingRoom; wr[1] = RoomType::Kitchen;
+        wr[2] = RoomType::Bedroom;    wr[3] = RoomType::Study;
+        wr[4] = RoomType::Bedroom;    nWings = 5;
+        break;
+    }
+    case 16: {  // Courtyard — a back bar with two front arms (opens to the front)
+        int bw = R(16, 20), bd = R(6, 8), aw = R(5, 7), ad = R(9, 12);
+        int bz = ad - 1;
+        w.push_back({ 0, bz, bw - 1, bz + bd - 1 });        // back bar
+        w.push_back({ 0, 0, aw - 1, bz });                  // left front arm
+        w.push_back({ bw - aw, 0, bw - 1, bz });            // right front arm
+        wr[0] = RoomType::LivingRoom; wr[1] = RoomType::Kitchen; wr[2] = RoomType::Bedroom;
+        nWings = 3;
+        break;
+    }
+    case 17: {  // H — two side bars joined by a central cross-bar
+        int W = R(16, 20), H = R(13, 17), sw = R(5, 7), cd = R(5, 7);
+        int cz = (H - cd) / 2;
+        w.push_back({ 0, 0, sw - 1, H - 1 });               // left bar
+        w.push_back({ W - sw, 0, W - 1, H - 1 });           // right bar
+        w.push_back({ sw - 1, cz, W - sw, cz + cd - 1 });   // connector
+        wr[0] = RoomType::LivingRoom; wr[1] = RoomType::Bedroom; wr[2] = RoomType::Kitchen;
+        nWings = 3;
+        break;
+    }
+    case 18: {  // Z — two bars staggered diagonally
+        int w1 = R(12, 15), d1 = R(8, 10), w2 = R(11, 14), d2 = R(8, 10);
+        w.push_back({ 0, 0, w1 - 1, d1 - 1 });                              // front-left
+        w.push_back({ w1 - 5, d1 - 2, w1 - 5 + w2 - 1, d1 - 2 + d2 - 1 });  // back-right
+        wr[0] = RoomType::LivingRoom; wr[1] = RoomType::Bedroom; nWings = 2;
+        break;
+    }
+    case 19: {  // E — a back spine with three front arms
+        int W = R(17, 20), aw = R(4, 6), sd = R(5, 7), ad = R(8, 11);
+        int sz = ad - 1;
+        w.push_back({ 0, sz, W - 1, sz + sd - 1 });                  // back spine
+        w.push_back({ 0, 0, aw - 1, sz });                           // left arm
+        w.push_back({ (W - aw) / 2, 0, (W - aw) / 2 + aw - 1, sz });  // centre arm
+        w.push_back({ W - aw, 0, W - 1, sz });                       // right arm
+        wr[0] = RoomType::LivingRoom; wr[1] = RoomType::Kitchen;
+        wr[2] = RoomType::Bedroom;    wr[3] = RoomType::Study;
+        nWings = 4;
+        break;
+    }
+    }
+    return w;
+}
+
+// Overlays a stable's interior onto the emitted grid: wood-plank stall dividers
+// against the rear wall, a hay pile in each stall, a stone water trough along
+// the aisle and a glowstone lantern overhead. Stalls run along the room's long
+// (X) axis. Coordinates are cropped-grid space (same as outBlocks / Room).
+void stampStableInterior(std::vector<uint8_t>& blk, int dimX, int dimY, int dimZ,
+                         const Room& r) {
+    auto set = [&](int x, int y, int z, BlockType t) {
+        if (x < 0 || x >= dimX || y < 0 || y >= dimY || z < 0 || z >= dimZ) return;
+        blk[((size_t)y * dimZ + z) * dimX + x] = (uint8_t)t;
+    };
+    const int fy   = r.floorY;
+    const int midZ = (r.z0 + r.z1) / 2;
+    for (int sx = r.x0; sx <= r.x1; sx += 4) {                 // stall dividers
+        for (int z = midZ; z <= r.z1; z++)
+            for (int y = fy; y <= fy + 2; y++) set(sx, y, z, BlockType::Wood);
+        if (sx + 2 <= r.x1) {                                  // hay in the stall
+            set(sx + 2, fy, r.z1,     paint(11));
+            set(sx + 2, fy, r.z1 - 1, paint(11));
+        }
+    }
+    for (int x = r.x0; x <= r.x1; x++)                         // low front rail w/ gates
+        if ((x & 1) == 0) set(x, fy, midZ, BlockType::Wood);
+    for (int x = r.x0 + 1; x <= r.x1 - 1; x++)                 // water trough
+        set(x, fy, r.z0 + 1, BlockType::Stone);
+    set((r.x0 + r.x1) / 2,     fy, r.z0 + 1, BlockType::Water);
+    set((r.x0 + r.x1) / 2 + 1, fy, r.z0 + 1, BlockType::Water);
+    for (int gx = r.x0 + 4; gx <= r.x1 - 1; gx += 9)            // hanging lanterns
+        set(gx, fy + 3, midZ, BlockType::Glowstone);
+}
+
+// Overlays a chapel's interior: a raised stone altar with a glowstone candle at
+// the rear of the nave, and two banks of wood pews flanking a central aisle
+// running the long (Z) axis toward the altar.
+void stampChapelInterior(std::vector<uint8_t>& blk, int dimX, int dimY, int dimZ,
+                         const Room& r) {
+    auto set = [&](int x, int y, int z, BlockType t) {
+        if (x < 0 || x >= dimX || y < 0 || y >= dimY || z < 0 || z >= dimZ) return;
+        blk[((size_t)y * dimZ + z) * dimX + x] = (uint8_t)t;
+    };
+    const int fy = r.floorY;
+    const int cx = (r.x0 + r.x1) / 2;        // central aisle
+    const int altarZ = r.z1 - 1;             // rear of the nave
+    for (int x = cx - 1; x <= cx + 1; x++) {                   // altar dais + cloth
+        set(x, fy,     altarZ, BlockType::Stone);
+        set(x, fy + 1, altarZ, paint(0));
+    }
+    set(cx, fy + 2, altarZ, BlockType::Glowstone);             // candle
+    for (int z = r.z0 + 2; z <= altarZ - 2; z += 2) {          // pews, central aisle clear
+        for (int x = r.x0 + 1; x <= cx - 2; x++) set(x, fy, z, BlockType::Wood);
+        for (int x = cx + 2; x <= r.x1 - 1; x++) set(x, fy, z, BlockType::Wood);
+    }
+    for (int z = r.z0 + 4; z <= altarZ - 2; z += 7) {          // wall-sconce candles
+        set(r.x0, fy + 4, z, BlockType::Glowstone);
+        set(r.x1, fy + 4, z, BlockType::Glowstone);
+    }
+}
+
 } // namespace
 
 // --- HouseBuilding -----------------------------------------------------------
 
-void HouseBuilding::generate(uint32_t /*seed*/,
+void HouseBuilding::generate(uint32_t seed,
                              std::vector<uint8_t>& outBlocks,
                              std::vector<Room>& outRooms,
                              int& dimX, int& dimY, int& dimZ,
                              int& doorDX, int& doorDZ)
 {
+    // Templates 12-19 are composite footprints (L / T / U / + / courtyard / H /
+    // Z / E) with seed-varied proportions, built as a union of rectangular wings.
+    if (templateType >= 12 && templateType <= 19) {
+        RoomType wr[5] = { RoomType::LivingRoom, RoomType::None, RoomType::None,
+                           RoomType::None, RoomType::None };
+        int nWings = 0;
+        std::vector<Wing> wings = makeCompositeWings(templateType, seed, wr, nWings);
+        int roof = (roofType >= 0 && roofType <= 4) ? roofType : 1;
+        emitFromWings(wings, material, roof, 6, wr, nWings,
+                      outBlocks, outRooms, dimX, dimY, dimZ, doorDX, doorDZ);
+        return;
+    }
+
     HouseSpec spec = pickHouseSpec(templateType);
-    if (roofType >= 0 && roofType <= 3) spec.roof = roofType;
+    if (roofType >= 0 && roofType <= 4) spec.roof = roofType;   // 4 = steep gable
     emitFromSpec(spec, material, outBlocks, outRooms, dimX, dimY, dimZ,
                  doorDX, doorDZ);
 }
@@ -741,6 +1022,126 @@ void MageTowerBuilding::generate(uint32_t /*seed*/,
     };
     for (int f = 0; f < spec.floors; f++)
         spec.plans[f].rooms[0] = STACK[std::min(3, f)];
+    emitFromSpec(spec, material, outBlocks, rooms, dimX, dimY, dimZ,
+                 doorDX, doorDZ);
+}
+
+// --- StableBuilding ----------------------------------------------------------
+// A long, low single hall (no chimney) whose interior is filled with horse
+// stalls. The shell/roof come from emitFromSpec; the stalls, hay and trough are
+// overlaid afterwards onto the single Stable room.
+
+void StableBuilding::generate(uint32_t /*seed*/,
+                              std::vector<uint8_t>& outBlocks,
+                              std::vector<Room>& rooms,
+                              int& dimX, int& dimY, int& dimZ,
+                              int& doorDX, int& doorDZ)
+{
+    HouseSpec spec;
+    spec.wallSpanX = 22; spec.wallSpanZ = 12; spec.floors = 1;
+    spec.floorH    = 7;          // tall doorway for horses
+    spec.roof      = roofType;
+    spec.chimney   = false;
+    spec.porch     = false;
+    spec.plans[0].rooms[0] = RoomType::Stable;
+    emitFromSpec(spec, material, outBlocks, rooms, dimX, dimY, dimZ,
+                 doorDX, doorDZ);
+    for (const Room& r : rooms)
+        if (r.type == RoomType::Stable)
+            stampStableInterior(outBlocks, dimX, dimY, dimZ, r);
+}
+
+// --- ChapelBuilding ----------------------------------------------------------
+// A tall single-nave hall with a porch. The pews and altar are overlaid onto
+// the single Chapel room after the shell/roof are emitted.
+
+void ChapelBuilding::generate(uint32_t /*seed*/,
+                              std::vector<uint8_t>& outBlocks,
+                              std::vector<Room>& rooms,
+                              int& dimX, int& dimY, int& dimZ,
+                              int& doorDX, int& doorDZ)
+{
+    HouseSpec spec;
+    spec.wallSpanX = 12; spec.wallSpanZ = 22; spec.floors = 1;
+    spec.floorH    = 10;         // a lofty nave
+    spec.roof      = roofType;
+    spec.chimney   = false;
+    spec.porch     = true;
+    spec.plans[0].rooms[0] = RoomType::Chapel;
+    emitFromSpec(spec, material, outBlocks, rooms, dimX, dimY, dimZ,
+                 doorDX, doorDZ);
+    for (const Room& r : rooms)
+        if (r.type == RoomType::Chapel)
+            stampChapelInterior(outBlocks, dimX, dimY, dimZ, r);
+}
+
+// --- ApothecaryBuilding ------------------------------------------------------
+// A two-room shop: a front Apothecary room (counter, shelves, cauldron — all
+// from the existing prop set) and a back Bedroom for the herbalist. No block
+// détail; the furniture placer dresses both rooms.
+
+void ApothecaryBuilding::generate(uint32_t /*seed*/,
+                                  std::vector<uint8_t>& outBlocks,
+                                  std::vector<Room>& rooms,
+                                  int& dimX, int& dimY, int& dimZ,
+                                  int& doorDX, int& doorDZ)
+{
+    HouseSpec spec;
+    spec.wallSpanX = 16; spec.wallSpanZ = 14; spec.floors = 1;
+    spec.floorH    = 6;
+    spec.roof      = roofType;
+    spec.chimney   = true;
+    spec.porch     = false;
+    spec.plans[0].cutZ     = 9;                       // front shop / back room
+    spec.plans[0].rooms[0] = RoomType::Apothecary;    // front (door side)
+    spec.plans[0].rooms[2] = RoomType::Bedroom;       // back living quarters
+    emitFromSpec(spec, material, outBlocks, rooms, dimX, dimY, dimZ,
+                 doorDX, doorDZ);
+}
+
+// --- BakeryBuilding ----------------------------------------------------------
+// A front shop with the oven (a Forge prop), counter and bread shelves, and a
+// small back room. Keeps its chimney for the oven flue.
+
+void BakeryBuilding::generate(uint32_t /*seed*/,
+                              std::vector<uint8_t>& outBlocks,
+                              std::vector<Room>& rooms,
+                              int& dimX, int& dimY, int& dimZ,
+                              int& doorDX, int& doorDZ)
+{
+    HouseSpec spec;
+    spec.wallSpanX = 16; spec.wallSpanZ = 14; spec.floors = 1;
+    spec.floorH    = 6;
+    spec.roof      = roofType;
+    spec.chimney   = true;
+    spec.porch     = false;
+    spec.plans[0].cutZ     = 9;                       // front shop / back room
+    spec.plans[0].rooms[0] = RoomType::Bakery;        // front (door side)
+    spec.plans[0].rooms[2] = RoomType::Bedroom;       // back living quarters
+    emitFromSpec(spec, material, outBlocks, rooms, dimX, dimY, dimZ,
+                 doorDX, doorDZ);
+}
+
+// --- WatchtowerBuilding ------------------------------------------------------
+// A tall, narrow stone tower with a flat lookout top: plain lower floors and a
+// study (the watch room) at the summit. A straight stair links each storey.
+
+void WatchtowerBuilding::generate(uint32_t /*seed*/,
+                                  std::vector<uint8_t>& outBlocks,
+                                  std::vector<Room>& rooms,
+                                  int& dimX, int& dimY, int& dimZ,
+                                  int& doorDX, int& doorDZ)
+{
+    HouseSpec spec;
+    spec.wallSpanX = 9; spec.wallSpanZ = 9;
+    spec.floors    = std::max(3, std::min(5, floors));
+    spec.floorH    = 5;
+    spec.roof      = 0;          // flat battlement lookout
+    spec.chimney   = false;
+    spec.porch     = false;
+    for (int f = 0; f < spec.floors; f++)
+        spec.plans[f].rooms[0] = (f == spec.floors - 1) ? RoomType::Study
+                                                        : RoomType::Hallway;
     emitFromSpec(spec, material, outBlocks, rooms, dimX, dimY, dimZ,
                  doorDX, doorDZ);
 }

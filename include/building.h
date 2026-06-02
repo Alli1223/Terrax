@@ -18,6 +18,11 @@ enum class BuildingKind : uint8_t {
     Pub         = 3,   // tavern with bar area + dining hall + a guest room
     Blacksmith  = 4,   // forge + workshop + a small living quarters
     MageTower   = 5,   // multi-storey tower: alchemy lab, library, bedroom
+    Stable      = 6,   // open barn of horse stalls, hay + trough, fenced paddock
+    Chapel      = 7,   // a tall single nave: rows of pews facing a stone altar
+    Apothecary  = 8,   // a herbalist's shop: counter + shelves, with living quarters
+    Bakery      = 9,   // a baker's shop: wood-fired oven, counter, bread shelves
+    Watchtower  = 10,  // a tall narrow stone guard tower with a flat lookout top
     Count
 };
 
@@ -38,6 +43,10 @@ enum class RoomType : uint8_t {
     AlchemyLab,      // cauldron, alchemy table, bookshelf
     Library,         // wall-to-wall bookshelves, reading desk
     Hallway,         // wall lanterns only
+    Stable,          // horse stalls, hay and a water trough (built as block détail)
+    Chapel,          // rows of pews facing an altar (built as block détail)
+    Apothecary,      // herbalist's shop: counter, shelves, bubbling cauldron
+    Bakery,          // baker's shop: oven (a Forge prop), counters and bread shelves
     Count
 };
 
@@ -144,6 +153,88 @@ public:
     MageTowerBuilding() = default;
     explicit MageTowerBuilding(int mat, int f = 3) : material(mat), floors(f) {}
     BuildingKind kind() const override { return BuildingKind::MageTower; }
+    void generate(uint32_t seed,
+                  std::vector<uint8_t>& blocks,
+                  std::vector<Room>& rooms,
+                  int& dimX, int& dimY, int& dimZ,
+                  int& doorDX, int& doorDZ) override;
+};
+
+// A stable: a long open barn whose single hall is filled with horse stalls —
+// wood plank dividers, hay piles and a water trough — lit by a hanging
+// glowstone lantern. A fenced paddock is dropped outside by the prop system.
+class StableBuilding : public Building {
+public:
+    int material = 6;   // forest-timber palette by default
+    int roofType = 1;   // gabled
+    StableBuilding() = default;
+    explicit StableBuilding(int mat, int roof = 1) : material(mat), roofType(roof) {}
+    BuildingKind kind() const override { return BuildingKind::Stable; }
+    void generate(uint32_t seed,
+                  std::vector<uint8_t>& blocks,
+                  std::vector<Room>& rooms,
+                  int& dimX, int& dimY, int& dimZ,
+                  int& doorDX, int& doorDZ) override;
+};
+
+// A chapel: a tall single-nave hall with two banks of pews running down a
+// central aisle toward a raised stone altar lit by a candle at the far end.
+class ChapelBuilding : public Building {
+public:
+    int material = 2;   // stone walls by default
+    int roofType = 4;   // steep gable — a fitting spire-like silhouette
+    ChapelBuilding() = default;
+    explicit ChapelBuilding(int mat, int roof = 4) : material(mat), roofType(roof) {}
+    BuildingKind kind() const override { return BuildingKind::Chapel; }
+    void generate(uint32_t seed,
+                  std::vector<uint8_t>& blocks,
+                  std::vector<Room>& rooms,
+                  int& dimX, int& dimY, int& dimZ,
+                  int& doorDX, int& doorDZ) override;
+};
+
+// An apothecary: a herbalist's shop — a front counter, wall shelves and a
+// bubbling cauldron (all from the existing prop set) plus a small back room of
+// living quarters.
+class ApothecaryBuilding : public Building {
+public:
+    int material = 8;   // autumn-plum palette by default
+    int roofType = 1;   // gabled
+    ApothecaryBuilding() = default;
+    explicit ApothecaryBuilding(int mat, int roof = 1) : material(mat), roofType(roof) {}
+    BuildingKind kind() const override { return BuildingKind::Apothecary; }
+    void generate(uint32_t seed,
+                  std::vector<uint8_t>& blocks,
+                  std::vector<Room>& rooms,
+                  int& dimX, int& dimY, int& dimZ,
+                  int& doorDX, int& doorDZ) override;
+};
+
+// A bakery: a shop with a wood-fired oven, a serving counter and bread shelves
+// up front, and a small back room for the baker.
+class BakeryBuilding : public Building {
+public:
+    int material = 1;   // warm cottage palette by default
+    int roofType = 1;   // gabled
+    BakeryBuilding() = default;
+    explicit BakeryBuilding(int mat, int roof = 1) : material(mat), roofType(roof) {}
+    BuildingKind kind() const override { return BuildingKind::Bakery; }
+    void generate(uint32_t seed,
+                  std::vector<uint8_t>& blocks,
+                  std::vector<Room>& rooms,
+                  int& dimX, int& dimY, int& dimZ,
+                  int& doorDX, int& doorDZ) override;
+};
+
+// A watchtower: a tall, narrow stone tower with a flat lookout top — a guard
+// post overlooking the town. Plain floors with a watch room at the summit.
+class WatchtowerBuilding : public Building {
+public:
+    int material = 2;   // stone walls by default
+    int floors   = 4;   // 3..5 storeys
+    WatchtowerBuilding() = default;
+    explicit WatchtowerBuilding(int mat, int f = 4) : material(mat), floors(f) {}
+    BuildingKind kind() const override { return BuildingKind::Watchtower; }
     void generate(uint32_t seed,
                   std::vector<uint8_t>& blocks,
                   std::vector<Room>& rooms,

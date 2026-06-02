@@ -194,12 +194,11 @@ int doorQuadrant(int fx, int fz, int tx, int tz) {
 // and rotates it by quadrant `q` into `b`. Used for every building kind that
 // has rooms (House, Pub, Blacksmith, MageTower); each is identified by the
 // kind() method on the Building subclass.
-void bakeBuilding(TownBuilding& b, Building& gen, int q) {
+void bakeBuilding(TownBuilding& b, Building& gen, int q, uint32_t seed) {
     b.kind = (int)gen.kind();
     std::vector<uint8_t> raw;
     std::vector<Room>    rawRooms;
     int sx = 0, sy = 0, sz = 0, dx = 0, dz = -1;
-    uint32_t seed = worldSeed() ^ 0xB1D14A11u;
     gen.generate(seed, raw, rawRooms, sx, sy, sz, dx, dz);
     if (sx <= 0 || sy <= 0 || sz <= 0) { b.dimX = b.dimY = b.dimZ = 0; return; }
 
@@ -229,9 +228,9 @@ void bakeBuilding(TownBuilding& b, Building& gen, int q) {
 }
 
 // Backwards-compatible wrapper for the existing house-placement code paths.
-void bakeHouse(TownBuilding& b, int templ, int roof, int mat, int q) {
+void bakeHouse(TownBuilding& b, int templ, int roof, int mat, int q, uint32_t seed) {
     HouseBuilding gen(templ, roof, mat);
-    bakeBuilding(b, gen, q);
+    bakeBuilding(b, gen, q, seed);
 }
 
 // A small village well — stone rim, water pool, four posts and a pyramid roof.
@@ -416,7 +415,8 @@ bool tryPlaceHouse(Town& t, std::mt19937& rng, int px, int pz, int faceX, int fa
                    const int* roofs, int nR) {
     int q = doorQuadrant(px, pz, faceX, faceZ);
     TownBuilding b;
-    bakeHouse(b, templ[rng() % nT], roofs[rng() % nR], mats[rng() % nM], q);
+    uint32_t seed = worldSeed() ^ (uint32_t)(px * 73856093) ^ (uint32_t)(pz * 19349663);
+    bakeHouse(b, templ[rng() % nT], roofs[rng() % nR], mats[rng() % nM], q, seed);
     if (b.dimX == 0) return false;
     b.wx = px - b.dimX / 2;
     b.wz = pz - b.dimZ / 2;
@@ -453,7 +453,8 @@ bool tryPlaceFarm(Town& t, std::mt19937& rng, int px, int pz) {
 bool tryPlaceSpecial(Town& t, Building& gen, int px, int pz) {
     int q = doorQuadrant(px, pz, t.center.x, t.center.y);
     TownBuilding b;
-    bakeBuilding(b, gen, q);
+    uint32_t seed = worldSeed() ^ (uint32_t)(px * 73856093) ^ (uint32_t)(pz * 19349663);
+    bakeBuilding(b, gen, q, seed);
     if (b.dimX == 0) return false;
     b.wx = px - b.dimX / 2;
     b.wz = pz - b.dimZ / 2;
@@ -520,7 +521,19 @@ void layoutTown(Town& t) {
     }
 
     const bool big = (t.size == TownSize::Town);
-    static const int ROOFS[] = { 1, 2, 3 };   // gabled, hipped, pyramid
+
+    // House roof style follows the local biome: desert towns are uniformly
+    // flat-roofed, snowy (mountain / tundra) towns get steep pitched roofs to
+    // shed snow, and everywhere else mixes gabled / hipped / pyramid roofs.
+    // layoutRings draws each house's roof from this set.
+    static const int ROOF_FLAT[]  = { 0 };
+    static const int ROOF_STEEP[] = { 4, 4, 3 };       // steep gable, occasional steep pyramid
+    static const int ROOF_MIX[]   = { 1, 2, 3 };       // gabled, hipped, pyramid
+    int townBiome = sampleSurface(t.center.x, t.center.y).biome;
+    const int* ROOFS; int nROOFS;
+    if (townBiome == 2)                          { ROOFS = ROOF_FLAT;  nROOFS = 1; }  // Desert
+    else if (townBiome == 3 || townBiome == 4)   { ROOFS = ROOF_STEEP; nROOFS = 3; }  // Mountains/Tundra
+    else                                         { ROOFS = ROOF_MIX;   nROOFS = 3; }
 
     // --- Specialised buildings (pub / blacksmith / mage tower) ------------
     // One pub and one blacksmith per town (every settlement has both — this
@@ -569,26 +582,70 @@ void layoutTown(Town& t) {
             placeSpecial(tower, frand(rng, 0.0f, 6.2832f) + 4.189f, 20);  // +240°
         }
     }
+    {
+        // Stable — most settlements keep horses; a little rarer in cramped
+        // coastal towns. Placed out among the houses rather than at the centre.
+        const int chance = (t.type == TownType::Coastal) ? 35 : 60;
+        if ((int)(rng() % 100) < (big ? chance + 15 : chance)) {
+            int mat = (t.type == TownType::Mountain) ? 4 : 6;   // cabin / forest timber
+            StableBuilding stable(mat, /*roof=*/1);
+            placeSpecial(stable, frand(rng, 0.0f, 6.2832f) + 1.047f, 26);   // +60°
+        }
+    }
+    {
+        // Chapel — a place of worship, more common in larger settlements.
+        if ((int)(rng() % 100) < (big ? 65 : 45)) {
+            int mat = (t.type == TownType::Coastal) ? 5 : 2;    // sandstone / stone
+            ChapelBuilding chapel(mat, /*roof=*/4);
+            placeSpecial(chapel, frand(rng, 0.0f, 6.2832f) + 3.665f, 28);   // +210°
+        }
+    }
+    {
+        // Apothecary — a herbalist's shop, biased toward bigger towns.
+        const int chance = (t.type == TownType::Mountain) ? 25 : 40;
+        if ((int)(rng() % 100) < (big ? chance + 15 : chance)) {
+            int mat = (t.type == TownType::Coastal) ? 9 : 8;    // plum / autumn
+            ApothecaryBuilding apo(mat, /*roof=*/1);
+            placeSpecial(apo, frand(rng, 0.0f, 6.2832f) + 5.236f, 24);      // +300°
+        }
+    }
+    {
+        // Bakery — a common high-street shop.
+        if ((int)(rng() % 100) < (big ? 55 : 40)) {
+            int mat = (t.type == TownType::Mountain) ? 4 : 1;   // cabin / cottage
+            BakeryBuilding bakery(mat, /*roof=*/1);
+            placeSpecial(bakery, frand(rng, 0.0f, 6.2832f) + 0.785f, 26);   // +45°
+        }
+    }
+    {
+        // Watchtower — a guard post; common in walled or large settlements.
+        const int chance = (t.wallRadius > 0) ? 55 : 25;
+        if ((int)(rng() % 100) < (big ? chance + 15 : chance)) {
+            int mat = (t.type == TownType::Coastal) ? 5 : 2;    // sandstone / stone
+            WatchtowerBuilding tower(mat, big ? 5 : 4);
+            placeSpecial(tower, frand(rng, 0.0f, 6.2832f) + 2.618f, 28);    // +150°
+        }
+    }
 
     if (t.type == TownType::Coastal) {
         // Coastal villages get the Norse longhouse mixed in — feels right for
         // a seafaring settlement on a fjord.
-        static const int T[] = { 0, 1, 2, 4, 5, 10 };
+        static const int T[] = { 0, 1, 2, 4, 5, 10, 12, 13, 14, 15, 16, 17, 18, 19 };  // + composites
         static const int M[] = { 7, 1, 5 };         // coastal / cottage / sandstone
         int numH = t.targetHouses;
-        layoutRings(t, rng, numH, false, T, 6, M, 3, ROOFS, 2);
+        layoutRings(t, rng, numH, false, T, 14, M, 3, ROOFS, nROOFS);
     } else if (t.type == TownType::Mountain) {
         // Mountain towns favour heavier wooden structures; both Norse templates
         // appear here for the high-alpine stave-church silhouette.
-        static const int T[] = { 1, 2, 3, 4, 8, 10, 11 };
+        static const int T[] = { 1, 2, 3, 4, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19 };  // + composites
         static const int M[] = { 2, 4, 0, 6 };      // stone / cabin / timber / forest
         int numH = t.targetHouses;
-        layoutRings(t, rng, numH, true, T, 7, M, 4, ROOFS + 1, 2);  // hipped/pyramid
+        layoutRings(t, rng, numH, true, T, 15, M, 4, ROOFS, nROOFS);
     } else {
-        static const int T[] = { 0, 1, 2, 4, 5, 7 };  // grassland mix
+        static const int T[] = { 0, 1, 2, 4, 5, 7, 12, 13, 14, 15, 16, 17, 18, 19 };  // mix + composites
         static const int M[] = { 0, 1, 4, 8 };        // timber/cottage/cabin/autumn
         int numH = t.targetHouses;
-        layoutRings(t, rng, numH, false, T, 6, M, 4, ROOFS, 2);
+        layoutRings(t, rng, numH, false, T, 14, M, 4, ROOFS, nROOFS);
     }
 
     // An outer ring of fenced farm plots (sparse for mountain hamlets).

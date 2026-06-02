@@ -59,6 +59,8 @@ struct Vertex {
     float snowable;      // 1.0 = a paint surface exposed to open sky (roof / chimney top);
                          // 0.0 otherwise. The chunk shader tints these toward white in
                          // proportion to u_snowAmount so roofs go white when snowing.
+    float waterDepth;    // [0,1] sea-surface→floor depth, water top faces only. The
+                         // water shader fades deep ocean to opaque so its floor is hidden.
 };
 
 struct ChunkPos {

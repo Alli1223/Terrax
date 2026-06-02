@@ -257,6 +257,21 @@ void Chunk::buildMesh(World* world) {
         return std::min(sqrtf((float)minDistSq) / (float)R, 1.0f);
     };
 
+    // Vertical water depth (sea surface → floor) sampled at an exact xz so that
+    // shared edge vertices always agree, just like shoreDistAt. Counts water
+    // blocks straight down, normalised over WATER_OPAQUE_DEPTH; the water shader
+    // fades the surface to opaque as this nears 1, hiding the floor of deep
+    // ocean while leaving shallows (shore, rivers, ponds) clear.
+    auto waterDepthAt = [&](int vx, int vy, int vz) -> float {
+        const int WATER_OPAQUE_DEPTH = 26;
+        int d = 0;
+        for (int k = 0; k < WATER_OPAQUE_DEPTH; k++) {
+            if (worldGet(vx, vy - k, vz) != BlockType::Water) break;
+            d++;
+        }
+        return std::min((float)d / (float)WATER_OPAQUE_DEPTH, 1.0f);
+    };
+
     static const int   FDX[6] = {1,-1, 0, 0, 0, 0};
     static const int   FDY[6] = {0, 0, 1,-1, 0, 0};
     static const int   FDZ[6] = {0, 0, 0, 0, 1,-1};
@@ -337,11 +352,14 @@ void Chunk::buildMesh(World* world) {
                         float sd = (isWater && face == 2)
                             ? shoreDistAt(wx + (int)FV[face][vi][0], y, wz + (int)FV[face][vi][2])
                             : 0.0f;
+                        float wd = (isWater && face == 2)
+                            ? waterDepthAt(wx + (int)FV[face][vi][0], y, wz + (int)FV[face][vi][2])
+                            : 0.0f;
                         quad[vi] = {
                             (float)wx + FV[face][vi][0], (float)y + FV[face][vi][1], (float)wz + FV[face][vi][2],
                             FNX[face], FNY[face], FNZ[face],
                             u0 + LU[vi] * (u1 - u0), v0 + LV[vi] * (v1 - v0),
-                            (float)bt, skyL, blockL, sd, snowable
+                            (float)bt, skyL, blockL, sd, snowable, wd
                         };
                     }
                     pushQuad(isWater ? wverts : (isGlass ? gverts : verts), quad);
@@ -414,6 +432,8 @@ static void setupVertexAttribs() {
     glEnableVertexAttribArray(6);
     glVertexAttribPointer(7, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, snowable));
     glEnableVertexAttribArray(7);
+    glVertexAttribPointer(8, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, waterDepth));
+    glEnableVertexAttribArray(8);
 }
 
 static void setupVegVertexAttribs() {
@@ -513,6 +533,32 @@ void Chunk::drawGlass() const {
 
 static constexpr int SEA_LEVEL = 64;
 
+// Biome-selection noise frequency. Lower = larger biomes, so the player travels
+// further between them. The temperature/humidity climate fields are sampled at
+// this scale; it is deliberately close to (but independent of) the macro
+// elevation frequency so climate and terrain don't move in lock-step.
+static constexpr float BIOME_FREQ = 0.00035f;
+// Gain applied to the climate fields before biome weighting. >1 pushes values
+// toward the extremes so the hot/cold bands are actually reached and the corner
+// biomes — desert (hot/dry), jungle (hot/wet), tundra (cold/dry) — win real
+// territory. Biome selection is nearest-ideal (a Voronoi partition of the
+// temp/humid square), so the ideals below are placed to tile the reachable
+// climate range and this gain controls how much of that range is visited.
+static constexpr float BIOME_SPREAD = 1.60f;
+
+// Ocean shaping. Height below sea level is multiplied by this so basins drop
+// away steeply and the floor sinks far out of sight; coastlines (barely below
+// sea level) stay shallow, so only genuine ocean deepens. The floor is clamped
+// so there is always rock — and room for caves — beneath the deepest sea.
+static constexpr float OCEAN_DEPTH_SCALE = 2.6f;
+static constexpr int   OCEAN_FLOOR_MIN_Y = 20;
+
+// Surface dressing applied in the top-down surface pass:
+//  - a sandy beach band just above sea level wherever grassy land meets water;
+//  - an altitude snow line so the highest peaks go white in any biome.
+static constexpr int BEACH_TOP_Y = SEA_LEVEL + 1;   // a thin sandy strip at the waterline
+static constexpr int SNOW_LINE_Y = 120;             // upper mountains; ~top few % of land
+
 enum class Biome : uint8_t { Plains=0, Forest=1, Desert=2, Mountains=3, Tundra=4, Savanna=5, Jungle=6 };
 static constexpr int NUM_BIOMES = 7;
 
@@ -528,15 +574,20 @@ struct BiomeDef {
 
 // Amplitudes here are LOCAL DETAIL added on top of the macro elevation base.
 // The macro noise (~±160 blocks) already provides the large mountain ranges.
+// Ideal temp/humid are placed to tile the reachable climate square into three
+// temperature bands — cold (~0.24), temperate (~0.50), hot (~0.76) — so every
+// biome, including the hot desert/jungle and the cold tundra, gets a sizeable
+// region the player travels between. (Selection is nearest-ideal, so these are
+// effectively Voronoi seeds.)
 static const BiomeDef BIOMES[NUM_BIOMES] = {
   // temp   humid  freq     amp    oct pers   surf                   sub
-    {0.50f, 0.40f, 0.006f,  3.0f,  3, 0.35f, BlockType::Grass,      BlockType::Dirt      }, // Plains    — nearly flat
-    {0.50f, 0.80f, 0.009f, 12.0f,  5, 0.55f, BlockType::Grass,      BlockType::Dirt      }, // Forest    — rolling hills
-    {0.90f, 0.10f, 0.007f,  6.0f,  3, 0.40f, BlockType::Sand,       BlockType::Sandstone }, // Desert    — flat with dunes
-    {0.10f, 0.50f, 0.014f, 25.0f,  8, 0.68f, BlockType::Snow,       BlockType::Stone     }, // Mountains — very jagged detail
-    {0.10f, 0.20f, 0.012f, 22.0f,  7, 0.65f, BlockType::Snow,       BlockType::Stone     }, // Tundra    — rugged snow
-    {0.75f, 0.25f, 0.006f,  5.0f,  3, 0.40f, BlockType::Grass,      BlockType::Dirt      }, // Savanna   — gentle
-    {0.85f, 0.90f, 0.010f, 16.0f,  6, 0.60f, BlockType::Grass,      BlockType::Dirt      }, // Jungle    — hilly
+    {0.50f, 0.30f, 0.006f,  3.0f,  3, 0.35f, BlockType::Grass,      BlockType::Dirt      }, // Plains    — temperate, drier
+    {0.50f, 0.75f, 0.009f, 12.0f,  5, 0.55f, BlockType::Grass,      BlockType::Dirt      }, // Forest    — temperate, wet
+    {0.78f, 0.22f, 0.007f,  6.0f,  3, 0.40f, BlockType::Sand,       BlockType::Sandstone }, // Desert    — hot, dry
+    {0.25f, 0.62f, 0.014f, 25.0f,  8, 0.68f, BlockType::Snow,       BlockType::Stone     }, // Mountains — cold, wet
+    {0.22f, 0.25f, 0.012f, 22.0f,  7, 0.65f, BlockType::Snow,       BlockType::Stone     }, // Tundra    — cold, dry
+    {0.74f, 0.50f, 0.006f,  5.0f,  3, 0.40f, BlockType::Grass,      BlockType::Dirt      }, // Savanna   — hot, mid
+    {0.78f, 0.80f, 0.010f, 16.0f,  6, 0.60f, BlockType::Grass,      BlockType::Dirt      }, // Jungle    — hot, wet
 };
 
 // ---- Column height/biome helper (used by both Pass 0 and the cross-chunk decorator pass) ----
@@ -547,8 +598,8 @@ static ColumnInfo computeColumn(float wx, float wz) {
     float macroRaw = gContinentalNoise.octave(wx * 0.00035f, wz * 0.00035f, 5, 0.55f, 2.0f);
     float macroH   = (float)SEA_LEVEL + macroRaw * 160.0f;
 
-    float temp  = gTempNoise .octave(wx * 0.0010f,          wz * 0.0010f,          2, 0.5f, 2.0f) * 0.5f + 0.5f;
-    float humid = gHumidNoise.octave(wx * 0.0010f + 100.0f, wz * 0.0010f + 100.0f, 2, 0.5f, 2.0f) * 0.5f + 0.5f;
+    float temp  = gTempNoise .octave(wx * BIOME_FREQ,          wz * BIOME_FREQ,          2, 0.5f, 2.0f) * (0.5f * BIOME_SPREAD) + 0.5f;
+    float humid = gHumidNoise.octave(wx * BIOME_FREQ + 100.0f, wz * BIOME_FREQ + 100.0f, 2, 0.5f, 2.0f) * (0.5f * BIOME_SPREAD) + 0.5f;
 
     float weights[NUM_BIOMES], wTotal = 0.0f;
     int   domIdx = 0;
@@ -576,6 +627,15 @@ static ColumnInfo computeColumn(float wx, float wz) {
         if (w < 0.005f) continue;
         float h = gNoise.octave(wx * BIOMES[i].freq, wz * BIOMES[i].freq, BIOMES[i].octaves, BIOMES[i].persistence, 2.0f);
         blendH += w * h * BIOMES[i].amplitude;
+    }
+    // Deepen the oceans. Everything below sea level is pushed further down so
+    // basins become too deep to see the bottom, while the shore stays shallow.
+    // Done here — before the river/ravine carving below, which only acts at or
+    // above sea level — so rivers remain shallow streams rather than chasms.
+    if (blendH < (float)SEA_LEVEL) {
+        float below = (float)SEA_LEVEL - blendH;
+        blendH = std::max((float)SEA_LEVEL - below * OCEAN_DEPTH_SCALE,
+                          (float)OCEAN_FLOOR_MIN_Y);
     }
     // Ravine rivers — kept infrequent, with smooth (not cliff-like) valley
     // walls: a lower noise frequency widens each valley, a narrower threshold
@@ -1045,10 +1105,22 @@ static void generateChunk(Chunk* c) {
                 }
                 depthFromAir++;
                 bool aboveSea = (y >= SEA_LEVEL);
+                // A grassy column qualifies for a sandy beach where it sits in the
+                // narrow band just above sea level — i.e. right at the shore.
+                bool beach = aboveSea && y <= BEACH_TOP_Y &&
+                             bd.surfaceBlock == BlockType::Grass;
+                bool snowcap = aboveSea && y >= SNOW_LINE_Y;   // alpine snow on any peak
                 if (depthFromAir == 1) {
-                    c->set(x, y, z, aboveSea ? bd.surfaceBlock    : BlockType::Sand);
+                    BlockType surf = !aboveSea ? BlockType::Sand
+                                   : snowcap   ? BlockType::Snow
+                                   : beach     ? BlockType::Sand
+                                               : bd.surfaceBlock;
+                    c->set(x, y, z, surf);
                 } else if (depthFromAir <= 5) {
-                    c->set(x, y, z, aboveSea ? bd.subSurfaceBlock : BlockType::Sand);
+                    BlockType sub = (!aboveSea || beach) ? BlockType::Sand
+                                  : snowcap              ? BlockType::Stone
+                                                         : bd.subSurfaceBlock;
+                    c->set(x, y, z, sub);
                 } else {
                     break;
                 }

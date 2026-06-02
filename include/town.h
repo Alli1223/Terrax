@@ -73,9 +73,13 @@ struct Town {
     int        baseY;    // ground height at the centre
     std::string name;    // procedurally generated, deterministic per location
     TownType   type;
-    TownSize   size;
+    TownSize   size;     // coarse Village/Town flag (guard count, template bias)
+    int        targetHouses = 0;   // desired house count (~5..100); drives radius & layout
     TownCenter centerpiece = TownCenter::Well;   // what stands at the town centre
     int        radius;   // town footprint radius in blocks
+    int        wallRadius = 0;              // perimeter wall ring radius; 0 = unwalled (small towns)
+    int        wallStyle  = 0;              // wall-style index (palisade / stone / rampart / sandstone)
+    std::vector<float> gateAngles;          // wall gate directions (radians), one per outbound highway
     glm::ivec2 bbMin, bbMax;               // world-XZ bounding box of all buildings
     std::vector<TownBuilding> buildings;   // well first, then houses & farms
     std::vector<TownRoad>     paths;       // gravel paths from each house to the well

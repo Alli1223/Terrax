@@ -32,6 +32,38 @@ constexpr int DOCK_LEN    = 9;       // jetty length out over the water (blocks)
 // Biome ids — mirror the Biome enum order in world.cpp.
 constexpr int BIOME_MOUNTAINS = 3, BIOME_TUNDRA = 4;
 
+// --- Town wall styles --------------------------------------------------------
+// Walled towns (Town::wallRadius > 0) each pick one of these, by size and type,
+// so the world has humble wooden palisades, modest and great stone walls, and
+// pale coastal sandstone ramparts rather than one uniform wall everywhere.
+struct WallStyleDef {
+    int       height;      // wall height above the base
+    float     halfThick;   // radial half-thickness (≈ 2*halfThick+1 blocks wide)
+    BlockType mat;         // body / tower / lintel material
+    bool      crenel;      // true = stone battlements; false = solid palisade top
+    int       towerBonus;  // extra height on the gate towers
+};
+constexpr int WALL_STYLE_COUNT = 4;
+const WallStyleDef WALL_STYLES[WALL_STYLE_COUNT] = {
+    { 4, 0.6f, BlockType::Wood,      false, 2 },  // 0 wooden palisade  — small/humble
+    { 5, 1.0f, BlockType::Stone,     true,  3 },  // 1 modest stone wall
+    { 7, 1.8f, BlockType::Stone,     true,  4 },  // 2 great stone rampart — cities
+    { 6, 1.3f, BlockType::Sandstone, true,  3 },  // 3 coastal sandstone wall
+};
+
+// Picks a wall style from a town's size, type and a seed roll, so bigger towns
+// trend toward grander walls and seaside towns toward sandstone, with variety.
+int pickWallStyle(int houses, TownType type, uint32_t roll) {
+    int r = (int)(roll % 100u);
+    if (houses >= 60) return (r < 78) ? 2 : 1;              // cities: great ramparts
+    if (houses >= 38) {                                      // towns
+        if (type == TownType::Coastal && r < 45) return 3;
+        return (r < 50) ? 1 : 2;
+    }
+    if (type == TownType::Coastal && r < 35) return 3;       // small walled town
+    return (r < 55) ? 0 : 1;                                 // palisade or modest stone
+}
+
 // Set true once buildTownPlan() has finished. While it is false the terrain
 // oracle skips town flattening, so the survey itself works on the natural,
 // unflattened land (and there is no recursion back into the plan build).
@@ -441,7 +473,7 @@ void layoutRings(Town& t, std::mt19937& rng, int numH, bool scattered,
                  const int* templ, int nT, const int* mats, int nM,
                  const int* roofs, int nR) {
     int placed = 0;
-    for (int ring = 0; ring < 9 && placed < numH; ring++) {
+    for (int ring = 0; ring < 16 && placed < numH; ring++) {
         int ringR = 22 + ring * 14;
         if (ringR > t.radius + 14) break;
         int slots = std::max(4, ringR / 5);
@@ -543,19 +575,19 @@ void layoutTown(Town& t) {
         // a seafaring settlement on a fjord.
         static const int T[] = { 0, 1, 2, 4, 5, 10 };
         static const int M[] = { 7, 1, 5 };         // coastal / cottage / sandstone
-        int numH = big ? 16 + (int)(rng() % 12) : 7 + (int)(rng() % 5);
+        int numH = t.targetHouses;
         layoutRings(t, rng, numH, false, T, 6, M, 3, ROOFS, 2);
     } else if (t.type == TownType::Mountain) {
         // Mountain towns favour heavier wooden structures; both Norse templates
         // appear here for the high-alpine stave-church silhouette.
         static const int T[] = { 1, 2, 3, 4, 8, 10, 11 };
         static const int M[] = { 2, 4, 0, 6 };      // stone / cabin / timber / forest
-        int numH = big ? 11 + (int)(rng() % 9) : 5 + (int)(rng() % 4);
+        int numH = t.targetHouses;
         layoutRings(t, rng, numH, true, T, 7, M, 4, ROOFS + 1, 2);  // hipped/pyramid
     } else {
         static const int T[] = { 0, 1, 2, 4, 5, 7 };  // grassland mix
         static const int M[] = { 0, 1, 4, 8 };        // timber/cottage/cabin/autumn
-        int numH = big ? 16 + (int)(rng() % 13) : 7 + (int)(rng() % 5);
+        int numH = t.targetHouses;
         layoutRings(t, rng, numH, false, T, 6, M, 4, ROOFS, 2);
     }
 
@@ -564,7 +596,9 @@ void layoutTown(Town& t) {
     if (t.type == TownType::Mountain)  numFarms = (int)(rng() % 2);          // 0..1
     else if (big)                      numFarms = 3 + (int)(rng() % 2);      // 3..4
     else                               numFarms = 2 + (int)(rng() % 2);      // 2..3
-    int farmRing = t.radius + 22;
+    // Farmland sits in the fields beyond the wall (or just past the houses in an
+    // unwalled village).
+    int farmRing = (t.wallRadius > 0) ? t.wallRadius + 14 : t.radius + 22;
     for (int f = 0; f < numFarms; f++)
         for (int attempt = 0; attempt < 10; attempt++) {
             float ang = frand(rng, 0.0f, 6.2832f);
@@ -681,10 +715,11 @@ glm::ivec2 placeDock(TownPlan& plan, glm::ivec2 landW, glm::ivec2 waterW) {
         if (std::abs(o.root.x - x) + std::abs(o.root.y - z) < 14)
             return o.root;
 
-    // No jetties around a non-coastal settlement — a dock looks out of place
-    // where a highway merely grazes water near an inland or mountain town.
+    // No jetties inside any settlement — coastal towns included. A dock stamped
+    // among the houses clutters the waterfront, so the road still meets the
+    // shore here but grows no jetty; any ferry link to this point is dropped
+    // because it won't resolve to a dock (see ferry_routes.cpp).
     for (const Town& t : plan.towns) {
-        if (t.type == TownType::Coastal) continue;
         long long dx = (long long)x - t.center.x;
         long long dz = (long long)z - t.center.y;
         long long r  = (long long)t.radius + 90;
@@ -790,7 +825,7 @@ void emitHighwayRoute(TownPlan& plan, const std::vector<glm::ivec2>& route) {
         for (const Town& t : plan.towns) {
             long long dx = (long long)P[i].x - t.center.x;
             long long dz = (long long)P[i].y - t.center.y;
-            long long rr = (long long)t.radius + 50;
+            long long rr = (long long)t.radius + 90;   // clear the whole flattened footprint
             if (dx * dx + dz * dz < rr * rr) { inTown[i] = 1; break; }
         }
 
@@ -937,6 +972,31 @@ void routeHighways(TownPlan& plan, const std::vector<int16_t>& hgt) {
         return p;
     };
 
+    // Bearing, measured from `c`, at which polyline `pts` first reaches radius
+    // `R` (optionally scanning from the far end). Used to seat a wall gate where
+    // the highway actually crosses the wall — the road weaves out of town, so
+    // that point is offset from the straight-line bearing to the neighbour.
+    auto crossingAngle = [](const std::vector<glm::ivec2>& pts, glm::ivec2 c,
+                            float R, bool fromEnd) -> float {
+        int n = (int)pts.size();
+        glm::vec2 cf((float)c.x, (float)c.y), prev = cf;
+        for (int k = 0; k < n; k++) {
+            int i = fromEnd ? (n - 1 - k) : k;
+            glm::vec2 p((float)pts[i].x, (float)pts[i].y);
+            float d = glm::length(p - cf);
+            if (d >= R) {
+                float dp = glm::length(prev - cf);
+                float t  = (R - dp) / std::max(0.001f, d - dp);
+                glm::vec2 x = prev + (p - prev) * glm::clamp(t, 0.0f, 1.0f);
+                return std::atan2(x.y - cf.y, x.x - cf.x);
+            }
+            prev = p;
+        }
+        glm::vec2 last((float)pts[fromEnd ? 0 : n - 1].x,
+                       (float)pts[fromEnd ? 0 : n - 1].y);
+        return std::atan2(last.y - cf.y, last.x - cf.x);
+    };
+
     for (const auto& e : edges) {
         const Town& tA = plan.towns[e.first];
         const Town& tB = plan.towns[e.second];
@@ -955,6 +1015,15 @@ void routeHighways(TownPlan& plan, const std::vector<int16_t>& hgt) {
         std::vector<glm::ivec2> exitB = routeTownExit(tB, portB);
         for (size_t ci = exitB.size(); ci-- > 0; )
             route.push_back(exitB[ci]);
+
+        // A walled town opens a gate where this highway crosses its wall, so the
+        // gateway lines up with the road that runs through it.
+        if (tA.wallRadius > 0)
+            plan.towns[e.first].gateAngles.push_back(
+                crossingAngle(route, tA.center, (float)tA.wallRadius, false));
+        if (tB.wallRadius > 0)
+            plan.towns[e.second].gateAngles.push_back(
+                crossingAngle(route, tB.center, (float)tB.wallRadius, true));
 
         emitHighwayRoute(plan, route);
     }
@@ -1120,22 +1189,51 @@ TownPlan buildTownPlan() {
 
     std::sort(sites.begin(), sites.end(),
               [](const Site& a, const Site& b) { return a.score > b.score; });
-    const long long minSq = 360LL * 360LL;
     for (const Site& s : sites) {
         int wx = cellWorld(s.gx), wz = cellWorld(s.gz);
+
+        // Roll this settlement's scale up front so the spacing check can scale
+        // with it. A cubic bias on a uniform roll yields mostly hamlets and
+        // villages with the occasional large town or sprawling city — a wide
+        // spread from ~5 houses up to ~100. Deterministic per site so the plan
+        // is stable for a given world.
+        std::mt19937 srng(worldSeed()
+                          ^ (uint32_t)(wx * 374761393)
+                          ^ (uint32_t)(wz * 668265263));
+        float u = (float)(srng() & 0xFFFFFFu) / (float)0x1000000u;   // [0,1)
+        int   targetHouses = 5 + (int)(95.0f * u * u * u + 0.5f);    // 5..100
+        // Houses fill concentric rings over a disc, so capacity grows with the
+        // square of the radius — hence radius ~ sqrt(houses), plus a floor so
+        // even the smallest hamlet has elbow room.
+        int   radius = 24 + (int)(13.0f * std::sqrt((float)targetHouses));
+
+        // Radius-aware spacing: keep one town's hard-flattened footprint
+        // (~radius + 80 at its noisy lobes) clear of the next, with the old
+        // 360-block minimum as a floor so clusters of hamlets still breathe.
         bool ok = true;
         for (const Town& t : plan.towns) {
             long long dx = wx - t.center.x, dz = wz - t.center.y;
+            long long minD  = (long long)(radius + t.radius) + 170;
+            long long minSq = std::max(360LL * 360LL, minD * minD);
             if (dx * dx + dz * dz < minSq) { ok = false; break; }
         }
         if (!ok) continue;
+
         Town t;
-        t.center = { wx, wz };
-        t.baseY  = s.baseY;
-        t.type   = s.type;
-        t.name   = makeTownName(wx, wz, t.type);
-        t.size   = (rng() % 5 < 2) ? TownSize::Town : TownSize::Village;
-        t.radius = (t.size == TownSize::Town) ? 64 : 38;
+        t.center       = { wx, wz };
+        t.baseY        = s.baseY;
+        t.type         = s.type;
+        t.name         = makeTownName(wx, wz, t.type);
+        t.targetHouses = targetHouses;
+        t.radius       = radius;
+        // Larger settlements (20+ houses) are ringed by a defensive wall just
+        // outside the outermost houses; villages stay open. The style (wooden
+        // palisade, stone wall, great rampart, sandstone) varies by size/type.
+        t.wallRadius   = (targetHouses >= 20) ? radius + 30 : 0;
+        t.wallStyle    = pickWallStyle(targetHouses, s.type, srng());
+        // The coarse Village/Town flag still drives guard counts and building
+        // template bias elsewhere; anything sizeable counts as a Town.
+        t.size         = (targetHouses >= 16) ? TownSize::Town : TownSize::Village;
         plan.towns.push_back(std::move(t));
     }
 
@@ -1741,6 +1839,89 @@ float townFlattenedHeight(float wx, float wz, float rawHeight) {
     return h;
 }
 
+// Stamps the perimeter wall of a walled town: a ring at `wallRadius` in the
+// town's chosen style (wooden palisade, stone wall, great rampart, sandstone),
+// with gateway openings (a clear passage under a lintel, flanked by taller
+// tower sections) wherever a highway leaves toward a neighbour. The wall is
+// derived per-column from the distance and bearing to the town centre, so it
+// streams chunk-by-chunk like every other town feature, sitting on the town's
+// flat base level with a foundation skirt over any dip in the ground.
+void stampTownWall(Chunk* c, const Town& t) {
+    if (t.wallRadius <= 0) return;
+    const int   ox = c->pos.x * CHUNK_SIZE, oz = c->pos.z * CHUNK_SIZE;
+    const float R = (float)t.wallRadius;
+    const int   baseY = t.baseY;
+    int styleIdx = (t.wallStyle >= 0 && t.wallStyle < WALL_STYLE_COUNT) ? t.wallStyle : 1;
+    const WallStyleDef& st = WALL_STYLES[styleIdx];
+    const int   WALL_H = st.height;
+    const float HALF   = st.halfThick;
+
+    // Cull: does the ring band actually cross this chunk's XZ box?
+    float cxC   = std::min(std::max((float)t.center.x, (float)ox), (float)(ox + CHUNK_SIZE - 1));
+    float czC   = std::min(std::max((float)t.center.y, (float)oz), (float)(oz + CHUNK_SIZE - 1));
+    float nearD = std::sqrt(std::pow((float)t.center.x - cxC, 2.0f) +
+                            std::pow((float)t.center.y - czC, 2.0f));
+    float farDx = std::max(std::abs((float)t.center.x - ox),
+                           std::abs((float)t.center.x - (ox + CHUNK_SIZE - 1)));
+    float farDz = std::max(std::abs((float)t.center.y - oz),
+                           std::abs((float)t.center.y - (oz + CHUNK_SIZE - 1)));
+    float farD  = std::sqrt(farDx * farDx + farDz * farDz);
+    if (farD < R - HALF - 0.5f || nearD > R + HALF + 0.5f) return;
+
+    const float gateHalf = 5.0f / R;   // angular half-width of a gate opening
+    const float towerArc = 2.2f / R;   // arc each flanking tower takes
+
+    for (int lx = 0; lx < CHUNK_SIZE; lx++)
+        for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+            int   wx = ox + lx, wz = oz + lz;
+            float dx = (float)(wx - t.center.x), dz = (float)(wz - t.center.y);
+            float dist = std::sqrt(dx * dx + dz * dz);
+            if (std::abs(dist - R) > HALF) continue;          // wall thickness (by style)
+
+            float ang = std::atan2(dz, dx);
+            float ad  = 6.2831853f;
+            for (float g : t.gateAngles) {
+                float diff = ang - g;
+                while (diff >  3.14159265f) diff -= 6.2831853f;
+                while (diff < -3.14159265f) diff += 6.2831853f;
+                ad = std::min(ad, std::abs(diff));
+            }
+            bool opening = (ad < gateHalf - towerArc);
+            bool tower   = (!opening && ad < gateHalf);
+            int  top     = baseY + WALL_H + (tower ? st.towerBonus : 0);
+
+            if (opening) {
+                // Gateway: clear the passage down to the engraved road level so
+                // the highway runs straight through, with a lintel across the
+                // top and a stone threshold flush with the road.
+                for (int y = baseY; y <= baseY + WALL_H + 5 && y < CHUNK_HEIGHT; y++)
+                    c->set(lx, y, lz, BlockType::Air);
+                for (int y = baseY + WALL_H; y <= baseY + WALL_H + 1 && y < CHUNK_HEIGHT; y++)
+                    c->set(lx, y, lz, st.mat);
+                for (int y = baseY - 1; y >= 0; y--) {
+                    BlockType cur = c->get(lx, y, lz);
+                    if (cur != BlockType::Air && cur != BlockType::Water && (baseY - 1 - y) > 12) break;
+                    c->set(lx, y, lz, BlockType::Stone);
+                }
+            } else {
+                // Clear terrain / foliage out of the column, raise the wall
+                // (crenellated, taller at the gate towers), and skirt it down.
+                for (int y = baseY + 1; y <= baseY + WALL_H + 5 && y < CHUNK_HEIGHT; y++)
+                    c->set(lx, y, lz, BlockType::Air);
+                for (int y = baseY + 1; y <= top && y < CHUNK_HEIGHT; y++) {
+                    // Crenellate stone battlements; palisades keep a solid top.
+                    if (!tower && st.crenel && y == baseY + WALL_H && ((wx + wz) & 1)) continue;
+                    c->set(lx, y, lz, st.mat);
+                }
+                for (int y = baseY; y >= 0; y--) {
+                    BlockType cur = c->get(lx, y, lz);
+                    if (cur != BlockType::Air && cur != BlockType::Water && baseY - y > 12) break;
+                    c->set(lx, y, lz, BlockType::Stone);
+                }
+            }
+        }
+}
+
 void stampTownChunk(Chunk* c) {
     const TownPlan& plan = getTownPlan();
     const int ox = c->pos.x * CHUNK_SIZE, oz = c->pos.z * CHUNK_SIZE;
@@ -1777,6 +1958,17 @@ void stampTownChunk(Chunk* c) {
         if (hix < ox || lox >= ox + CHUNK_SIZE) continue;
         if (hiz < oz || loz >= oz + CHUNK_SIZE) continue;
         stampDock(c, d);
+    }
+
+    // Perimeter walls (large towns only) — stamped before buildings so a house
+    // always takes precedence over a stray wall column. The wall ring sits well
+    // outside the building bounding box, so it needs its own centre/radius cull.
+    for (const Town& t : plan.towns) {
+        if (t.wallRadius <= 0) continue;
+        int R = t.wallRadius + 2;
+        if (t.center.x + R <= ox || t.center.x - R >= ox + CHUNK_SIZE) continue;
+        if (t.center.y + R <= oz || t.center.y - R >= oz + CHUNK_SIZE) continue;
+        stampTownWall(c, t);
     }
 
     // Buildings.

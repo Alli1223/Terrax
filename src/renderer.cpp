@@ -590,6 +590,29 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     glm::vec3 overcastAmb = glm::vec3(0.30f, 0.33f, 0.40f) * (0.32f + 0.68f * dayness);
     skyAmbient = glm::mix(skyAmbient, overcastAmb, weather * 0.80f);
 
+    // --- Per-area mood ---
+    // Tint the ambient toward the local biome's character so each region of the
+    // world is lit differently — warm bleached deserts, cold blue tundra, green
+    // humid jungle, crisp mountains. The tint eases over a couple of seconds so
+    // biome borders don't snap, and because the fog colour below is derived from
+    // skyAmbient, the haze picks up the same mood.
+    {
+        static const glm::vec3 BIOME_TINT[7] = {
+            glm::vec3(1.00f, 1.00f, 1.00f),   // Plains    — neutral
+            glm::vec3(0.94f, 1.02f, 0.93f),   // Forest    — soft green
+            glm::vec3(1.10f, 1.02f, 0.86f),   // Desert    — warm, sun-bleached
+            glm::vec3(0.96f, 1.00f, 1.07f),   // Mountains — cool, crisp
+            glm::vec3(0.92f, 0.99f, 1.10f),   // Tundra    — cold blue
+            glm::vec3(1.10f, 1.01f, 0.84f),   // Savanna   — golden, dry
+            glm::vec3(0.87f, 1.02f, 0.90f),   // Jungle    — lush green
+        };
+        const glm::vec3& cp = ctx.camera.position;
+        int b = sampleSurface((int)cp.x, (int)cp.z).biome;
+        glm::vec3 target = (b >= 0 && b < 7) ? BIOME_TINT[b] : glm::vec3(1.0f);
+        areaTint = glm::mix(areaTint, target, glm::min(1.0f, ctx.deltaTime * 0.6f));
+        skyAmbient *= areaTint;
+    }
+
     // --- Lantern ---
     ctx.flickerTime += ctx.deltaTime;
     float flicker = 1.0f
@@ -1070,6 +1093,17 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     postShader.setFloat("u_rayStrength", rayStrength);
     postShader.setVec3("u_rayColor",
         glm::mix(glm::vec3(1.00f, 0.95f, 0.82f), glm::vec3(1.00f, 0.72f, 0.40f), dawnDusk));
+    // Distance fog: fade the world into the horizon as it nears the chunk-load
+    // radius, so freshly generated terrain stays hidden in fog instead of
+    // popping into view. The colour matches the shaders' atmospheric fog
+    // (sky-ambient based, so it tracks time/weather and the per-area tint) and
+    // is gamma-encoded to sit in the same space as the post scene buffer.
+    float viewDistBlocks = (float)(ctx.world.renderDistance * CHUNK_SIZE);
+    glm::vec3 fogLin = skyAmbient * glm::max(sunFactor, 0.12f) * glm::mix(0.90f, 0.72f, weather);
+    glm::vec3 fogCol = glm::pow(glm::clamp(fogLin, glm::vec3(0.0f), glm::vec3(1.0f)),
+                                glm::vec3(1.0f / 2.2f));
+    postShader.setFloat("u_viewDist", viewDistBlocks);
+    postShader.setVec3 ("u_fogColor", fogCol);
     glBindVertexArray(postVao);
     glDrawArrays(GL_TRIANGLES, 0, 3);
     glBindVertexArray(0);

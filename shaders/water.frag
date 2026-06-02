@@ -8,6 +8,7 @@ in vec3  WaveNorm;
 in vec3  FaceNormal;
 in float WaveHeight;
 in float ShoreDist;
+in float WaterDepth;
 in vec4  v_reflClipPos;
 
 out vec4 FragColor;
@@ -116,10 +117,10 @@ void main() {
     vec3  wNorm   = normalize(WaveNorm);
 
     // ── Sea-of-Thieves palette ────────────────────────────────────────────────
-    vec3 deepColor    = vec3(0.01, 0.12, 0.28);
-    vec3 shallowColor = vec3(0.05, 0.52, 0.62);
-    vec3 crestColor   = vec3(0.20, 0.80, 0.86);
-    vec3 shoreColor   = vec3(0.16, 0.74, 0.74);   // bright turquoise of the shallows
+    vec3 deepColor    = vec3(0.01, 0.09, 0.24);   // deeper, more saturated abyss
+    vec3 shallowColor = vec3(0.06, 0.58, 0.66);   // more vivid turquoise
+    vec3 crestColor   = vec3(0.24, 0.86, 0.92);
+    vec3 shoreColor   = vec3(0.18, 0.80, 0.78);   // bright turquoise of the shallows
 
     float wh       = clamp(WaveHeight / 2.10, -1.0, 1.0);
     float crestT   = smoothstep(0.20, 0.72, wh);
@@ -127,6 +128,11 @@ void main() {
     waterBase       = mix(waterBase, crestColor, crestT * 0.55);
     // Lift the water toward a bright shallow turquoise as it nears land.
     waterBase       = mix(shoreColor, waterBase, smoothstep(0.05, 0.62, ShoreDist));
+    // Deep water hides its floor: fade the surface toward an opaque abyssal
+    // colour as the column deepens. Shallows (shore, rivers, ponds) keep their
+    // clarity. depthFade is reused below to drive the alpha to fully opaque.
+    float depthFade = smoothstep(0.12, 0.50, WaterDepth);
+    waterBase       = mix(waterBase, deepColor * 0.55, depthFade * 0.85);
 
     // ── Foam ─────────────────────────────────────────────────────────────────
     vec2 foamUV1 = WorldPos.xz * 0.45 + vec2(time * 0.09,  time * 0.06);
@@ -165,12 +171,16 @@ void main() {
 
     // ── Fresnel ───────────────────────────────────────────────────────────────
     float cosTheta = max(dot(viewDir, wNorm), 0.0);
-    float fresnel  = clamp(0.04 + 0.96 * pow(1.0 - cosTheta, 4.0), 0.0, 0.85);
+    float fresnel  = clamp(0.02 + 0.98 * pow(1.0 - cosTheta, 5.0), 0.0, 0.92);
 
-    // ── Specular highlight ────────────────────────────────────────────────────
+    // ── Specular sun glint: a tight bright core plus a soft wide sheen, with a
+    //    drifting sparkle field near the reflection for a lively sun-on-water look.
     float cloudAtten = getCloudShadow(WorldPos, u_sunDir, time);
     vec3  reflSun    = reflect(-u_sunDir, wNorm);
-    float spec       = pow(max(dot(viewDir, reflSun), 0.0), 90.0) * sunFactor * cloudAtten;
+    float sd         = max(dot(viewDir, reflSun), 0.0);
+    float spec       = (pow(sd, 220.0) * 1.3 + pow(sd, 36.0) * 0.30) * sunFactor * cloudAtten;
+    float sparkle    = smoothstep(0.62, 1.0, fbm(WorldPos.xz * 2.6 - vec2(time * 0.6)))
+                       * pow(sd, 8.0) * sunFactor * cloudAtten;
 
     // ── Lighting ──────────────────────────────────────────────────────────────
     float NdotL  = max(dot(wNorm, u_sunDir), 0.0);
@@ -189,10 +199,13 @@ void main() {
 
     float reflGamma = 1.0 / 2.2;
     vec3  reflBoosted = pow(clamp(reflColor, 0.0, 1.0), vec3(reflGamma));
-    result = mix(result, reflBoosted, fresnel * 0.70);
+    result = mix(result, reflBoosted, fresnel * 0.82);
 
     result = mix(result, vec3(0.94, 0.97, 1.00) * light, totalFoam);
-    result += spec * skyAmbient * 0.90;
+    // Warm glint near the horizon sun, cooling to bright white as it climbs.
+    vec3 sunGlint = mix(vec3(1.00, 0.60, 0.28), vec3(1.00, 0.97, 0.88),
+                        clamp(u_sunDir.y * 2.0, 0.0, 1.0));
+    result += (spec + sparkle * 0.7) * sunGlint;
 
     // Saturation boost — eased back toward grey as a storm sets in.
     float lum = dot(result, vec3(0.299, 0.587, 0.114));
@@ -212,5 +225,6 @@ void main() {
     result = pow(clamp(result, 0.0, 1.0), vec3(1.0 / 2.2));
 
     float alpha = clamp(0.72 + fresnel * 0.18 + totalFoam * 0.20, 0.62, 0.98);
+    alpha = mix(alpha, 1.0, depthFade);   // deep ocean is fully opaque — no floor shows through
     FragColor = vec4(result, alpha);
 }

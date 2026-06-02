@@ -317,7 +317,15 @@ void NpcDirector::populateTown(int ti) {
     if (!nav.ready()) nav.build(t);
 
     int local = 0;
+    // Villager ids are packed as 0x40000000 + ti*128 + local, so a settlement
+    // must keep its NPC count well under 128 or it collides with the next
+    // town's id range. Large towns therefore house one villager per building
+    // and stop spawning once this budget is spent (guards take the remainder up
+    // to the 128 ceiling). It also keeps the active-NPC count in check.
+    const int VILLAGER_BUDGET = 112;
+    const int maxOccupants    = (t.targetHouses > 40) ? 1 : 2;
     for (int bi = 0; bi < (int)t.buildings.size(); bi++) {
+        if (local >= VILLAGER_BUDGET) break;
         const TownBuilding& b = t.buildings[bi];
         // Spawn villagers in any building that has interior rooms — houses,
         // pubs, blacksmiths and mage towers all qualify. Centrepieces and
@@ -358,7 +366,8 @@ void NpcDirector::populateTown(int ti) {
 
         int occupants = 1 + (int)(hashU32((uint32_t)ti * 131u + (uint32_t)bi,
                                           0xA17u) % 2u);
-        for (int k = 0; k < occupants; k++) {
+        if (occupants > maxOccupants) occupants = maxOccupants;
+        for (int k = 0; k < occupants && local < VILLAGER_BUDGET; k++) {
             auto n = std::make_unique<NPC>();
             n->id   = 0x40000000u + (uint32_t)ti * 128u + (uint32_t)local;
             n->type = NPCType::Villager;
@@ -379,8 +388,10 @@ void NpcDirector::populateTown(int ti) {
         }
     }
 
-    // Town guards — patrol the streets and answer trouble.
-    int guardCount = (t.size == TownSize::Town) ? 4 : 2;
+    // Town guards — patrol the streets and answer trouble. Scaled to settlement
+    // size (a sprawling city needs a real watch), capped at 8 so villagers (≤112
+    // above) plus guards stay within the per-town 128-id budget.
+    int guardCount = std::max(2, std::min(8, 2 + t.targetHouses / 14));
     glm::vec2 centre((float)t.center.x, (float)t.center.y);
     for (int k = 0; k < guardCount; k++) {
         auto g = std::make_unique<NPC>();
@@ -391,8 +402,12 @@ void NpcDirector::populateTown(int ti) {
         g->groundY        = (float)t.baseY + 1.0f;
         g->homePos        = centre;
         float ang = (float)k / (float)guardCount * 6.2831853f;
-        glm::vec2 sp = nav.nearestWalkable(centre +
-                                           glm::vec2(cosf(ang), sinf(ang)) * 11.0f);
+        // Walled towns post their guards around the wall ring; open villages
+        // start them milling near the centre.
+        glm::vec2 dir(cosf(ang), sinf(ang));
+        glm::vec2 sp = (t.wallRadius > 0)
+            ? centre + dir * ((float)t.wallRadius - 3.0f)
+            : nav.nearestWalkable(centre + dir * 11.0f);
         g->position  = glm::vec3(sp.x, g->groundY, sp.y);
         g->idleTimer = frand01(rng) * 2.0f;
         active.push_back(std::move(g));
@@ -841,7 +856,8 @@ void NpcDirector::stepGuard(NPC& n, float dt, World& world,
         return;
     }
 
-    // No trouble — patrol the town.
+    // No trouble — patrol. In a walled town the watch laps the wall perimeter;
+    // an open village is wandered at random.
     if (n.pathIndex >= n.path.size()) {
         n.walking  = false;
         n.velocity = glm::vec3(0.0f);
@@ -849,6 +865,24 @@ void NpcDirector::stepGuard(NPC& n, float dt, World& world,
         if (n.idleTimer > 0.0f) return;
         const Town& t = getTownPlan().towns[n.townIndex];
         glm::vec2 centre((float)t.center.x, (float)t.center.y);
+        if (t.wallRadius > 0) {
+            // March the next arc of the ring just inside the wall. a0 is the
+            // guard's current bearing from the centre, so it continues from
+            // wherever it is; all guards step the same way (counter-clockwise)
+            // so they trail each other round the wall rather than meet head-on.
+            float pr  = (float)t.wallRadius - 3.0f;
+            glm::vec2 rel = glm::vec2(n.position.x, n.position.z) - centre;
+            float a0   = (glm::length(rel) > 0.5f) ? atan2f(rel.y, rel.x) : 0.0f;
+            float step = 8.0f / pr;                 // ~8 blocks between waypoints
+            n.path.clear();
+            for (int k = 1; k <= 8; k++) {
+                float a = a0 + step * (float)k;
+                n.path.push_back(glm::vec2(centre.x + cosf(a) * pr,
+                                           centre.y + sinf(a) * pr));
+            }
+            n.pathIndex = 0;
+            return;
+        }
         glm::vec2 goal = nav.randomWalkableNear(centre, (float)t.radius * 0.9f, rng);
         n.path = nav.findPath(glm::vec2(n.position.x, n.position.z), goal);
         n.pathIndex = 0;

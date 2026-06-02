@@ -7,6 +7,7 @@ layout(location = 3) in float aMaterialID;
 layout(location = 4) in float aSkyLight;
 layout(location = 5) in float aBlockLight;
 layout(location = 6) in float aShoreDistance;
+layout(location = 8) in float aWaterDepth;
 
 uniform mat4  model;
 uniform mat4  view;
@@ -22,6 +23,7 @@ out vec3  WaveNorm;
 out vec3  FaceNormal;
 out float WaveHeight;
 out float ShoreDist;
+out float WaterDepth;
 out vec4  v_reflClipPos;
 
 float hashV(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -99,6 +101,7 @@ void main() {
     BlockLight      = aBlockLight;
     FaceNormal      = aNormal;
     ShoreDist       = aShoreDistance;
+    WaterDepth      = aWaterDepth;
 
     v_reflClipPos = u_reflProjView * worldPos4;
     gl_Position   = projection * view * worldPos4;

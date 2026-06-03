@@ -66,6 +66,13 @@ void PropLibrary::buildAll() {
     volumes[(int)PropType::Rug]            = buildRug();
     volumes[(int)PropType::WallPainting]   = buildWallPainting();
     volumes[(int)PropType::FlowerVase]     = buildFlowerVase();
+    volumes[(int)PropType::FlowerPot]     = buildFlowerPot();
+    volumes[(int)PropType::FlowerBed]     = buildFlowerBed();
+    volumes[(int)PropType::Barrel]        = buildBarrel();
+    volumes[(int)PropType::BuntingSpan]   = buildBuntingSpan();
+    volumes[(int)PropType::Crate]         = buildCrate();
+    volumes[(int)PropType::ProducePile]   = buildProducePile();
+    volumes[(int)PropType::Fountain]      = buildFountain();
     for (int i = 0; i < DOOR_VARIANTS; i++) doorVolumes[i] = buildDoor(i);
     for (auto* v : volumes)
         if (v) v->updateMesh();

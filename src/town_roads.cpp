@@ -467,12 +467,12 @@ void placeStreetLamps(TownPlan& plan) {
                 traveled += segLen;
             }
         };
-        for (const TownRoad& p : t.paths)        walkRoad(p.pts, 15,   0.0f);
-        for (const TownRoad& h : plan.highways)  walkRoad(h.pts, 20, 130.0f);
+        for (const TownRoad& p : t.paths)        walkRoad(p.pts, 24,   0.0f);
+        for (const TownRoad& h : plan.highways)  walkRoad(h.pts, 32, 130.0f);
 
         // A ring of lamps around the central square.
         if (t.plazaR >= 12) {
-            int n = std::max(4, t.plazaR / 6);
+            int n = std::max(3, t.plazaR / 9);
             for (int i = 0; i < n; i++) {
                 float a  = (6.2831853f / (float)n) * (float)i + 0.39f;
                 int   lx = t.center.x + (int)(cosf(a) * (float)(t.plazaR - 1));

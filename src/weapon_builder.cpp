@@ -123,7 +123,8 @@ static VoxelVolume* buildBaseWeaponMesh(WeaponType type, Voxel pri, Voxel acc) {
             for (int y = 0; y < 24; y++) {
                 int curve = (int)(2.5f - 2.5f * std::abs(y - 11.5f) / 11.5f);
                 int x = 1 + curve;
-                if (x < 0) x = 0; if (x > 2) x = 2;
+                if (x < 0) x = 0;
+                if (x > 2) x = 2;
                 v->setVoxel(x, y, 1, pri);
                 if (y < 2 || y > 21) v->setVoxel(x, y, 1, acc);   // tips
                 // String along the inner side.

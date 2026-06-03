@@ -120,32 +120,56 @@ void makeMarket(TownBuilding& b) {
         b.blocks[((size_t)y * 13 + z) * 13 + x] = (uint8_t)t;
     };
     const BlockType wood = BlockType::Wood, stone = BlockType::Stone;
-    const BlockType red    = (BlockType)((int)BlockType::PaintFirst + 7);   // awning red
-    const BlockType amber  = (BlockType)((int)BlockType::PaintFirst + 10);  // awning amber
+    auto paint = [](int i) { return (BlockType)((int)BlockType::PaintFirst + i); };
+    const BlockType red    = paint(7);   // brick red  (awning / apples)
+    const BlockType amber  = paint(10);  // amber       (awning / grain)
+    const BlockType blue   = paint(18);  // sky blue    (cloth dyes)
+    const BlockType plum   = paint(22);  // plum        (cloth dyes)
+    const BlockType terra  = paint(6);   // terracotta  (pottery)
+    const BlockType cream  = paint(1);   // cream       (bread / linen)
+    const BlockType mustrd = paint(11);  // mustard     (grain / spice)
+    const BlockType orange = paint(9);   // rust orange (squash / citrus)
     const BlockType greens = BlockType::Leaves;
 
     for (int x = 0; x < 13; x++)                          // paved plaza
         for (int z = 0; z < 13; z++)
             set(x, 0, z, stone);
 
-    // One 3x3 stall: a wood counter, four posts, a cloth awning, goods on top.
-    auto stall = [&](int x0, int z0, BlockType awning) {
+    // Builds a 3×3 stall frame: counter, corner posts, awning roof.
+    auto stallFrame = [&](int x0, int z0, BlockType awning) {
         for (int x = x0; x < x0 + 3; x++)
             for (int z = z0; z < z0 + 3; z++) {
-                set(x, 1, z, wood);                       // counter
-                set(x, 4, z, awning);                     // awning roof
+                set(x, 1, z, wood);
+                set(x, 4, z, awning);
             }
-        for (int y = 1; y <= 3; y++) {                    // corner posts
+        for (int y = 1; y <= 3; y++) {
             set(x0,     y, z0,     wood); set(x0 + 2, y, z0,     wood);
             set(x0,     y, z0 + 2, wood); set(x0 + 2, y, z0 + 2, wood);
         }
-        set(x0 + 1, 2, z0,     red);                      // goods on the counter
-        set(x0,     2, z0 + 1, amber);
-        set(x0 + 2, 2, z0 + 1, greens);
-        set(x0 + 1, 2, z0 + 2, amber);
     };
-    stall(1, 1, red);   stall(9, 1, amber);
-    stall(1, 9, amber); stall(9, 9, red);
+    stallFrame(1, 1, red);   stallFrame(9, 1, amber);
+    stallFrame(1, 9, amber); stallFrame(9, 9, red);
+
+    // Stall NW (1,1) — Vegetables & Produce: alternating greens and orange,
+    // red apples piled in the centre.
+    for (int x = 1; x <= 3; x++) for (int z = 1; z <= 3; z++)
+        set(x, 2, z, (x + z) % 2 == 0 ? greens : orange);
+    set(2, 3, 2, red);
+
+    // Stall NE (9,1) — Cloth & Dyes: vibrant reds, blues, plum bolts.
+    for (int x = 9; x <= 11; x++) for (int z = 1; z <= 3; z++)
+        set(x, 2, z, (x + z) % 3 == 0 ? plum : (x + z) % 3 == 1 ? red : blue);
+    set(10, 3, 2, amber);   // a decorative folded piece
+
+    // Stall SW (1,9) — Pottery & Crafts: terracotta jars, amber glazeware.
+    for (int x = 1; x <= 3; x++) for (int z = 9; z <= 11; z++)
+        set(x, 2, z, (x + z) % 2 == 0 ? terra : amber);
+    set(2, 3, 10, cream);   // pale glaze centrepiece
+
+    // Stall SE (9,9) — Bread & Grain: cream loaves, mustard spices, amber honey.
+    for (int x = 9; x <= 11; x++) for (int z = 9; z <= 11; z++)
+        set(x, 2, z, (x + z) % 2 == 0 ? cream : mustrd);
+    set(10, 3, 10, amber);  // honey jar / bread loaf stack
 
     for (int y = 1; y <= 6; y++) set(6, y, 6, wood);      // central flag pole
     set(7, 4, 6, red); set(7, 5, 6, red); set(7, 6, 6, red);

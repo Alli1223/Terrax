@@ -28,6 +28,10 @@ enum class PropType : uint8_t {
     // Cosy home furnishings. Fireplace also registers a warm point light in the
     // renderer (collectLanternLights), so hearths glow day and night.
     Fireplace, Rug, WallPainting, FlowerVase,
+    // Town atmosphere props
+    FlowerPot, FlowerBed, Barrel, BuntingSpan,
+    // Town centre detail
+    Crate, ProducePile, Fountain,
     Count
 };
 

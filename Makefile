@@ -1,5 +1,13 @@
 CXX      := g++
-CXXFLAGS := -std=c++17 -O2 -Wall -Iinclude -Isrc -Ithird_party/imgui -Ithird_party/imgui/backends -MMD -MP
+
+BUILD ?= release
+ifeq ($(BUILD),debug)
+  OPT_FLAGS := -O0 -g -DDEBUG
+else
+  OPT_FLAGS := -O2 -DNDEBUG
+endif
+
+CXXFLAGS := -std=c++17 $(OPT_FLAGS) -Wall -Iinclude -Isrc -Ithird_party/imgui -Ithird_party/imgui/backends -MMD -MP
 LIBS     := -lGL -lglfw -lm -lpthread -ldl
 
 IMGUI_DIR := third_party/imgui

@@ -62,6 +62,10 @@ void PropLibrary::buildAll() {
     volumes[(int)PropType::SignMug]        = buildTradeSignMug();
     volumes[(int)PropType::SignStar]       = buildTradeSignStar();
     volumes[(int)PropType::SignWheat]      = buildTradeSignWheat();
+    volumes[(int)PropType::Fireplace]      = buildFireplace();
+    volumes[(int)PropType::Rug]            = buildRug();
+    volumes[(int)PropType::WallPainting]   = buildWallPainting();
+    volumes[(int)PropType::FlowerVase]     = buildFlowerVase();
     for (int i = 0; i < DOOR_VARIANTS; i++) doorVolumes[i] = buildDoor(i);
     for (auto* v : volumes)
         if (v) v->updateMesh();
@@ -108,7 +112,7 @@ bool Prop::getInteraction(Interaction& out) const {
     // the player rig sits "on top of" the furniture rather than inside it.
     // The yaw is the prop's own yaw — a chair facing south seats the player
     // facing south.
-    const float SEAT_Y_OFFSET = 0.55f;   // ~ chair seat height in world units
+    const float SEAT_Y_OFFSET = 0.66f;   // ~ chair seat height in world units (enlarged chair)
     const float BED_Y_OFFSET  = 0.45f;   // mattress height
     switch (type) {
         case PropType::Chair:

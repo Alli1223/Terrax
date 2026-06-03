@@ -182,7 +182,7 @@ void updateWeatherParticles(AppContext& ctx) {
 void updateAmbientParticles(AppContext& ctx) {
     static std::mt19937 aRng(std::random_device{}());
     std::uniform_real_distribution<float> u01(0.0f, 1.0f);
-    const int       MAX_AMB = 300;
+    const int       MAX_AMB = 480;   // raised to make room for hearth smoke
     const glm::vec3 cam     = ctx.camera.position;
 
     // Day vs night from the sun's elevation (gameTime is 0..1).
@@ -204,6 +204,12 @@ void updateAmbientParticles(AppContext& ctx) {
             p.pos.z += cosf(t * 2.7f) * 0.30f * ctx.deltaTime;
             p.pos.y += p.vel.y * ctx.deltaTime;
             p.vel.y *= 0.985f;
+        } else if (p.kind == 3) {           // smoke: rises, billows outward, slows
+            p.pos.x += (sinf(t * 0.8f) * 0.25f + p.vel.x) * ctx.deltaTime;
+            p.pos.z += (cosf(t * 0.7f) * 0.25f + p.vel.z) * ctx.deltaTime;
+            p.pos.y += p.vel.y * ctx.deltaTime;
+            p.vel.y *= 0.992f;
+            p.size  += 0.20f * ctx.deltaTime;
         } else {                             // pollen: slow drift in still air
             p.pos.x += sinf(t * 0.7f) * 0.20f * ctx.deltaTime;
             p.pos.z += cosf(t * 0.5f + p.seed) * 0.20f * ctx.deltaTime;
@@ -271,6 +277,65 @@ void updateAmbientParticles(AppContext& ctx) {
             spawn(p, col, 2.2f + u01(aRng) * 0.8f,
                   0.05f + u01(aRng) * 0.03f, 2,
                   glm::vec3(0.0f, 0.7f + u01(aRng) * 0.6f, 0.0f));
+        }
+    }
+
+    // --- Smoke + glints from streamed-in fire props (runs day and night) ----
+    // Hearths smoke and spit the odd spark; lit lanterns get a faint drifting
+    // glint after dark. Iterating the streamed objects keeps the cost tied to
+    // what's actually around the player.
+    int emitted = 0;
+    for (const auto& obj : ctx.objectManager.objects()) {
+        if (emitted >= 14) break;
+        if (obj->dead || obj->kind != ObjectKind::Prop) continue;
+        const Prop* pr = static_cast<const Prop*>(obj.get());
+        const float dx = pr->position.x - cam.x, dz = pr->position.z - cam.z;
+        if (pr->type == PropType::Fireplace) {
+            if (dx * dx + dz * dz > 22.0f * 22.0f) continue;
+            if (u01(aRng) < 0.7f) {                       // chimney smoke
+                float g = 0.34f + u01(aRng) * 0.16f;
+                glm::vec3 p = pr->position + glm::vec3((u01(aRng) - 0.5f) * 0.4f, 2.1f,
+                                                       (u01(aRng) - 0.5f) * 0.4f);
+                spawn(p, glm::vec3(g, g, g * 0.97f), 3.2f + u01(aRng) * 1.6f,
+                      0.16f + u01(aRng) * 0.07f, 3,
+                      glm::vec3((u01(aRng) - 0.5f) * 0.25f, 0.7f + u01(aRng) * 0.4f,
+                                (u01(aRng) - 0.5f) * 0.25f));
+                emitted++;
+            }
+            if (u01(aRng) < 0.4f) {                       // a spark off the fire
+                glm::vec3 p = pr->position + glm::vec3((u01(aRng) - 0.5f) * 0.4f, 0.7f,
+                                                       (u01(aRng) - 0.5f) * 0.25f);
+                spawn(p, glm::vec3(1.0f, 0.55f + u01(aRng) * 0.28f, 0.16f),
+                      1.5f + u01(aRng) * 0.7f, 0.045f + u01(aRng) * 0.03f, 2,
+                      glm::vec3(0.0f, 0.7f + u01(aRng) * 0.6f, 0.0f));
+                emitted++;
+            }
+        } else if (night && pr->type == PropType::Lantern && u01(aRng) < 0.18f) {
+            if (dx * dx + dz * dz > 20.0f * 20.0f) continue;
+            glm::vec3 p = pr->position + glm::vec3((u01(aRng) - 0.5f) * 0.5f,
+                                                   0.5f + u01(aRng) * 0.5f,
+                                                   (u01(aRng) - 0.5f) * 0.5f);
+            spawn(p, glm::vec3(1.0f, 0.82f, 0.45f), 2.4f + u01(aRng) * 1.4f,
+                  0.05f + u01(aRng) * 0.025f, 2,
+                  glm::vec3(0.0f, 0.18f + u01(aRng) * 0.16f, 0.0f));
+            emitted++;
+        }
+    }
+
+    // Smoke drifting up off nearby town campfires (vents to the sky, day or night).
+    for (const Town& t : getTownPlan().towns) {
+        if (t.centerpiece != TownCenter::Campfire) continue;
+        float cdx = (float)t.center.x - cam.x, cdz = (float)t.center.y - cam.z;
+        if (cdx * cdx + cdz * cdz > 40.0f * 40.0f) continue;
+        if (u01(aRng) < 0.5f) {
+            float g = 0.34f + u01(aRng) * 0.16f;
+            glm::vec3 p((float)t.center.x + 0.5f + (u01(aRng) - 0.5f) * 0.5f,
+                        (float)t.baseY + 2.2f,
+                        (float)t.center.y + 0.5f + (u01(aRng) - 0.5f) * 0.5f);
+            spawn(p, glm::vec3(g, g, g * 0.97f), 3.6f + u01(aRng) * 1.8f,
+                  0.20f + u01(aRng) * 0.08f, 3,
+                  glm::vec3((u01(aRng) - 0.5f) * 0.3f, 0.9f + u01(aRng) * 0.5f,
+                            (u01(aRng) - 0.5f) * 0.3f));
         }
     }
 }

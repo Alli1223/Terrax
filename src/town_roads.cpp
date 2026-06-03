@@ -469,6 +469,18 @@ void placeStreetLamps(TownPlan& plan) {
         };
         for (const TownRoad& p : t.paths)        walkRoad(p.pts, 15,   0.0f);
         for (const TownRoad& h : plan.highways)  walkRoad(h.pts, 20, 130.0f);
+
+        // A ring of lamps around the central square.
+        if (t.plazaR >= 12) {
+            int n = std::max(4, t.plazaR / 6);
+            for (int i = 0; i < n; i++) {
+                float a  = (6.2831853f / (float)n) * (float)i + 0.39f;
+                int   lx = t.center.x + (int)(cosf(a) * (float)(t.plazaR - 1));
+                int   lz = t.center.y + (int)(sinf(a) * (float)(t.plazaR - 1));
+                if (!inBuilding(lx, lz) && !tooClose(lx, lz))
+                    t.lampPosts.push_back(glm::ivec2(lx, lz));
+            }
+        }
     }
 }
 

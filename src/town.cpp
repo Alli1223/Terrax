@@ -211,7 +211,7 @@ TownPlan buildTownPlan() {
         // Houses fill concentric rings over a disc, so capacity grows with the
         // square of the radius — hence radius ~ sqrt(houses), plus a floor so
         // even the smallest hamlet has elbow room.
-        int   radius = 24 + (int)(13.0f * std::sqrt((float)targetHouses));
+        int   radius = 24 + (int)(14.0f * std::sqrt((float)targetHouses));   // a touch more spread
 
         // Radius-aware spacing: keep one town's hard-flattened footprint
         // (~radius + 80 at its noisy lobes) clear of the next, with the old
@@ -240,6 +240,9 @@ TownPlan buildTownPlan() {
         // The coarse Village/Town flag still drives guard counts and building
         // template bias elsewhere; anything sizeable counts as a Town.
         t.size         = (targetHouses >= 16) ? TownSize::Town : TownSize::Village;
+        // A central paved square, much larger for bigger towns. Houses ring it
+        // from just outside, so the centre stays open and the town spreads out.
+        t.plazaR       = std::min(40, 11 + targetHouses / 3);
         plan.towns.push_back(std::move(t));
     }
 

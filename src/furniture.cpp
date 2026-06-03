@@ -73,23 +73,23 @@ VoxelVolume* buildCooker() {
 }
 
 VoxelVolume* buildTable() {
-    const int W = 22, H = 13, D = 22;
+    const int W = 28, H = 16, D = 28;                          // ~1.25x — roomier
     VoxelVolume* v = new VoxelVolume(W, H, D);
     for (int lx = 1; lx <= W - 4; lx += W - 5)
         for (int lz = 1; lz <= D - 4; lz += D - 5)
-            voxFill(v, lx, 0, lz, lx + 2, 10, lz + 2, WOODD);  // legs
-    voxFill(v, 0, 11, 0, W - 1, 12, D - 1, WOOD);              // table top
+            voxFill(v, lx, 0, lz, lx + 2, 13, lz + 2, WOODD);  // legs
+    voxFill(v, 0, 14, 0, W - 1, 15, D - 1, WOOD);              // table top
     return v;
 }
 
 VoxelVolume* buildChair() {
-    const int W = 10, H = 20, D = 10;
+    const int W = 12, H = 24, D = 12;                          // ~1.2x — roomier
     VoxelVolume* v = new VoxelVolume(W, H, D);
     for (int lx = 0; lx <= W - 2; lx += W - 2)
         for (int lz = 0; lz <= D - 2; lz += D - 2)
-            voxFill(v, lx, 0, lz, lx + 1, 8, lz + 1, WOODD);   // legs
-    voxFill(v, 0, 9, 0, W - 1, 10, D - 1, WOOD);               // seat
-    voxFill(v, 0, 11, 0, W - 1, H - 1, 1, WOOD);               // backrest
+            voxFill(v, lx, 0, lz, lx + 1, 10, lz + 1, WOODD);  // legs
+    voxFill(v, 0, 11, 0, W - 1, 12, D - 1, WOOD);              // seat (~y=12 ≈ 0.72)
+    voxFill(v, 0, 13, 0, W - 1, H - 1, 1, WOOD);               // backrest
     return v;
 }
 
@@ -388,5 +388,92 @@ VoxelVolume* buildAlchemyTable() {
         voxFill(v, bx, 13, 3, bx + 1, 14, 4, colours[i]);              // contents
     }
     voxFill(v, 1, 16, 1, W - 2, 17, 2, WOODD);                         // hanging shelf
+    return v;
+}
+
+// --- Cosy home furnishings -------------------------------------------------
+// Aligned like the other wall pieces: back at z=0, so a yaw of 0 sits the back
+// flush against a wall on the -Z side and the front faces into the room.
+
+VoxelVolume* buildFireplace() {
+    // A stone hearth: a sooty fire box between two pillars under a wooden mantel,
+    // a chimney breast rising above, and a lit bed of logs. The ember/flame
+    // voxels read as warm; renderer.cpp anchors a point light at the fire box.
+    const int W = 22, H = 38, D = 10;
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    const Voxel STONE   {122, 120, 114, 255};
+    const Voxel STONE_D { 88,  86,  80, 255};
+    const Voxel SOOT    { 34,  30,  28, 255};
+    const Voxel FLAME   {236,  78,  34, 255};
+    voxFill(v, 0, 0, 0,     W - 1, 2,     D - 1, STONE_D);   // hearth slab
+    voxFill(v, 0, 0, 0,     4,     27,    D - 1, STONE);     // left pillar
+    voxFill(v, W - 5, 0, 0, W - 1, 27,    D - 1, STONE);     // right pillar
+    voxFill(v, 0, 24, 0,    W - 1, 27,    D - 1, STONE);     // lintel
+    voxFill(v, 5, 3, 0,     W - 6, 23,    2,     SOOT);      // sooty back of box
+    voxFill(v, 5, 3, 0,     5,     23,    D - 1, SOOT);      // box side walls
+    voxFill(v, W - 6, 3, 0, W - 6, 23,    D - 1, SOOT);
+    voxFill(v, 6, 3, 3,     W - 7, 5,     D - 2, WOODD);     // log bed
+    voxFill(v, 6, 3, 3,     W - 7, 4,     D - 2, EMBER);     // glowing embers
+    for (int x = 7; x <= W - 8; x += 2) {                    // flames
+        int fh = 7 + ((x * 5) % 8);
+        voxFill(v, x, 5, 4,      x, 5 + fh, D - 3, FLAME);
+        voxFill(v, x, 5 + fh, 4, x, 7 + fh, D - 3, GLOW);
+    }
+    voxFill(v, 0, 28, 0,    W - 1, 30,    D - 1, WOOD);      // mantel shelf
+    voxFill(v, 3, 31, 0,    W - 4, H - 1, D - 3, STONE);     // chimney breast
+    return v;
+}
+
+VoxelVolume* buildRug() {
+    // A flat woven rug — burgundy pile, a gold border and a central medallion.
+    // Enlarged to a proper room rug (≈4.6x the old footprint). Two voxels tall
+    // so furniture set on top still reads as resting on a rug.
+    const int W = 56, H = 2, D = 40;
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    const Voxel BODY   {150,  46,  46, 255};
+    const Voxel BORDER {200, 170,  98, 255};
+    const Voxel MEDAL  { 54,  74, 122, 255};
+    voxFill(v, 0, 0, 0,     W - 1, 1, D - 1, BODY);          // pile
+    voxFill(v, 0, 0, 0,     W - 1, 1, 2,     BORDER);        // borders (3-wide)
+    voxFill(v, 0, 0, D - 3, W - 1, 1, D - 1, BORDER);
+    voxFill(v, 0, 0, 0,     2,     1, D - 1, BORDER);
+    voxFill(v, W - 3, 0, 0, W - 1, 1, D - 1, BORDER);
+    voxFill(v, W / 2 - 11, 1, D / 2 - 8, W / 2 + 10, 1, D / 2 + 7, MEDAL);   // medallion
+    voxFill(v, W / 2 - 7,  1, D / 2 - 5, W / 2 + 6,  1, D / 2 + 4, BORDER);
+    voxFill(v, W / 2 - 3,  1, D / 2 - 2, W / 2 + 2,  1, D / 2 + 1, MEDAL);
+    return v;
+}
+
+VoxelVolume* buildWallPainting() {
+    // A small framed landscape, hung on a wall (back at z=0, picture faces +Z).
+    const int W = 12, H = 12, D = 2;
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    const Voxel FRAME {150, 112,  52, 255};
+    const Voxel SKY   {120, 172, 220, 255};
+    const Voxel FIELD { 88, 142,  72, 255};
+    const Voxel SUN   {246, 222, 120, 255};
+    voxFill(v, 0, 0, 0,     W - 1, H - 1, 1, FRAME);         // frame + backing
+    voxFill(v, 2, 2, 1,     W - 3, H - 3, 1, SKY);           // canvas: sky
+    voxFill(v, 2, 2, 1,     W - 3, 5,     1, FIELD);         // canvas: field
+    voxFill(v, W - 5, H - 5, 1, W - 4, H - 4, 1, SUN);       // a low sun
+    return v;
+}
+
+VoxelVolume* buildFlowerVase() {
+    // A little ceramic vase of mixed flowers — a table-topper or floor accent.
+    const int W = 7, H = 13, D = 7;
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    const Voxel VASE {86, 128, 182, 255};
+    const Voxel STEM {72, 132,  62, 255};
+    const Voxel F1 {220,  70,  70, 255}, F2 {240, 210,  90, 255};
+    const Voxel F3 {224, 120, 180, 255}, F4 {170, 110, 210, 255};
+    voxFill(v, 2, 0, 2, 4, 4, 4, VASE);                      // vase body
+    voxFill(v, 3, 4, 3, 3, 8, 3, STEM);                      // stems
+    voxFill(v, 2, 5, 3, 2, 7, 3, STEM);
+    voxFill(v, 4, 6, 4, 4, 8, 4, STEM);
+    voxFill(v, 3, 8, 3, 3, 9, 3, F1);                        // flower heads
+    voxFill(v, 2, 7, 3, 2, 8, 3, F2);
+    voxFill(v, 4, 8, 4, 4, 9, 4, F3);
+    voxFill(v, 3, 9, 3, 3, 10, 3, F4);
     return v;
 }

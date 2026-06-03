@@ -80,8 +80,10 @@ void layoutRings(Town& t, std::mt19937& rng, int numH, bool scattered,
                  const int* templ, int nT, const int* mats, int nM,
                  const int* roofs, int nR) {
     int placed = 0;
+    const int step   = (t.size == TownSize::Town) ? 17 : 15;   // more room between rings
+    const int innerR = t.plazaR + 8;                           // first ring sits outside the square
     for (int ring = 0; ring < 16 && placed < numH; ring++) {
-        int ringR = 22 + ring * 14;
+        int ringR = innerR + ring * step;
         if (ringR > t.radius + 14) break;
         int slots = std::max(4, ringR / 5);
         float a0 = frand(rng, 0.0f, 6.2832f);
@@ -148,7 +150,9 @@ void layoutTown(Town& t) {
     auto placeSpecial = [&](Building& gen, float baseAngle, int innerR) {
         for (int attempt = 0; attempt < 8; attempt++) {
             float ang = baseAngle + frand(rng, -0.2f, 0.2f);
-            int   rr  = innerR + (int)frand(rng, -2.0f, 6.0f);
+            // Shops ring the central square — anchor the old inner radii to the
+            // plaza edge so they sit just outside the paving, facing the centre.
+            int   rr  = t.plazaR + (innerR - 16) + (int)frand(rng, -2.0f, 6.0f);
             int   px  = t.center.x + (int)(cosf(ang) * rr);
             int   pz  = t.center.y + (int)(sinf(ang) * rr);
             if (tryPlaceSpecial(t, gen, px, pz)) return true;

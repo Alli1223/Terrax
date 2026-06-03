@@ -40,6 +40,7 @@ struct TownBuilding {
     int dimX = 0, dimY = 0, dimZ = 0;
     int kind = 1;                // BuildingKind cast to int (Centerpiece=0, House=1, ...)
     int doorDX = 0, doorDZ = 0;   // outward facing of the front door (houses only)
+    int doorX = 0, doorZ = 0;     // local grid cell of the door cut (rotated to match blocks)
     std::vector<uint8_t> blocks;
     std::vector<Room>    rooms;   // semantic interior partitions (rotated to match `blocks`)
 };
@@ -77,6 +78,7 @@ struct Town {
     int        targetHouses = 0;   // desired house count (~5..100); drives radius & layout
     TownCenter centerpiece = TownCenter::Well;   // what stands at the town centre
     int        radius;   // town footprint radius in blocks
+    int        plazaR = 0;                  // central paved-square radius; houses ring it from outside
     int        wallRadius = 0;              // perimeter wall ring radius; 0 = unwalled (small towns)
     int        wallStyle  = 0;              // wall-style index (palisade / stone / rampart / sandstone)
     std::vector<float> gateAngles;          // wall gate directions (radians), one per outbound highway

@@ -23,7 +23,8 @@ struct Wing { int x0, z0, x1, z1; };   // a footprint rectangle (inclusive), pre
 void emitFromWings(std::vector<Wing> wings, int material, int roof, int floorH,
                    const RoomType* wingRooms, int nWings,
                    std::vector<uint8_t>& outBlocks, std::vector<Room>& outRooms,
-                   int& dimX, int& dimY, int& dimZ, int& doorDX, int& doorDZ)
+                   int& dimX, int& dimY, int& dimZ, int& doorDX, int& doorDZ,
+                   int& doorX, int& doorZ)   // local cell of the door cut (post-crop)
 {
     MaterialPalette pal = materialPalette(material);
     const BlockType wallB = pal.wall, roofB = pal.roof;
@@ -103,7 +104,7 @@ void emitFromWings(std::vector<Wing> wings, int material, int roof, int floorH,
                     mnz = std::min(mnz, z); mxz = std::max(mxz, z);
                 }
     if (mxx < 0) { dimX = dimY = dimZ = 0; outBlocks.clear(); outRooms.clear();
-                   doorDX = 0; doorDZ = -1; return; }
+                   doorDX = 0; doorDZ = -1; doorX = 0; doorZ = 0; return; }
     dimX = mxx - mnx + 1; dimY = mxy - mny + 1; dimZ = mxz - mnz + 1;
     outBlocks.assign((size_t)dimX * dimY * dimZ, (uint8_t)BlockType::Air);
     for (int y = 0; y < dimY; y++)
@@ -118,6 +119,9 @@ void emitFromWings(std::vector<Wing> wings, int material, int roof, int floorH,
         r.z0 = std::max(0, r.z0); r.z1 = std::min(dimZ - 1, r.z1);
     }
     doorDX = 0; doorDZ = -1;
+    // The door was cut at (dcx, front->z0) on the front wing; report it cropped.
+    doorX = dcx - mnx;
+    doorZ = front->z0 - mnz;
 }
 
 // Builds the wing list (and per-wing room types) for a composite house shape,
@@ -136,7 +140,7 @@ std::vector<Wing> makeCompositeWings(int shape, uint32_t seed,
     switch (shape) {
     default:
     case 12: {  // L — a front bar with one back wing on a random side
-        int mw = R(15, 20), md = R(7, 9), aw = R(7, 10), ad = R(8, 12);
+        int mw = R(30, 40), md = R(14, 18), aw = R(14, 20), ad = R(16, 24);
         w.push_back({ 0, 0, mw - 1, md - 1 });
         if (coin()) w.push_back({ mw - aw, md - 1, mw - 1, md - 1 + ad });
         else        w.push_back({ 0,       md - 1, aw - 1, md - 1 + ad });
@@ -144,7 +148,7 @@ std::vector<Wing> makeCompositeWings(int shape, uint32_t seed,
         break;
     }
     case 13: {  // T — a front bar with a central back stem
-        int mw = R(16, 20), md = R(6, 8), sw = R(6, 9), sd = R(8, 12);
+        int mw = R(32, 40), md = R(12, 16), sw = R(12, 18), sd = R(16, 24);
         int sx = (mw - sw) / 2;
         w.push_back({ 0, 0, mw - 1, md - 1 });
         w.push_back({ sx, md - 1, sx + sw - 1, md - 1 + sd });
@@ -152,7 +156,7 @@ std::vector<Wing> makeCompositeWings(int shape, uint32_t seed,
         break;
     }
     case 14: {  // U — a front bar with two back arms (opens to the rear)
-        int mw = R(16, 20), md = R(6, 8), aw = R(5, 7), ad = R(8, 12);
+        int mw = R(32, 40), md = R(12, 16), aw = R(10, 14), ad = R(16, 24);
         w.push_back({ 0, 0, mw - 1, md - 1 });
         w.push_back({ 0, md - 1, aw - 1, md - 1 + ad });
         w.push_back({ mw - aw, md - 1, mw - 1, md - 1 + ad });
@@ -161,7 +165,7 @@ std::vector<Wing> makeCompositeWings(int shape, uint32_t seed,
         break;
     }
     case 15: {  // + — a central block with four short arms
-        int cw = R(8, 11), cd = R(8, 11), aw = R(5, 6), al = R(4, 6);
+        int cw = R(16, 22), cd = R(16, 22), aw = R(10, 12), al = R(8, 12);
         int cx = al, cz = al;
         int ax = cx + (cw - aw) / 2, az = cz + (cd - aw) / 2;
         w.push_back({ cx, cz, cx + cw - 1, cz + cd - 1 });                // centre
@@ -175,7 +179,7 @@ std::vector<Wing> makeCompositeWings(int shape, uint32_t seed,
         break;
     }
     case 16: {  // Courtyard — a back bar with two front arms (opens to the front)
-        int bw = R(16, 20), bd = R(6, 8), aw = R(5, 7), ad = R(9, 12);
+        int bw = R(32, 40), bd = R(12, 16), aw = R(10, 14), ad = R(18, 24);
         int bz = ad - 1;
         w.push_back({ 0, bz, bw - 1, bz + bd - 1 });        // back bar
         w.push_back({ 0, 0, aw - 1, bz });                  // left front arm
@@ -185,7 +189,7 @@ std::vector<Wing> makeCompositeWings(int shape, uint32_t seed,
         break;
     }
     case 17: {  // H — two side bars joined by a central cross-bar
-        int W = R(16, 20), H = R(13, 17), sw = R(5, 7), cd = R(5, 7);
+        int W = R(32, 40), H = R(26, 34), sw = R(10, 14), cd = R(10, 14);
         int cz = (H - cd) / 2;
         w.push_back({ 0, 0, sw - 1, H - 1 });               // left bar
         w.push_back({ W - sw, 0, W - 1, H - 1 });           // right bar
@@ -195,14 +199,14 @@ std::vector<Wing> makeCompositeWings(int shape, uint32_t seed,
         break;
     }
     case 18: {  // Z — two bars staggered diagonally
-        int w1 = R(12, 15), d1 = R(8, 10), w2 = R(11, 14), d2 = R(8, 10);
-        w.push_back({ 0, 0, w1 - 1, d1 - 1 });                              // front-left
-        w.push_back({ w1 - 5, d1 - 2, w1 - 5 + w2 - 1, d1 - 2 + d2 - 1 });  // back-right
+        int w1 = R(24, 30), d1 = R(16, 20), w2 = R(22, 28), d2 = R(16, 20);
+        w.push_back({ 0, 0, w1 - 1, d1 - 1 });                                // front-left
+        w.push_back({ w1 - 10, d1 - 4, w1 - 10 + w2 - 1, d1 - 4 + d2 - 1 });  // back-right
         wr[0] = RoomType::LivingRoom; wr[1] = RoomType::Bedroom; nWings = 2;
         break;
     }
     case 19: {  // E — a back spine with three front arms
-        int W = R(17, 20), aw = R(4, 6), sd = R(5, 7), ad = R(8, 11);
+        int W = R(34, 40), aw = R(8, 12), sd = R(10, 14), ad = R(16, 22);
         int sz = ad - 1;
         w.push_back({ 0, sz, W - 1, sz + sd - 1 });                  // back spine
         w.push_back({ 0, 0, aw - 1, sz });                           // left arm
@@ -235,13 +239,14 @@ void HouseBuilding::generate(uint32_t seed,
         int nWings = 0;
         std::vector<Wing> wings = makeCompositeWings(templateType, seed, wr, nWings);
         int roof = (roofType >= 0 && roofType <= 4) ? roofType : 1;
-        emitFromWings(wings, material, roof, 6, wr, nWings,
-                      outBlocks, outRooms, dimX, dimY, dimZ, doorDX, doorDZ);
+        emitFromWings(wings, material, roof, 8, wr, nWings,
+                      outBlocks, outRooms, dimX, dimY, dimZ, doorDX, doorDZ,
+                      doorCellX, doorCellZ);
         return;
     }
 
     HouseSpec spec = pickHouseSpec(templateType);
     if (roofType >= 0 && roofType <= 4) spec.roof = roofType;   // 4 = steep gable
     emitFromSpec(spec, material, outBlocks, outRooms, dimX, dimY, dimZ,
-                 doorDX, doorDZ);
+                 doorDX, doorDZ, doorCellX, doorCellZ);
 }

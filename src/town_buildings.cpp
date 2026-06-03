@@ -54,6 +54,22 @@ void bakeBuilding(TownBuilding& b, Building& gen, int q, uint32_t seed) {
     }
     b.doorDX = rdx;
     b.doorDZ = rdz;
+
+    // Rotate the door's local cell with the SAME position transform
+    // rotateBuilding() applied to the grid (and rooms), using the pre-rotation
+    // dims sx/sz, so b.doorX/doorZ index the rotated blocks. The door panel
+    // placer (prop_placement.cpp) reads this instead of scanning for the gap —
+    // a scan can't tell a doorway from a courtyard mouth in composite houses.
+    const int gdx = gen.doorCellX, gdz = gen.doorCellZ;
+    int rcx, rcz;
+    switch (q & 3) {
+        case 1:  rcx = gdz;          rcz = sx - 1 - gdx; break;
+        case 2:  rcx = sx - 1 - gdx; rcz = sz - 1 - gdz; break;
+        case 3:  rcx = sz - 1 - gdz; rcz = gdx;          break;
+        default: rcx = gdx;          rcz = gdz;          break;
+    }
+    b.doorX = rcx;
+    b.doorZ = rcz;
 }
 
 // Backwards-compatible wrapper for the existing house-placement code paths.

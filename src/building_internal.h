@@ -83,6 +83,7 @@ void emitFromSpec(const HouseSpec& specIn, int material,
                   std::vector<uint8_t>& outBlocks,
                   std::vector<Room>& outRooms,
                   int& dimX, int& dimY, int& dimZ,
-                  int& doorDX, int& doorDZ);
+                  int& doorDX, int& doorDZ,
+                  int& doorX, int& doorZ);   // local cell of the door cut (post-crop)
 
 }  // namespace buildint

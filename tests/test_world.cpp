@@ -8,6 +8,16 @@
 // with a synthetic town, no full town-plan survey required.
 void stampTownWall(Chunk* c, const Town& t);
 
+// Internal town.cpp helper — paves the central square (a stone-rimmed cobbled
+// disc) at the town centre. Declared here so the test can drive it directly.
+void stampTownPlaza(Chunk* c, const Town& t);
+
+// Internal town building baker (namespace townint) — generates a building's grid
+// and rotates it (blocks, rooms, door normal AND door cell) by quadrant q.
+namespace townint {
+void bakeHouse(TownBuilding& b, int templ, int roof, int mat, int q, uint32_t seed);
+}
+
 // World / Chunk (src/world.cpp). The voxel store, the light-map nibble
 // packing, and the seed-driven terrain oracle (sampleSurface /
 // sampleSurfaceSolid) that the town planner and prop placer query without
@@ -251,4 +261,51 @@ TEST_CASE(TownWall_StylesStampWithGate) {
         CHECK(c.get(0, baseY + 1, 4) == BlockType::Wood);   // palisade body is wood
         CHECK(c.get(0, baseY + 3, 4) == BlockType::Wood);   // up to its height (4)
     }
+}
+
+TEST_CASE(BakeHouse_DoorCellSurvivesRotation) {
+    // End-to-end check for the door-placement fix: bakeHouse generates a house
+    // and rotates it by quadrant q. b.doorX/doorZ must still index the actual
+    // door opening (air at the cut height) in the rotated blocks — a wrong
+    // rotation transform would strand the door panel in a wall. Covers a simple
+    // cottage plus two composite footprints (T, H) at all four rotations.
+    for (int t : { 2, 13, 17 })
+        for (int q = 0; q < 4; q++) {
+            TownBuilding b;
+            townint::bakeHouse(b, t, 1, 1, q, 909u + (uint32_t)(t * 4 + q));
+            CHECK(b.dimX > 0 && b.dimY > 0 && b.dimZ > 0);
+            CHECK(b.doorX >= 0 && b.doorX < b.dimX);
+            CHECK(b.doorZ >= 0 && b.doorZ < b.dimZ);
+            auto at = [&](int x, int y, int z) -> uint8_t {
+                if (x < 0 || x >= b.dimX || y < 0 || y >= b.dimY ||
+                    z < 0 || z >= b.dimZ) return (uint8_t)BlockType::Air;
+                return b.blocks[((size_t)y * b.dimZ + z) * b.dimX + x];
+            };
+            CHECK_EQ((int)at(b.doorX, 2, b.doorZ), (int)BlockType::Air);
+        }
+}
+
+TEST_CASE(TownPlaza_PavesACentralSquare) {
+    // The central square pads the ground around the centrepiece with stone/gravel
+    // paving and clears the air above so it's walkable. Drive it on a synthetic
+    // chunk with a flat dirt surface and confirm the centre gets paved.
+    const int baseY = 70;
+    Town t;
+    t.center = glm::ivec2(8, 8); t.baseY = baseY; t.plazaR = 20;
+    Chunk c({0, 0}, false);
+    for (int lx = 0; lx < CHUNK_SIZE; lx++)
+        for (int lz = 0; lz < CHUNK_SIZE; lz++)
+            for (int y = 0; y <= baseY; y++)
+                c.set(lx, y, lz, BlockType::Dirt);
+    stampTownPlaza(&c, t);
+    int paved = 0;
+    for (int lx = 0; lx < CHUNK_SIZE; lx++)
+        for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+            BlockType b = c.get(lx, baseY, lz);
+            if (b == BlockType::Stone || b == BlockType::Gravel) paved++;
+        }
+    CHECK(paved > 0);                                       // the square is paved
+    BlockType ctr = c.get(8, baseY, 8);
+    CHECK(ctr == BlockType::Stone || ctr == BlockType::Gravel);
+    CHECK(c.get(8, baseY + 1, 8) == BlockType::Air);        // walkable above the paving
 }

@@ -341,7 +341,8 @@ void emitFromSpec(const HouseSpec& specIn, int material,
                   std::vector<uint8_t>& outBlocks,
                   std::vector<Room>& outRooms,
                   int& dimX, int& dimY, int& dimZ,
-                  int& doorDX, int& doorDZ)
+                  int& doorDX, int& doorDZ,
+                  int& doorX, int& doorZ)
 {
     HouseSpec spec = specIn;
     // Never index plans[] (or the per-floor loops) past the array — a caller
@@ -581,6 +582,7 @@ void emitFromSpec(const HouseSpec& specIn, int material,
         outBlocks.clear();
         outRooms.clear();
         doorDX = 0; doorDZ = -1;
+        doorX = 0; doorZ = 0;
         return;
     }
 
@@ -604,6 +606,9 @@ void emitFromSpec(const HouseSpec& specIn, int material,
     }
 
     doorDX = 0; doorDZ = -1;
+    // The door was cut at (dcx, z0) on the front wall; report it in cropped coords.
+    doorX = dcx - mnx;
+    doorZ = z0 - mnz;
 }
 
 }  // namespace buildint

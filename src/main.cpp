@@ -48,12 +48,31 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    // Last framebuffer size the offscreen targets were sized to. Tracked so the
+    // main loop can re-fit them whenever the window is resized by any means.
+    int lastFbW = initW, lastFbH = initH;
+
     while (!glfwWindowShouldClose(window)) {
         float currentFrame = (float)glfwGetTime();
         ctx.deltaTime = std::min(currentFrame - ctx.lastFrame, 0.05f);
         ctx.lastFrame = currentFrame;
 
         glfwPollEvents();
+
+        // Keep the GL viewport and the renderer's offscreen targets matched to
+        // the live framebuffer size. Dragging or maximising the window, toggling
+        // fullscreen, or changing the resolution preset all flow through here, so
+        // the scene re-fits the screen instead of stretching the old-size
+        // buffers. Reacts only when the size actually changes.
+        {
+            int fbW = 0, fbH = 0;
+            glfwGetFramebufferSize(window, &fbW, &fbH);
+            if (fbW > 0 && fbH > 0 && (fbW != lastFbW || fbH != lastFbH)) {
+                lastFbW = fbW; lastFbH = fbH;
+                glViewport(0, 0, fbW, fbH);
+                renderer.resizeFramebuffers(fbW, fbH);
+            }
+        }
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();

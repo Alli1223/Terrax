@@ -519,6 +519,48 @@ void stampTownWall(Chunk* c, const Town& t) {
         }
 }
 
+// Paves the central town square — a stone-rimmed cobbled disc with a concentric
+// stone ring — around the centrepiece. Stamped after the paths and before the
+// buildings, so the radial lanes and the centrepiece both sit on top of it.
+void stampTownPlaza(Chunk* c, const Town& t) {
+    const int R = t.plazaR;
+    if (R < 5) return;
+    const int ox = c->pos.x * CHUNK_SIZE, oz = c->pos.z * CHUNK_SIZE;
+    if (t.center.x + R < ox || t.center.x - R >= ox + CHUNK_SIZE) return;
+    if (t.center.y + R < oz || t.center.y - R >= oz + CHUNK_SIZE) return;
+    for (int lz = 0; lz < CHUNK_SIZE; lz++)
+        for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+            const int wx = ox + lx, wz = oz + lz;
+            const float ddx = (float)(wx - t.center.x), ddz = (float)(wz - t.center.y);
+            const float d = std::sqrt(ddx * ddx + ddz * ddz);
+            if (d > (float)R) continue;
+            int gtop = -1;
+            for (int y = CHUNK_HEIGHT - 1; y >= 0; y--) {
+                BlockType b = c->get(lx, y, lz);
+                if (b == BlockType::Air || b == BlockType::Water || b == BlockType::Wood ||
+                    b == BlockType::Leaves || b == BlockType::LeavesOrange ||
+                    b == BlockType::LeavesRed || b == BlockType::LeavesPink ||
+                    b == BlockType::Cactus) continue;
+                gtop = y; break;
+            }
+            if (gtop < WORLD_SEA_LEVEL) continue;                 // no square under water
+            BlockType cur = c->get(lx, gtop, lz);
+            if (cur == BlockType::Gravel || cur == BlockType::Stone) continue;  // keep the lanes
+            const bool rim   = d > (float)R - 2.0f;
+            const bool ring  = std::abs(d - (float)R * 0.55f) < 1.2f;
+            BlockType surface;
+            if (rim || ring) surface = BlockType::Stone;
+            else {
+                uint32_t h = (uint32_t)wx * 0x9E3779B1u ^ (uint32_t)wz * 0x85EBCA77u ^ 0x9A2Eu;
+                h ^= h >> 16;
+                surface = ((h & 0x3F) < 34) ? BlockType::Stone : BlockType::Gravel;  // ~53% stone
+            }
+            c->set(lx, gtop, lz, surface);
+            c->set(lx, gtop + 1, lz, BlockType::Air);
+            c->set(lx, gtop + 2, lz, BlockType::Air);
+        }
+}
+
 void stampTownChunk(Chunk* c) {
     const TownPlan& plan = getTownPlan();
     const int ox = c->pos.x * CHUNK_SIZE, oz = c->pos.z * CHUNK_SIZE;
@@ -539,6 +581,7 @@ void stampTownChunk(Chunk* c) {
         if (t.bbMax.x <= ox - 4 || t.bbMin.x >= ox + CHUNK_SIZE + 4) continue;
         if (t.bbMax.y <= oz - 4 || t.bbMin.y >= oz + CHUNK_SIZE + 4) continue;
         for (const TownRoad& p : t.paths) stampRoad(c, p, 0);
+        stampTownPlaza(c, t);
     }
     for (const TownRoad& h : plan.highways)
         if (ptsHit(h.pts)) stampRoad(c, h, 1);   // highways engraved one block down

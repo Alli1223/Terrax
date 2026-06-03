@@ -152,6 +152,49 @@ TEST_CASE(House_CompositeShapesAreValid) {
         }
 }
 
+TEST_CASE(House_CompositeFootprintsAreLarge) {
+    // The composite shapes were enlarged to ~2x. Their bounding footprint should
+    // now clearly exceed the old ~16-22 cell bars (the simple templates' size).
+    // Guard the floor so a later tweak can't silently shrink them back.
+    for (int t = 12; t <= 19; t++)
+        for (uint32_t s = 0; s < 4; s++) {
+            HouseBuilding h(t, 1, 0);
+            std::vector<uint8_t> blocks; std::vector<Room> rooms;
+            int dx, dy, dz;
+            genAndCheck(h, 500u + (uint32_t)t * 7u + s, blocks, rooms, dx, dy, dz);
+            CHECK((dx > dz ? dx : dz) >= 30);   // larger span far past the old max
+        }
+}
+
+TEST_CASE(House_DoorCellLandsInAWallOpening) {
+    // Regression: the door panel was being placed by scanning the front wall for
+    // the widest air gap, which on composite (L/T/U/...) footprints is the
+    // set-back / courtyard mouth, not the doorway — so doors landed off the wall.
+    // The generator now records the door's exact cell (doorCellX/doorCellZ); it
+    // must be a genuine opening in a wall: air at the cut height, with the wall
+    // continuing solid directly above the cut (a doorway is a hole IN a wall).
+    // Cover every house template, simple (0-9) and composite (12-19).
+    auto check = [](int t) {
+        for (uint32_t s = 0; s < 4; s++) {
+            HouseBuilding h(t, 1, 1);
+            std::vector<uint8_t> blocks; std::vector<Room> rooms;
+            int dx, dy, dz;
+            genAndCheck(h, 700u + (uint32_t)t * 13u + s, blocks, rooms, dx, dy, dz);
+            const int cx = h.doorCellX, cz = h.doorCellZ;
+            CHECK(cx >= 0 && cx < dx && cz >= 0 && cz < dz);
+            auto at = [&](int x, int y, int z) -> uint8_t {
+                if (x < 0 || x >= dx || y < 0 || y >= dy || z < 0 || z >= dz)
+                    return (uint8_t)BlockType::Air;
+                return blocks[((size_t)y * dz + z) * dx + x];
+            };
+            CHECK_EQ((int)at(cx, 2, cz), (int)BlockType::Air);   // the door opening
+            CHECK(at(cx, 5, cz) != (uint8_t)BlockType::Air);     // wall above the cut
+        }
+    };
+    for (int t = 0; t <= 9;  t++) check(t);
+    for (int t = 12; t <= 19; t++) check(t);
+}
+
 TEST_CASE(House_CompositeVariesWithSeed) {
     // Composite footprints are seed-driven, so different seeds yield different
     // houses — four seeds must produce at least two distinct grids.

@@ -46,6 +46,8 @@ struct LanternLightList {
 // Standard tungsten-lantern colour used by held lanterns, props,
 // streetlamps, and town campfires. Magic-bolt lights set their own.
 static constexpr glm::vec3 LANTERN_DEFAULT_COLOR = glm::vec3(1.00f, 0.76f, 0.40f);
+// Warmer, redder cast for open hearth flame.
+static constexpr glm::vec3 FIRE_COLOR = glm::vec3(1.00f, 0.52f, 0.22f);
 
 static glm::vec3 lanternWorldPos(const glm::vec3& feetPos, float yaw, bool held) {
     glm::vec3 fwd   = glm::vec3(sinf(glm::radians(yaw)), 0.0f, cosf(glm::radians(yaw)));
@@ -123,10 +125,11 @@ static void collectLanternLights(const AppContext& ctx, float flicker, LanternLi
         addLantern(lights, n->position, n->yaw, /*held=*/false, flicker);
     }
 
-    // House lanterns and town street lamps only glow after dark.
+    // Indoor hearths glow day AND night (interiors stay dark by daylight);
+    // house lanterns, street lamps and campfires only kick in after dark.
     float sunY        = sunElevation(ctx.gameTime);
     float nightFactor = 1.0f - smoothstep(-0.08f, 0.12f, sunY);
-    if (nightFactor <= 0.01f) return;
+    const bool night  = nightFactor > 0.01f;
 
     // Collected nearest-first so distant lights drop off the fixed-size list.
     const glm::vec3 cam = ctx.camera.position;
@@ -136,17 +139,23 @@ static void collectLanternLights(const AppContext& ctx, float flicker, LanternLi
     const float LIGHT_RANGE = 16.0f * (float)CHUNK_SIZE;   // 256 blocks (> 15 chunks)
     const float COLLECT2     = LIGHT_RANGE * LIGHT_RANGE;
     const float t            = ctx.flickerTime;
-    struct Cand { glm::vec3 pos; float intensity, radius, d2; };
+    struct Cand { glm::vec3 pos; float intensity, radius, d2; glm::vec3 color; };
     std::vector<Cand> cand;
 
     for (const PropPlacement& pp : getPropPlacements()) {
         glm::vec3 lp;
         float intensity = 0.0f, radius = 0.0f;
-        if (pp.type == PropType::Lantern) {
+        glm::vec3 color = LANTERN_DEFAULT_COLOR;
+        if (pp.type == PropType::Fireplace) {
+            lp        = pp.pos + glm::vec3(0.0f, 0.70f, 0.0f);
+            intensity = 0.70f * perLightFlicker(t, pp.pos.x, pp.pos.z);
+            radius    = 15.0f;
+            color     = FIRE_COLOR;
+        } else if (night && pp.type == PropType::Lantern) {
             lp        = pp.pos + glm::vec3(0.0f, 0.45f, 0.0f);
             intensity = 0.57f * perLightFlicker(t, pp.pos.x, pp.pos.z) * nightFactor;
             radius    = 21.0f;
-        } else if (pp.type == PropType::StreetLamp) {
+        } else if (night && pp.type == PropType::StreetLamp) {
             lp        = pp.pos + glm::vec3(0.0f, 3.15f, 0.0f);
             intensity = 0.61f * perLightFlicker(t, pp.pos.x, pp.pos.z) * nightFactor;
             radius    = 26.0f;
@@ -156,20 +165,21 @@ static void collectLanternLights(const AppContext& ctx, float flicker, LanternLi
         float dx = lp.x - cam.x, dz = lp.z - cam.z;
         float d2 = dx * dx + dz * dz;
         if (d2 > COLLECT2) continue;
-        cand.push_back({ lp, intensity, radius, d2 });
+        cand.push_back({ lp, intensity, radius, d2, color });
     }
     // Town campfires glow after dark too.
-    for (const Town& t2 : getTownPlan().towns) {
-        if (t2.centerpiece != TownCenter::Campfire) continue;
-        glm::vec3 lp((float)t2.center.x + 0.5f, (float)t2.baseY + 2.5f,
-                     (float)t2.center.y + 0.5f);
-        float dx = lp.x - cam.x, dz = lp.z - cam.z;
-        float d2 = dx * dx + dz * dz;
-        if (d2 > COLLECT2) continue;
-        cand.push_back({ lp,
-                         0.75f * perLightFlicker(t, lp.x, lp.z) * nightFactor,
-                         24.0f, d2 });
-    }
+    if (night)
+        for (const Town& t2 : getTownPlan().towns) {
+            if (t2.centerpiece != TownCenter::Campfire) continue;
+            glm::vec3 lp((float)t2.center.x + 0.5f, (float)t2.baseY + 2.5f,
+                         (float)t2.center.y + 0.5f);
+            float dx = lp.x - cam.x, dz = lp.z - cam.z;
+            float d2 = dx * dx + dz * dz;
+            if (d2 > COLLECT2) continue;
+            cand.push_back({ lp,
+                             0.75f * perLightFlicker(t, lp.x, lp.z) * nightFactor,
+                             24.0f, d2, LANTERN_DEFAULT_COLOR });
+        }
     std::sort(cand.begin(), cand.end(),
               [](const Cand& a, const Cand& b) { return a.d2 < b.d2; });
     for (const Cand& c : cand) {
@@ -178,7 +188,7 @@ static void collectLanternLights(const AppContext& ctx, float flicker, LanternLi
         lights.pos[i]       = c.pos;
         lights.intensity[i] = c.intensity;
         lights.radius[i]    = c.radius;
-        lights.color[i]     = LANTERN_DEFAULT_COLOR;
+        lights.color[i]     = c.color;
     }
 }
 
@@ -1019,23 +1029,34 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
         glm::vec3 camRight(view[0][0], view[1][0], view[2][0]);
         glm::vec3 camUp   (view[0][1], view[1][1], view[2][1]);
 
-        static std::vector<Vertex> av;
-        av.clear();
-        av.reserve(ctx.ambientParticles.size() * 6);
-        // Vertex packing: position in xyz, colour in the normal slot,
-        // billboard UV in u/v, per-particle alpha in skyLight.
-        auto avtx = [&](const glm::vec3& p, const glm::vec3& col,
-                        float u, float vv, float a) {
-            av.push_back({ p.x, p.y, p.z, col.r, col.g, col.b,
-                           u, vv, 0.f, a, 0.f, 0.f });
+        // Two lists: glowing motes (additive) and soft grey smoke (alpha-over).
+        // Vertex packing: position xyz, colour in the normal slot, billboard UV
+        // in u/v, per-particle alpha in skyLight.
+        static std::vector<Vertex> av, smv;
+        av.clear(); smv.clear();
+        auto emit = [&](std::vector<Vertex>& out, const glm::vec3& c,
+                        const glm::vec3& col, float size, float a) {
+            glm::vec3 ax = camRight * size, ay = camUp * size;
+            glm::vec3 bl = c - ax - ay, br = c + ax - ay,
+                      tr = c + ax + ay, tl = c - ax + ay;
+            auto pv = [&](const glm::vec3& p, float u, float vv) {
+                out.push_back({ p.x, p.y, p.z, col.r, col.g, col.b,
+                                u, vv, 0.f, a, 0.f, 0.f });
+            };
+            pv(bl, 0.f, 0.f); pv(br, 1.f, 0.f); pv(tr, 1.f, 1.f);
+            pv(bl, 0.f, 0.f); pv(tr, 1.f, 1.f); pv(tl, 0.f, 1.f);
         };
         for (const auto& ap : ctx.ambientParticles) {
             float t = (ap.maxLife - ap.life) + ap.seed;
             float fadeIn  = std::min((ap.maxLife - ap.life) / 0.8f, 1.0f);
             float fadeOut = std::min(ap.life / 1.5f, 1.0f);
             float fade    = std::max(0.0f, std::min(1.0f, fadeIn * fadeOut));
-            float baseA   = 0.45f;
-            float pulse   = 1.0f;
+            if (ap.kind == 3) {                        // smoke — soft, alpha-blended
+                float a = 0.30f * fade;
+                if (a > 0.0f) emit(smv, ap.pos, ap.color, ap.size, a);
+                continue;
+            }
+            float baseA = 0.45f, pulse = 1.0f;
             if (ap.kind == 1) {
                 baseA = 0.95f;
                 pulse = 0.55f + 0.45f * (0.5f + 0.5f * sinf(t * 4.2f));
@@ -1045,30 +1066,27 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
                 if (pulse < 0.0f) pulse = 0.0f;
             }
             float alpha = baseA * pulse * fade;
-            if (alpha <= 0.0f) continue;
-            glm::vec3 ax = camRight * ap.size;
-            glm::vec3 ay = camUp    * ap.size;
-            glm::vec3 c  = ap.pos;
-            glm::vec3 bl = c - ax - ay, br = c + ax - ay,
-                      tr = c + ax + ay, tl = c - ax + ay;
-            avtx(bl, ap.color, 0.f, 0.f, alpha);
-            avtx(br, ap.color, 1.f, 0.f, alpha);
-            avtx(tr, ap.color, 1.f, 1.f, alpha);
-            avtx(bl, ap.color, 0.f, 0.f, alpha);
-            avtx(tr, ap.color, 1.f, 1.f, alpha);
-            avtx(tl, ap.color, 0.f, 1.f, alpha);
+            if (alpha > 0.0f) emit(av, ap.pos, ap.color, ap.size, alpha);
         }
-        if (!av.empty()) {
+        if (!av.empty() || !smv.empty()) {
             ambientShader.use();
             ambientShader.setMat4("view",       view);
             ambientShader.setMat4("projection", proj);
-            glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-            glDepthMask(GL_FALSE); glDisable(GL_CULL_FACE);
+            glEnable(GL_BLEND); glDepthMask(GL_FALSE); glDisable(GL_CULL_FACE);
             glBindVertexArray(particleVao);
             glBindBuffer(GL_ARRAY_BUFFER, particleVbo);
-            glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(av.size() * sizeof(Vertex)),
-                         av.data(), GL_DYNAMIC_DRAW);
-            glDrawArrays(GL_TRIANGLES, 0, (GLsizei)av.size());
+            if (!smv.empty()) {                        // smoke first, under the glints
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(smv.size() * sizeof(Vertex)),
+                             smv.data(), GL_DYNAMIC_DRAW);
+                glDrawArrays(GL_TRIANGLES, 0, (GLsizei)smv.size());
+            }
+            if (!av.empty()) {                         // glowing motes: additive
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+                glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(av.size() * sizeof(Vertex)),
+                             av.data(), GL_DYNAMIC_DRAW);
+                glDrawArrays(GL_TRIANGLES, 0, (GLsizei)av.size());
+            }
             glBindVertexArray(0);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             glDepthMask(GL_TRUE); glDisable(GL_BLEND); glEnable(GL_CULL_FACE);

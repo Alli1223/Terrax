@@ -86,6 +86,13 @@ public:
                           std::vector<Room>& rooms,
                           int& dimX, int& dimY, int& dimZ,
                           int& doorDX, int& doorDZ) = 0;
+
+    // Local-grid cell (pre-rotation, post-crop) of the front-door cut, recorded
+    // by generate() so callers don't have to recover it by scanning the blocks.
+    // That scan is unreliable for composite (L/T/U/+/H/Z/E) footprints, where the
+    // widest gap in the front wall row is usually a set-back or courtyard mouth
+    // rather than the doorway. bakeBuilding() rotates this into world placement.
+    int doorCellX = 0, doorCellZ = 0;
 };
 
 // --- Concrete buildings ------------------------------------------------------

@@ -98,7 +98,7 @@ void PubBuilding::generate(uint32_t /*seed*/,
     spec.plans[0].rooms[2] = RoomType::BarArea;       // back-left
     spec.plans[0].rooms[3] = RoomType::Bedroom;       // back-right guest room
     emitFromSpec(spec, material, outBlocks, rooms, dimX, dimY, dimZ,
-                 doorDX, doorDZ);
+                 doorDX, doorDZ, doorCellX, doorCellZ);
 }
 
 // --- BlacksmithBuilding ------------------------------------------------------
@@ -123,7 +123,7 @@ void BlacksmithBuilding::generate(uint32_t /*seed*/,
     spec.plans[0].rooms[0] = RoomType::Workshop;      // left: workshop / smith's room
     spec.plans[0].rooms[1] = RoomType::Forge;         // right: forge bay
     emitFromSpec(spec, material, outBlocks, rooms, dimX, dimY, dimZ,
-                 doorDX, doorDZ);
+                 doorDX, doorDZ, doorCellX, doorCellZ);
 }
 
 // --- MageTowerBuilding -------------------------------------------------------
@@ -156,7 +156,7 @@ void MageTowerBuilding::generate(uint32_t /*seed*/,
     for (int f = 0; f < spec.floors; f++)
         spec.plans[f].rooms[0] = STACK[std::min(3, f)];
     emitFromSpec(spec, material, outBlocks, rooms, dimX, dimY, dimZ,
-                 doorDX, doorDZ);
+                 doorDX, doorDZ, doorCellX, doorCellZ);
 }
 
 // --- StableBuilding ----------------------------------------------------------
@@ -178,7 +178,7 @@ void StableBuilding::generate(uint32_t /*seed*/,
     spec.porch     = false;
     spec.plans[0].rooms[0] = RoomType::Stable;
     emitFromSpec(spec, material, outBlocks, rooms, dimX, dimY, dimZ,
-                 doorDX, doorDZ);
+                 doorDX, doorDZ, doorCellX, doorCellZ);
     for (const Room& r : rooms)
         if (r.type == RoomType::Stable)
             stampStableInterior(outBlocks, dimX, dimY, dimZ, r);
@@ -202,7 +202,7 @@ void ChapelBuilding::generate(uint32_t /*seed*/,
     spec.porch     = true;
     spec.plans[0].rooms[0] = RoomType::Chapel;
     emitFromSpec(spec, material, outBlocks, rooms, dimX, dimY, dimZ,
-                 doorDX, doorDZ);
+                 doorDX, doorDZ, doorCellX, doorCellZ);
     for (const Room& r : rooms)
         if (r.type == RoomType::Chapel)
             stampChapelInterior(outBlocks, dimX, dimY, dimZ, r);
@@ -229,7 +229,7 @@ void ApothecaryBuilding::generate(uint32_t /*seed*/,
     spec.plans[0].rooms[0] = RoomType::Apothecary;    // front (door side)
     spec.plans[0].rooms[2] = RoomType::Bedroom;       // back living quarters
     emitFromSpec(spec, material, outBlocks, rooms, dimX, dimY, dimZ,
-                 doorDX, doorDZ);
+                 doorDX, doorDZ, doorCellX, doorCellZ);
 }
 
 // --- BakeryBuilding ----------------------------------------------------------
@@ -252,7 +252,7 @@ void BakeryBuilding::generate(uint32_t /*seed*/,
     spec.plans[0].rooms[0] = RoomType::Bakery;        // front (door side)
     spec.plans[0].rooms[2] = RoomType::Bedroom;       // back living quarters
     emitFromSpec(spec, material, outBlocks, rooms, dimX, dimY, dimZ,
-                 doorDX, doorDZ);
+                 doorDX, doorDZ, doorCellX, doorCellZ);
 }
 
 // --- WatchtowerBuilding ------------------------------------------------------
@@ -276,5 +276,5 @@ void WatchtowerBuilding::generate(uint32_t /*seed*/,
         spec.plans[f].rooms[0] = (f == spec.floors - 1) ? RoomType::Study
                                                         : RoomType::Hallway;
     emitFromSpec(spec, material, outBlocks, rooms, dimX, dimY, dimZ,
-                 doorDX, doorDZ);
+                 doorDX, doorDZ, doorCellX, doorCellZ);
 }

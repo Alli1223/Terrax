@@ -155,9 +155,14 @@ void stampRoadCell(Chunk* c, int lx, int lz, int sink) {
     if (already == BlockType::Gravel || already == BlockType::Stone ||
         already == BlockType::Dirt) return;
 
+    // Recess the lane one block into the ground so it reads as a defined, sunken
+    // path with a clean lip on either side. `sink` selects the surface material
+    // (0 = town cobble, >0 = country dirt); the town path still drops one block,
+    // and a deeper `sink` engraves further.
+    const int depth = std::max(1, sink);
     int roadY;
     if (gtop >= WORLD_SEA_LEVEL) {
-        roadY = gtop - sink;                            // land — engraved `sink` blocks down
+        roadY = gtop - depth;                           // land — engraved `depth` blocks down
     } else {
         roadY = WORLD_SEA_LEVEL;                        // water — a stone causeway
         for (int y = gtop + 1; y < roadY; y++) c->set(lx, y, lz, BlockType::Stone);
@@ -174,7 +179,9 @@ void stampRoadCell(Chunk* c, int lx, int lz, int sink) {
     BlockType surface;
     if (sink == 0) {
         // Town path: ~60% gravel + ~40% stone, cobble look.
-        surface = (r < 25) ? BlockType::Stone : BlockType::Gravel;
+        // Mostly stone with a light gravel speckle — a clean stone-paved lane
+        // rather than the old patchy gravel track.
+        surface = (r < 54) ? BlockType::Stone : BlockType::Gravel;
     } else {
         // Country highway: a plain dirty-brown dirt track.
         surface = BlockType::Dirt;
@@ -553,7 +560,7 @@ void stampTownPlaza(Chunk* c, const Town& t) {
             else {
                 uint32_t h = (uint32_t)wx * 0x9E3779B1u ^ (uint32_t)wz * 0x85EBCA77u ^ 0x9A2Eu;
                 h ^= h >> 16;
-                surface = ((h & 0x3F) < 34) ? BlockType::Stone : BlockType::Gravel;  // ~53% stone
+                surface = ((h & 0x3F) < 54) ? BlockType::Stone : BlockType::Gravel;  // ~84% stone
             }
             c->set(lx, gtop, lz, surface);
             c->set(lx, gtop + 1, lz, BlockType::Air);

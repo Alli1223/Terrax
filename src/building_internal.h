@@ -74,6 +74,13 @@ void cutDoorwayAlongZ(Grid& g, int wallX, int zA, int zB, int yFloor, int prefZ)
 void cutDoorwayAlongX(Grid& g, int wallZ, int xA, int xB, int yFloor, int prefX);
 int  stampRoof(Grid& g, int roof, int x0, int x1, int z0, int z1,
                int wallH, BlockType roofB, BlockType wallB);
+
+// Adds darker corner posts to the wall box [x0,x1]x[z0,z1] over y in [y0,y1] for
+// wooden / plastered houses; stone (pal.stone) houses are left plain. Only
+// recolours cells that are still pal.wall (skips windows, doors, trim).
+void textureWalls(Grid& g, int x0, int x1, int z0, int z1, int y0, int y1,
+                  const MaterialPalette& pal);
+
 HouseSpec pickHouseSpec(int templateType);
 
 // The common shell generator every Building subclass builds on: reads a

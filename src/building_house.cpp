@@ -82,6 +82,10 @@ void emitFromWings(std::vector<Wing> wings, int material, int roof, int floorH,
             g.set(x, 2, z, windowB); g.set(x, 3, z, windowB);
         }
 
+    // Darker corner posts (and brick coursing for stone composites) per wing.
+    for (const Wing& w : wings)
+        textureWalls(g, w.x0, w.x1, w.z0, w.z1, 1, wallH, pal);
+
     // One Room per wing (interior, shrunk a block off the walls).
     for (int i = 0; i < nWings; i++) {
         Room r;

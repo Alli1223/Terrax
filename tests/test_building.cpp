@@ -222,6 +222,28 @@ TEST_CASE(House_SteepRoofIsTallerThanFlat) {
     CHECK(sy > fy);
 }
 
+TEST_CASE(House_WoodCornersTexturedStoneLeftPlain) {
+    // Wooden houses get darker corner posts; stone houses are left plain (the
+    // brick coursing was removed). Each material's wallDark is a colour nothing
+    // else on that house uses, so it isolates the texture pass.
+    auto paint = [](int i) { return (BlockType)((int)BlockType::PaintFirst + i); };
+    auto countBlock = [](Building& b, uint32_t seed, BlockType target) {
+        std::vector<uint8_t> blocks; std::vector<Room> rooms;
+        int dx, dy, dz, ddx, ddz;
+        b.generate(seed, blocks, rooms, dx, dy, dz, ddx, ddz);
+        int n = 0;
+        for (uint8_t v : blocks) if ((BlockType)v == target) n++;
+        return n;
+    };
+    // Cabin (wood, material 4): dark-brown corner posts (paint 24) — present.
+    HouseBuilding cabin(0, 1, 4);
+    CHECK(countBlock(cabin, 11u, paint(24)) > 0);
+    // Manor (stone, material 3): left plain. Its slate accent (paint 3 — distinct
+    // from grey walls + navy roof) must not appear at all.
+    HouseBuilding manor(2, 1, 3);
+    CHECK_EQ(countBlock(manor, 12u, paint(3)), 0);
+}
+
 TEST_CASE(Bakery_GeneratesShopWithRooms) {
     BakeryBuilding b(1);
     std::vector<uint8_t> blocks; std::vector<Room> rooms;

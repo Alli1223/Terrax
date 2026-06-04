@@ -257,6 +257,8 @@ struct MaterialPalette {
     BlockType wall;
     BlockType roof;
     BlockType accent;     // chimneys, gable trim, etc.
+    BlockType wallDark;   // darker wall shade — used for corner posts
+    bool      stone = false;   // masonry material — walls left plain (no corner texturing)
 };
 MaterialPalette materialPalette(int material);
 

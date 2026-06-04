@@ -17,17 +17,20 @@ MaterialPalette materialPalette(int material) {
     auto paint = [](int i) { return (BlockType)((int)BlockType::PaintFirst + i); };
     MaterialPalette p;
     p.accent = paint(7);                              // brick red — chimneys, gable trim
+    // wallDark is a darker shade of the wall used for corner posts on wooden /
+    // plastered houses (signalling a different cut of wood). Stone materials set
+    // `stone` and are left plain — the earlier brick coursing read poorly.
     switch (material) {
-        case 1: p.wall = paint(0);  p.roof = paint(7);  break;  // Cottage:   white / brick red
-        case 2: p.wall = paint(3);  p.roof = paint(4);  break;  // Stone:     slate / charcoal
-        case 3: p.wall = paint(2);  p.roof = paint(20); break;  // Manor:     light grey / navy
-        case 4: p.wall = paint(12); p.roof = paint(4);  break;  // Cabin:     chestnut / charcoal
-        case 5: p.wall = paint(13); p.roof = paint(6);  break;  // Sandstone: sand / terracotta
-        case 6: p.wall = paint(15); p.roof = paint(16); break;  // Forest:    sage / forest green
-        case 7: p.wall = paint(0);  p.roof = paint(21); break;  // Coastal:   white / steel blue
-        case 8: p.wall = paint(6);  p.roof = paint(9);  break;  // Autumn:    terracotta / rust
-        case 9: p.wall = paint(23); p.roof = paint(22); break;  // Plum:      dusty rose / plum
-        default:p.wall = paint(13); p.roof = paint(12); break;  // Timber:    sand / chestnut
+        case 1: p.wall = paint(0);  p.roof = paint(7);  p.wallDark = paint(2);  break;  // Cottage:   white / brick red
+        case 2: p.wall = paint(3);  p.roof = paint(4);  p.wallDark = paint(4);  p.stone = true; break;  // Stone:     slate / charcoal
+        case 3: p.wall = paint(2);  p.roof = paint(20); p.wallDark = paint(3);  p.stone = true; break;  // Manor:     light grey / navy
+        case 4: p.wall = paint(12); p.roof = paint(4);  p.wallDark = paint(24); break;  // Cabin:     chestnut / charcoal
+        case 5: p.wall = paint(13); p.roof = paint(6);  p.wallDark = paint(25); p.stone = true; break;  // Sandstone: sand / terracotta
+        case 6: p.wall = paint(15); p.roof = paint(16); p.wallDark = paint(14); break;  // Forest:    sage / forest green
+        case 7: p.wall = paint(0);  p.roof = paint(21); p.wallDark = paint(2);  break;  // Coastal:   white / steel blue
+        case 8: p.wall = paint(6);  p.roof = paint(9);  p.wallDark = paint(27); break;  // Autumn:    terracotta / rust
+        case 9: p.wall = paint(23); p.roof = paint(22); p.wallDark = paint(22); break;  // Plum:      dusty rose / plum
+        default:p.wall = paint(13); p.roof = paint(12); p.wallDark = paint(12); break;  // Timber:    sand / chestnut
     }
     return p;
 }
@@ -333,6 +336,24 @@ int stampRoof(Grid& g, int roof, int x0, int x1, int z0, int z1,
     return roofTopY;
 }
 
+// Adds texture to a finished wall box: darker corner posts on wooden / plastered
+// houses, so each shows its structural corners (read as a different cut of wood
+// or a quoin). Stone houses are left plain — the earlier brick coursing read
+// poorly. Only cells still equal to pal.wall are recoloured, so windows, doors
+// and trim are kept.
+void textureWalls(Grid& g, int x0, int x1, int z0, int z1, int y0, int y1,
+                  const MaterialPalette& pal) {
+    if (pal.stone) return;                       // masonry walls stay plain
+    const BlockType w = pal.wall, d = pal.wallDark;
+    if (d == w) return;
+    auto dark = [&](int x, int y, int z) { if (g.get(x, y, z) == w) g.set(x, y, z, d); };
+    // Four vertical corner posts.
+    for (int y = y0; y <= y1; y++) {
+        dark(x0, y, z0); dark(x1, y, z0);
+        dark(x0, y, z1); dark(x1, y, z1);
+    }
+}
+
 // Common shell-generation routine shared by HouseBuilding / PubBuilding /
 // BlacksmithBuilding / MageTowerBuilding. Reads `spec` (size, floors, room
 // layout per floor) and produces a tight-cropped, world-aligned block grid
@@ -551,6 +572,9 @@ void emitFromSpec(const HouseSpec& specIn, int material,
             win(x1, wy, cz, false);
         }
     }
+
+    // Corner posts + (for stone houses) brick coursing on the exterior walls.
+    textureWalls(g, x0, x1, z0, z1, 1, wallH, pal);
 
     // Roof.
     const int roofTopY = stampRoof(g, spec.roof, x0, x1, z0, z1, wallH, roofB, wallB);

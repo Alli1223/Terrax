@@ -8,6 +8,7 @@
 #include "ui.h"
 #include "game_session.h"
 #include "graphics_settings.h"
+#include "audio.h"
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
@@ -47,6 +48,11 @@ int main(int argc, char** argv) {
         std::cerr << "Renderer init failed\n";
         return 1;
     }
+
+    // Audio is client-only and optional: if no device can be opened the game just
+    // runs silent (g_audio stays null and every sound call becomes a no-op).
+    AudioSystem audio;
+    if (audio.init()) g_audio = &audio;
 
     // Last framebuffer size the offscreen targets were sized to. Tracked so the
     // main loop can re-fit them whenever the window is resized by any means.
@@ -130,6 +136,7 @@ int main(int argc, char** argv) {
     }
 
     disconnectFromGame(ctx);
+    if (g_audio) { audio.shutdown(); g_audio = nullptr; }
     glfwTerminate();
     return 0;
 }

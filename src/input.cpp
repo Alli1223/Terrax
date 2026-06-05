@@ -5,6 +5,7 @@
 #include "game_session.h"
 #include "gameplay.h"
 #include "network.h"
+#include "audio.h"
 #include "imgui.h"
 #include <algorithm>
 #include <cmath>
@@ -65,11 +66,13 @@ static void mouse_button_callback(GLFWwindow* window, int button, int action, in
         if (button == GLFW_MOUSE_BUTTON_LEFT) {
             p = { hitBlock.x, hitBlock.y, hitBlock.z, (uint8_t)BlockType::Air };
             ctx.client->send(PacketType::BlockUpdate, &p, sizeof(p));
+            if (g_audio) g_audio->play2D(SoundId::BlockBreak, 0.5f);
         } else if (button == GLFW_MOUSE_BUTTON_RIGHT) {
             glm::ivec3 place = hitBlock + hitNormal;
             if (ctx.world.getBlock(place.x, place.y, place.z) == BlockType::Air) {
                 p = { place.x, place.y, place.z, (uint8_t)BlockType::Stone };
                 ctx.client->send(PacketType::BlockUpdate, &p, sizeof(p));
+                if (g_audio) g_audio->play2D(SoundId::BlockPlace, 0.5f);
             }
         }
     }

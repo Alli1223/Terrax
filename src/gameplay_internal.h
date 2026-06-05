@@ -33,6 +33,7 @@ void updateLeafParticles(AppContext& ctx);
 void updateWeather(AppContext& ctx);
 void updateWeatherParticles(AppContext& ctx);
 void updateAmbientParticles(AppContext& ctx);
+void updateAudio(AppContext& ctx);
 void updateHousePreview(AppContext& ctx);
 
 // --- gameplay_spells.cpp: healing staff ------------------------------------

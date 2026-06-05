@@ -4,6 +4,7 @@
 #include "world.h"
 #include "network.h"
 #include "npc_appearance.h"
+#include "prop_placement.h"   // getPropPlacements() — deterministic, server-safe
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -28,7 +29,8 @@ static bool isNight(float gameTime) {
     return gameTime < 0.24f || gameTime > 0.76f;
 }
 
-static constexpr int CAMP_GRID = 256;   // bandit-camp survey cell size, blocks
+static constexpr int   CAMP_GRID  = 256;   // bandit-camp survey cell size, blocks
+static constexpr float RAID_RANGE = 240.0f; // a camp this near a town may raid it
 
 // Snaps an NPC's Y onto the surface directly under it.
 //
@@ -112,6 +114,8 @@ void NPC::update(float dt, World& world) {
             rig->attackAnim  = 0.0f;
         }
         prevAttackFlag = attackFlag;
+        // A seated villager snaps to the resting pose; otherwise stand & walk.
+        rig->pose = sitting ? PlayerPose::Sitting : PlayerPose::Standing;
         // Drive the gait from the server's authoritative speed, not the noisy
         // frame-to-frame interpolation delta, so the walk cycle stays steady.
         rig->update(dt, glm::length(velocity) * 0.6f);
@@ -332,6 +336,12 @@ void NpcDirector::populateTown(int ti) {
         // farms have empty rooms and are skipped.
         if (b.rooms.empty()) continue;
 
+        // Villagers living in a trade building (tavern, smithy, mage tower,
+        // stable, chapel, apothecary, bakery) tend it during the day instead of
+        // drifting off to the plaza the way ordinary house-dwellers do.
+        const bool isWorkplace = (b.kind >= (int)BuildingKind::Pub &&
+                                  b.kind <= (int)BuildingKind::Bakery);
+
         float cx = (float)b.wx + b.dimX * 0.5f;
         float cz = (float)b.wz + b.dimZ * 0.5f;
         float halfAlong = (b.doorDX != 0) ? b.dimX * 0.5f : b.dimZ * 0.5f;
@@ -374,6 +384,7 @@ void NpcDirector::populateTown(int ti) {
             n->appearanceSeed = hashU32((uint32_t)ti * 977u + (uint32_t)bi * 31u
                                         + (uint32_t)k, 0x5EEDu);
             n->townIndex = ti;
+            n->worker    = isWorkplace;
             n->groundY   = (float)t.baseY + 1.0f;
             n->homePos   = home;
             n->doorPos   = door;
@@ -424,13 +435,44 @@ void NpcDirector::depopulateTown(int ti) {
                      }),
                  active.end());
     populated.erase(ti);
+    seatTaken.erase(ti);   // its villagers are gone — free every seat
+}
+
+// Plaza bench seats for a town, derived once from the deterministic prop
+// placements so villagers sit on the actual benches. getPropPlacements() is a
+// pure-data, lazy-once global (no GL), so it's safe to read on the server thread.
+const std::vector<SeatSpot>& NpcDirector::townSeats(int ti) {
+    auto it = seatCache.find(ti);
+    if (it != seatCache.end()) return it->second;
+
+    std::vector<SeatSpot> seats;
+    const Town& t = getTownPlan().towns[ti];
+    const float cx = (float)t.center.x, cz = (float)t.center.y;
+    const float reach = (float)t.radius + 10.0f;
+    const float reach2 = reach * reach;
+    const float BENCH_SIT_Y = 0.55f;   // seat surface above the bench's base
+    for (const PropPlacement& pp : getPropPlacements()) {
+        if (pp.type != PropType::Bench) continue;
+        float dx = pp.pos.x - cx, dz = pp.pos.z - cz;
+        if (dx * dx + dz * dz > reach2) continue;
+        seats.push_back({ pp.pos + glm::vec3(0.0f, BENCH_SIT_Y, 0.0f), pp.yaw });
+    }
+    return seatCache.emplace(ti, std::move(seats)).first->second;
+}
+
+void NpcDirector::releaseSeat(NPC& n) {
+    if (n.seatIndex < 0) return;
+    auto it = seatTaken.find(n.townIndex);
+    if (it != seatTaken.end() && n.seatIndex < (int)it->second.size())
+        it->second[n.seatIndex] = 0;
+    n.seatIndex = -1;
 }
 
 void NpcDirector::stepVillager(NPC& n, float dt, World& world, float gameTime) {
     bool night = isNight(gameTime);
     TownNav& nav = navCache[n.townIndex];
 
-    groundSnap(n, world);   // plant on the surface (terrain or engraved paths)
+    if (!n.sitting) groundSnap(n, world);   // a seated villager stays on the bench
 
     // Panic — flee from a recent attacker until the fright passes.
     if (n.fleeTimer > 0.0f) {
@@ -487,7 +529,10 @@ void NpcDirector::stepVillager(NPC& n, float dt, World& world, float gameTime) {
     // React to dusk/dawn at once: head indoors when night falls, resume
     // wandering at dawn — don't wait for the current route to finish.
     if (night && !n.goingHome) {
-        n.goingHome = true;
+        n.goingHome  = true;
+        n.sitting    = false;          // rise from any bench when dusk falls
+        n.pendingAct = 0;
+        releaseSeat(n);
         routeHome();
         n.idleTimer = 0.0f;
     } else if (!night && n.goingHome) {
@@ -508,6 +553,7 @@ void NpcDirector::stepVillager(NPC& n, float dt, World& world, float gameTime) {
         n.velocity = glm::vec3(0.0f);
         n.idleTimer -= dt;
         if (n.idleTimer > 0.0f) return;
+        if (n.sitting) { n.sitting = false; n.pendingAct = 0; releaseSeat(n); }   // rise from the bench
 
         glm::vec2 cur(n.position.x, n.position.z);
         if (n.goingHome) {
@@ -525,13 +571,51 @@ void NpcDirector::stepVillager(NPC& n, float dt, World& world, float gameTime) {
         }
         const Town& t = getTownPlan().towns[n.townIndex];
         glm::vec2 centre((float)t.center.x, (float)t.center.y);
-        glm::vec2 goal = (frand01(rng) < 0.4f)
-            ? nav.randomWalkableNear(centre, t.radius * 0.5f, rng)
-            : nav.randomWalkableNear(cur, 28.0f, rng);
+
+        // By day, make use of the town: sit on a plaza bench, gather around the
+        // square, or wander the lanes. pendingAct records what to do on arrival.
+        n.pendingAct = 0;
+        glm::vec2 goal;
+        float roll = frand01(rng);
+        const std::vector<SeatSpot>& seats = townSeats(n.townIndex);
+        std::vector<uint8_t>& taken = seatTaken[n.townIndex];
+        if (taken.size() != seats.size()) taken.assign(seats.size(), 0);
+
+        // Claim a *free* bench so no two villagers share one seat.
+        int seat = -1;
+        if (!seats.empty() && roll < 0.22f) {
+            for (int a = 0; a < 8 && seat < 0; a++) {
+                int i = (int)(rng() % seats.size());
+                if (!taken[i]) seat = i;
+            }
+            if (seat < 0)
+                for (size_t i = 0; i < seats.size(); i++)
+                    if (!taken[i]) { seat = (int)i; break; }
+        }
+        if (seat >= 0) {
+            taken[seat]  = 1;
+            n.seatIndex  = seat;
+            n.restAnchor = seats[seat].pos;
+            n.restYaw    = seats[seat].yaw;
+            n.pendingAct = 1;                                   // sit on arrival
+            goal = nav.nearestWalkable(glm::vec2(seats[seat].pos.x, seats[seat].pos.z));
+        } else if (n.worker && roll < 0.55f) {
+            n.pendingAct = 2;                                   // tend the workplace
+            goal = nav.randomWalkableNear(n.homePos, 4.0f, rng);
+        } else if (roll < 0.74f) {
+            n.pendingAct = 2;                                   // linger at the plaza
+            goal = nav.randomWalkableNear(
+                centre, std::max(8.0f, (float)t.plazaR * 0.7f), rng);
+        } else {
+            goal = nav.randomWalkableNear(cur, 28.0f, rng);
+        }
         n.path = nav.findPath(cur, goal);
         n.pathIndex = 0;
-        if (n.path.empty())
-            n.idleTimer = 1.0f + frand01(rng) * 2.0f;   // retry shortly
+        if (n.path.empty()) {
+            releaseSeat(n);                                     // couldn't route — give it back
+            n.pendingAct = 0;
+            n.idleTimer  = 1.0f + frand01(rng) * 2.0f;          // retry shortly
+        }
         return;
     }
 
@@ -545,8 +629,17 @@ void NpcDirector::stepVillager(NPC& n, float dt, World& world, float gameTime) {
         if (n.pathIndex >= n.path.size()) {
             n.walking  = false;
             n.velocity = glm::vec3(0.0f);
-            n.idleTimer = night ? (4.0f + frand01(rng) * 4.0f)
-                                : (2.0f + frand01(rng) * 4.0f);
+            if (!night && n.pendingAct == 1) {                 // settle onto the bench
+                n.sitting   = true;
+                n.position  = n.restAnchor;
+                n.groundY   = n.restAnchor.y;
+                n.yaw       = n.restYaw;
+                n.idleTimer = 8.0f + frand01(rng) * 10.0f;
+            } else {
+                n.idleTimer = night ? (4.0f + frand01(rng) * 4.0f)
+                            : (n.pendingAct == 2 ? (5.0f + frand01(rng) * 7.0f)
+                                                 : (2.0f + frand01(rng) * 4.0f));
+            }
         }
         return;
     }
@@ -682,6 +775,9 @@ void NpcDirector::playerHitNpc(uint32_t attackerId, uint32_t npcId,
         if (n->type == NPCType::Villager) {
             n->fleeTimer = 6.0f;                               // panic
             n->fleeFrom  = glm::vec2(attackerPos.x, attackerPos.z);
+            n->sitting   = false;                              // leap up from any bench
+            n->pendingAct = 0;
+            releaseSeat(*n);
         }
         if (n->type == NPCType::Villager || n->type == NPCType::Guard) {
             wantedTimer[attackerId] = 20.0f;                   // a crime — guards respond
@@ -709,19 +805,34 @@ void NpcDirector::stepBandit(NPC& n, float dt, World& world,
     if (n.attackCooldown  > 0.0f) n.attackCooldown  -= dt;
     if (n.attackAnimTimer > 0.0f) n.attackAnimTimer -= dt;
 
-    // Hunt the nearest player in aggro range that isn't safe inside a town.
-    const DirectorPlayer* target = nullptr;
-    float bestD2 = 22.0f * 22.0f;
+    // Acquire a target: the nearest aggro-range player outside a town, or a town
+    // guard that has closed within striking distance — so a raiding or cornered
+    // bandit fights the watch back instead of ignoring it.
+    const DirectorPlayer* pTarget = nullptr;
+    float pBest = 22.0f * 22.0f;
     for (const DirectorPlayer& p : players) {
         if (inAnyTown(glm::vec2(p.pos.x, p.pos.z))) continue;
         float dx = p.pos.x - n.position.x, dz = p.pos.z - n.position.z;
         float d2 = dx * dx + dz * dz;
-        if (d2 < bestD2) { bestD2 = d2; target = &p; }
+        if (d2 < pBest) { pBest = d2; pTarget = &p; }
     }
+    NPC* gTarget = nullptr;
+    float gBest = 14.0f * 14.0f;
+    for (auto& o : active) {
+        if (o->type != NPCType::Guard || o->dyingTimer > 0.0f) continue;
+        float dx = o->position.x - n.position.x, dz = o->position.z - n.position.z;
+        float d2 = dx * dx + dz * dz;
+        if (d2 < gBest) { gBest = d2; gTarget = o.get(); }
+    }
+    // Prefer whichever hostile is closer; the guard's range is tighter, so a
+    // guard only wins the contest once it has genuinely closed in.
+    const bool hitGuard = gTarget && (!pTarget || gBest < pBest);
 
-    if (target) {
+    if (pTarget || gTarget) {
         glm::vec2 cur(n.position.x, n.position.z);
-        glm::vec2 d(target->pos.x - cur.x, target->pos.z - cur.y);
+        glm::vec2 tpos = hitGuard ? glm::vec2(gTarget->position.x, gTarget->position.z)
+                                  : glm::vec2(pTarget->pos.x, pTarget->pos.z);
+        glm::vec2 d = tpos - cur;
         float dist = glm::length(d);
         glm::vec2 dir = (dist > 0.01f) ? d / dist : glm::vec2(0.0f, 1.0f);
         n.yaw = glm::degrees(atan2f(dir.x, dir.y));
@@ -740,7 +851,15 @@ void NpcDirector::stepBandit(NPC& n, float dt, World& world,
             if (n.attackCooldown <= 0.0f) {
                 n.attackCooldown  = 1.5f;
                 n.attackAnimTimer = 0.45f;
-                pendingDamage.push_back({ target->id, 7.0f });
+                if (hitGuard) {
+                    gTarget->health -= 8.0f;
+                    if (gTarget->health <= 0.0f) {
+                        gTarget->health     = 0.0f;
+                        gTarget->dyingTimer = 2.0f;
+                    }
+                } else {
+                    pendingDamage.push_back({ pTarget->id, 7.0f });
+                }
             }
         }
         n.path.clear();
@@ -754,6 +873,41 @@ void NpcDirector::stepBandit(NPC& n, float dt, World& world,
         n.velocity = glm::vec3(0.0f);
         n.idleTimer -= dt;
         if (n.idleTimer > 0.0f) return;
+
+        // Occasionally march on a nearby settlement so the watch has something to
+        // answer. Raids are rare by design — a flavour skirmish, not a siege — and
+        // a raider that arrives unopposed soon drifts back toward its camp.
+        if (!n.raiding) {
+            const Town* rt = nullptr;
+            float rBest = RAID_RANGE * RAID_RANGE;
+            for (const Town& tt : getTownPlan().towns) {
+                float dx = (float)tt.center.x - n.position.x;
+                float dz = (float)tt.center.y - n.position.z;
+                float d2 = dx * dx + dz * dz;
+                if (d2 < rBest) { rBest = d2; rt = &tt; }
+            }
+            if (rt && frand01(rng) < 0.05f) {
+                glm::vec2 c((float)rt->center.x, (float)rt->center.y);
+                glm::vec2 dir = c - n.homePos;
+                float L = glm::length(dir);
+                dir = (L > 0.01f) ? dir / L : glm::vec2(1.0f, 0.0f);
+                n.raidTarget = c - dir * ((float)rt->radius + 6.0f);  // halt at the wall
+                n.raiding    = true;
+            }
+        }
+        if (n.raiding) {
+            glm::vec2 cur(n.position.x, n.position.z);
+            if (glm::distance(cur, n.raidTarget) < 5.0f) {
+                n.raiding   = false;            // reached the walls — let guards come
+                n.idleTimer = 1.5f + frand01(rng) * 2.5f;
+                return;
+            }
+            n.path.clear();
+            n.path.push_back(n.raidTarget);
+            n.pathIndex = 0;
+            return;
+        }
+
         float ang = frand01(rng) * 6.2831853f;
         float r   = 6.0f + frand01(rng) * 22.0f;   // stays within ~28 of the camp
         n.path.clear();

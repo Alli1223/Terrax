@@ -14,6 +14,7 @@
 #include "loot_drop.h"
 #include "projectile.h"
 #include "voxel_model.h"
+#include "audio.h"
 #include <algorithm>
 #include <vector>
 #include <iostream>
@@ -218,6 +219,7 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
                 arrow->ownerClientId = ctx.client->clientID;
                 arrow->damageScale   = scale;
                 ctx.objectManager.add(std::move(arrow));
+                if (g_audio) g_audio->play2D(SoundId::BowShot, 0.55f);
             }
             ctx.bowCharge = 0.0f;
         }
@@ -243,6 +245,7 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
             if (w && w->usesCastAnimation()) {
                 ctx.playerRig->isCasting = true;
                 ctx.playerRig->castAnim  = 0.0f;
+                if (g_audio) g_audio->play2D(SoundId::MagicCast, 0.6f);
             } else {
                 ctx.playerRig->isAttacking = true;
                 ctx.playerRig->attackAnim  = 0.0f;
@@ -252,6 +255,10 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
                 float cone  = w->isInstantRanged() ? w->attackFacing() : 0.3f;
                 NPC* target = findTargetNpc(ctx, range, cone);
                 w->onPrimaryAttack(ctx, 1.0f, target);
+                if (g_audio && !w->usesCastAnimation()) {
+                    g_audio->play2D(SoundId::Swing, 0.45f);
+                    if (target) g_audio->play2D(SoundId::MeleeHit, 0.5f);
+                }
             } else {
                 NPC* target = findMeleeTargetNpc(ctx);
                 PlayerAttackPacket ap {};
@@ -259,6 +266,10 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
                 ap.targetNpcId = target ? target->id : 0u;
                 ap.damageScale = 1.0f;
                 ctx.client->send(PacketType::PlayerAttack, &ap, sizeof(ap));
+                if (g_audio) {
+                    g_audio->play2D(SoundId::Swing, 0.45f);
+                    if (target) g_audio->play2D(SoundId::MeleeHit, 0.5f);
+                }
             }
         }
     }
@@ -469,6 +480,7 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
     updateProjectileCollisions(ctx);
     ctx.objectManager.streamProps(ctx.camera.position, 260.0f,
                                   getPropPlacements(), ctx.propLibrary);
+    ctx.objectManager.streamWildProps(ctx.camera.position, 96.0f, ctx.propLibrary);
     ctx.objectManager.streamDoors(ctx.camera.position, 180.0f,
                                   getDoorPlacements(), ctx.propLibrary,
                                   &ctx.camera.position);
@@ -488,6 +500,7 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
         updateWeather(ctx);
         updateWeatherParticles(ctx);
         updateAmbientParticles(ctx);
+        updateAudio(ctx);
     }
 
     updateHousePreview(ctx);

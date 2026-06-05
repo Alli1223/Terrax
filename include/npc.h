@@ -37,6 +37,7 @@ public:
     float    health         = 100.0f;
     uint32_t appearanceSeed = 0;
     bool     walking        = false;
+    bool     sitting        = false;  // server→client (flags bit 3): seated pose
 
     // Client-side interpolation targets, fed from NPCState packets.
     glm::vec3 targetPos{0.0f};
@@ -58,6 +59,8 @@ public:
     // --- Server-side AI state (owned by NpcDirector) ---
     int       townIndex = -1;           // villager: home town index
     uint64_t   campKey   = 0;            // enemy: owning camp key
+    bool      raiding   = false;         // enemy: currently marching on a town
+    glm::vec2 raidTarget{0.0f};          // enemy: the town-edge point being raided
     glm::vec2 homePos{0.0f};            // villager: door approach / enemy: camp centre
     glm::vec2 doorPos{0.0f};            // on-axis point right at the doorway
     glm::vec2 insidePos{0.0f};          // spot just inside the house, through the door
@@ -69,6 +72,15 @@ public:
     size_t    pathIndex = 0;
     float     idleTimer = 0.0f;
     bool      goingHome = false;        // villager night routine: heading to / staying home
+
+    // Daytime "use the town" routine (server-only): what to do at the end of the
+    // current route. pendingAct — 0 = nothing, 1 = sit on the bench at restAnchor,
+    // 2 = linger here a while (gather at the plaza / loiter by a shop).
+    glm::vec3 restAnchor{0.0f};         // world XYZ of the seat (incl. seat height)
+    float     restYaw    = 0.0f;        // facing while seated
+    uint8_t   pendingAct = 0;
+    bool      worker     = false;       // villager lives in a trade building — tends it by day
+    int       seatIndex  = -1;          // claimed bench seat (index into the town seat list), or -1
 
     // Server-only: set to true the first time loot was rolled for this
     // NPC's death so we don't spawn loot on every overkill swing.
@@ -123,6 +135,13 @@ struct DirectorPlayer {
     glm::vec3 pos;
 };
 
+// A place a villager can rest by day — a plaza bench seat. Derived once per town
+// from the deterministic prop placements so NPCs sit on the actual furniture.
+struct SeatSpot {
+    glm::vec3 pos;     // world XYZ of the seat surface (sitting anchor)
+    float     yaw;     // facing while seated (the bench's own facing)
+};
+
 // Damage an NPC dealt to a player; the server loop drains it each tick.
 struct PlayerDamage {
     uint32_t playerId;
@@ -149,6 +168,10 @@ public:
 private:
     void populateTown(int townIndex);
     void depopulateTown(int townIndex);
+    // Lazily builds (and caches) the list of plaza bench seats for a town.
+    const std::vector<SeatSpot>& townSeats(int townIndex);
+    // Frees a villager's claimed bench seat (if any) so someone else may use it.
+    void releaseSeat(NPC& n);
     void stepVillager(NPC& n, float dt, World& world, float gameTime);
     void stepGuard(NPC& n, float dt, World& world,
                    const std::vector<DirectorPlayer>& players);
@@ -164,6 +187,8 @@ private:
 
     std::vector<std::unique_ptr<NPC>> active;
     std::unordered_map<int, TownNav>  navCache;
+    std::unordered_map<int, std::vector<SeatSpot>> seatCache;
+    std::unordered_map<int, std::vector<uint8_t>>  seatTaken;   // 1 = a villager holds this seat
     std::unordered_set<int>           populated;
     std::unordered_map<uint64_t, Camp> campCache;
     std::unordered_set<uint64_t>       activeCamps;

@@ -17,6 +17,7 @@
 #include "loot_drop.h"
 #include "projectile.h"
 #include "voxel_model.h"
+#include "audio.h"
 #include <algorithm>
 #include <vector>
 #include <iostream>
@@ -25,6 +26,7 @@
 #include <mutex>
 #include <random>
 #include <memory>
+#include <unordered_map>
 #include "gameplay_internal.h"
 
 void updateLeafParticles(AppContext& ctx) {
@@ -176,9 +178,45 @@ void updateWeatherParticles(AppContext& ctx) {
     }
 }
 
+// World-space vent above a house's chimney — the tallest solid column of the
+// baked building grid. The chimney is the highest point of the house, so this
+// finds it regardless of how the template was rotated, and ignores roofs with no
+// chimney stack. Computed once per building and cached by its world corner.
+// Returns false for buildings with no usable chimney (sheds, flat roofs, farms).
+static bool chimneyVentFor(const TownBuilding& b, glm::vec3& outVent) {
+    static std::unordered_map<uint64_t, glm::vec3> cache;   // y < 0 ⇒ no chimney
+    uint64_t key = ((uint64_t)(uint32_t)b.wx << 32) | (uint32_t)b.wz;
+    auto it = cache.find(key);
+    if (it == cache.end()) {
+        int bestY = -1, bestX = 0, bestZ = 0;
+        if (b.dimX > 0 && b.dimY > 0 && b.dimZ > 0 &&
+            (int)b.blocks.size() >= b.dimX * b.dimY * b.dimZ) {
+            for (int z = 0; z < b.dimZ; z++)
+                for (int x = 0; x < b.dimX; x++)
+                    for (int y = b.dimY - 1; y >= 0; y--) {
+                        uint8_t v = b.blocks[((size_t)y * b.dimZ + z) * b.dimX + x];
+                        if (v != (uint8_t)BlockType::Air) {
+                            if (y > bestY) { bestY = y; bestX = x; bestZ = z; }
+                            break;
+                        }
+                    }
+        }
+        glm::vec3 vent(-1.0f);
+        if (bestY >= 5)                          // tall enough to be a real stack
+            vent = glm::vec3((float)b.wx + (float)bestX + 0.5f,
+                             (float)b.baseY + (float)bestY + 0.5f,
+                             (float)b.wz + (float)bestZ + 0.5f);
+        it = cache.emplace(key, vent).first;
+    }
+    if (it->second.y < 0.0f) return false;
+    outVent = it->second;
+    return true;
+}
+
 // Drifting atmosphere particles — pale pollen motes by day (lovely catching
 // the volumetric light shafts), glowing fireflies near the ground at night,
-// and warm embers rising from nearby town campfires after dark.
+// warm embers from nearby town campfires after dark, and thin smoke rising from
+// the chimneys of occupied homes so towns read as lived-in from the outside.
 void updateAmbientParticles(AppContext& ctx) {
     static std::mt19937 aRng(std::random_device{}());
     std::uniform_real_distribution<float> u01(0.0f, 1.0f);
@@ -292,16 +330,8 @@ void updateAmbientParticles(AppContext& ctx) {
         const float dx = pr->position.x - cam.x, dz = pr->position.z - cam.z;
         if (pr->type == PropType::Fireplace) {
             if (dx * dx + dz * dz > 22.0f * 22.0f) continue;
-            if (u01(aRng) < 0.7f) {                       // chimney smoke
-                float g = 0.34f + u01(aRng) * 0.16f;
-                glm::vec3 p = pr->position + glm::vec3((u01(aRng) - 0.5f) * 0.4f, 2.1f,
-                                                       (u01(aRng) - 0.5f) * 0.4f);
-                spawn(p, glm::vec3(g, g, g * 0.97f), 3.2f + u01(aRng) * 1.6f,
-                      0.16f + u01(aRng) * 0.07f, 3,
-                      glm::vec3((u01(aRng) - 0.5f) * 0.25f, 0.7f + u01(aRng) * 0.4f,
-                                (u01(aRng) - 0.5f) * 0.25f));
-                emitted++;
-            }
+            // The smoke itself now vents from the rooftop chimney (below); the
+            // hearth just spits the odd spark for a cosy glow when you're indoors.
             if (u01(aRng) < 0.4f) {                       // a spark off the fire
                 glm::vec3 p = pr->position + glm::vec3((u01(aRng) - 0.5f) * 0.4f, 0.7f,
                                                        (u01(aRng) - 0.5f) * 0.25f);
@@ -338,6 +368,38 @@ void updateAmbientParticles(AppContext& ctx) {
                             (u01(aRng) - 0.5f) * 0.3f));
         }
     }
+
+    // --- Rooftop chimney smoke from nearby occupied homes (day & night) ------
+    // A thin grey plume from each house's chimney so a town looks lived-in from
+    // outside. Vents are found once per building (the tallest column of its baked
+    // grid) and cached; kept within the 28-block particle horizon and capped per
+    // frame so a dense town reads as a scatter of plumes, not a smokescreen.
+    int chimneys = 0;
+    for (const Town& t : getTownPlan().towns) {
+        if (chimneys >= 6) break;
+        float tdx = (float)t.center.x - cam.x, tdz = (float)t.center.y - cam.z;
+        float reach = (float)t.radius + 28.0f;
+        if (tdx * tdx + tdz * tdz > reach * reach) continue;   // whole town too far
+        for (const TownBuilding& b : t.buildings) {
+            if (chimneys >= 6) break;
+            if (b.rooms.empty()) continue;                     // homes & shops only
+            float bcx = (float)b.wx + b.dimX * 0.5f, bcz = (float)b.wz + b.dimZ * 0.5f;
+            float dx = bcx - cam.x, dz = bcz - cam.z;
+            if (dx * dx + dz * dz > 26.0f * 26.0f) continue;
+            glm::vec3 vent;
+            if (!chimneyVentFor(b, vent)) continue;
+            if (u01(aRng) < 0.22f) {
+                float g = 0.40f + u01(aRng) * 0.16f;
+                glm::vec3 p = vent + glm::vec3((u01(aRng) - 0.5f) * 0.3f, 0.4f,
+                                               (u01(aRng) - 0.5f) * 0.3f);
+                spawn(p, glm::vec3(g, g, g * 0.96f), 4.0f + u01(aRng) * 2.2f,
+                      0.13f + u01(aRng) * 0.06f, 3,
+                      glm::vec3((u01(aRng) - 0.5f) * 0.18f, 0.55f + u01(aRng) * 0.35f,
+                                (u01(aRng) - 0.5f) * 0.18f));
+                chimneys++;
+            }
+        }
+    }
 }
 
 // Keeps the house placement ghost in front of the player, snapped to the
@@ -353,5 +415,48 @@ void updateHousePreview(AppContext& ctx) {
         gy--;
     ctx.housePreviewPos = glm::vec3(target.x, (float)gy, target.z);
     ctx.housePreviewYaw = roundf(ctx.playerYaw / 90.0f) * 90.0f;
+}
+
+// Per-frame audio upkeep: refresh the listener + ambient beds (wind/fire/birds)
+// and emit the local player's footsteps. Sound is purely client-side, so this is
+// a no-op whenever the audio engine failed to start (g_audio stays null).
+void updateAudio(AppContext& ctx) {
+    if (!g_audio) return;
+    const glm::vec3 cam = ctx.camera.position;
+
+    // Distance to the closest lit hearth or campfire — drives the fire ambience.
+    float nearestFire = 1e9f;
+    for (const auto& obj : ctx.objectManager.objects()) {
+        if (obj->dead || obj->kind != ObjectKind::Prop) continue;
+        const Prop* pr = static_cast<const Prop*>(obj.get());
+        if (pr->type != PropType::Fireplace) continue;
+        float dx = pr->position.x - cam.x, dz = pr->position.z - cam.z;
+        nearestFire = std::min(nearestFire, std::sqrt(dx * dx + dz * dz));
+    }
+    for (const Town& t : getTownPlan().towns) {
+        if (t.centerpiece != TownCenter::Campfire) continue;
+        float dx = (float)t.center.x - cam.x, dz = (float)t.center.y - cam.z;
+        nearestFire = std::min(nearestFire, std::sqrt(dx * dx + dz * dz));
+    }
+
+    g_audio->update(cam, ctx.playerYaw, ctx.deltaTime, ctx.gameTime,
+                    ctx.weatherIntensity, nearestFire);
+
+    // Footsteps: a soft step on a cadence that quickens with speed. Alternating
+    // pitch gives a left/right-foot feel. Only while grounded and actually moving.
+    static float stepTimer = 0.0f;
+    static bool  altFoot   = false;
+    float sx = ctx.camera.velocity.x, sz = ctx.camera.velocity.z;
+    float speed = std::sqrt(sx * sx + sz * sz);
+    if (ctx.camera.onGround && speed > 1.5f) {
+        stepTimer -= ctx.deltaTime;
+        if (stepTimer <= 0.0f) {
+            stepTimer = (speed > 14.0f) ? 0.27f : 0.42f;   // faster when sprinting
+            altFoot   = !altFoot;
+            g_audio->play2D(SoundId::Footstep, 0.32f, altFoot ? 0.96f : 1.05f);
+        }
+    } else {
+        stepTimer = 0.0f;
+    }
 }
 

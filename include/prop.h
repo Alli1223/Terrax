@@ -31,7 +31,9 @@ enum class PropType : uint8_t {
     // Town atmosphere props
     FlowerPot, FlowerBed, Barrel, BuntingSpan,
     // Town centre detail
-    Crate, ProducePile, Fountain,
+    Crate, ProducePile, Fountain, MarketStall, NoticeBoard,
+    // Wild bush variants scattered across the world (see streamWildProps)
+    BushFlowering, BushBerry, BushConifer, BushDry,
     Count
 };
 
@@ -72,6 +74,8 @@ public:
 
     PropType type;
     uint32_t placementIndex = 0xFFFFFFFFu;   // index into getPropPlacements()
+    bool     wild     = false;               // a procedurally scattered wild bush
+    uint64_t wildKey  = 0;                    // its scatter key (when wild) — see streamWildProps
 
 private:
     const PropLibrary* library = nullptr;    // borrowed

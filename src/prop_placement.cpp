@@ -300,6 +300,16 @@ void placeFurniture(const TownBuilding& b) {
     }
 }
 
+// Ground rest-height for a prop. Inside a town's hard-flat zone we use the
+// leveled baseY so the prop sits exactly on the flattened/paved surface; outside
+// it (e.g. a fence run along an open highway) we fall back to the raw terrain
+// surface. Resting on the raw surface inside a town floats props by the
+// raw-vs-flattened wobble (the same reason the lamp/plaza passes prefer it).
+int townGroundLevel(int wx, int wz) {
+    int gy = townFlatLevelAt(wx, wz);
+    return (gy < 1) ? sampleSurfaceSolid(wx, wz) : gy;
+}
+
 // Lines a town's gravel paths with lamps, benches, planters and greenery.
 void placeDecorations(const Town& t) {
     std::mt19937 rng(worldSeed()
@@ -333,7 +343,7 @@ void placeDecorations(const Town& t) {
                 int oz = a.y + (int)(dz * u + perpZ * 5.0f * side);
                 decoIdx++;
                 if (insideBuilding(ox, oz)) continue;
-                int gy = sampleSurfaceSolid(ox, oz);
+                int gy = townGroundLevel(ox, oz);
                 if (gy < WORLD_SEA_LEVEL) continue;            // keep them out of water
                 g_placements.push_back({ DECOS[decoIdx % 4],
                     glm::vec3((float)ox + 0.5f, (float)(gy + 1), (float)oz + 0.5f),
@@ -411,7 +421,7 @@ void placeFenceRun(const TownPlan& plan, const std::vector<glm::ivec2>& pts,
             int gx = (int)std::floor(px), gz = (int)std::floor(pz);
             if (insideAnyBuilding(plan, gx, gz)) continue;
             if (townGated && !nearAnyTown(plan, px, pz, 80.0f)) continue;
-            int gy = sampleSurfaceSolid(gx, gz);
+            int gy = townGroundLevel(gx, gz);
             if (gy < WORLD_SEA_LEVEL) continue;
             g_placements.push_back({ PropType::Fence,
                 glm::vec3(px, (float)(gy + 1), pz), yaw, (uint32_t)rng() });
@@ -538,7 +548,7 @@ void placeStablePaddock(const TownPlan& plan, const TownBuilding& b) {
     int pcz = cz + bdz * (ext + 4 + half);
     auto post = [&](int x, int z, float yaw) {
         if (insideAnyBuilding(plan, x, z)) return;
-        int gy = sampleSurfaceSolid(x, z);
+        int gy = townGroundLevel(x, z);
         if (gy < WORLD_SEA_LEVEL) return;
         g_placements.push_back({ PropType::Fence,
             glm::vec3((float)x + 0.5f, (float)(gy + 1), (float)z + 0.5f), yaw, (uint32_t)rng() });
@@ -714,27 +724,73 @@ void placePlazaDetail(const Town& t) {
             0.0f, 0 });
     }
 
-    // ── Plaza ring: benches and flower beds spaced around the centrepiece ─────
-    if (t.plazaR < 6) return;
-    const int ringR = cp.dimX / 2 + 4;    // just outside the centrepiece footprint
-    const int nSlots = std::max(4, (int)(6.2831853f * ringR / 6));
-    static const PropType RING_PROPS[] = {
-        PropType::FlowerBed, PropType::Bench, PropType::FlowerBed, PropType::PottedPlant
+    // ── Plaza furnishings ─────────────────────────────────────────────────────
+    // The paved square grew a lot when towns were spread out, so detail is laid
+    // in concentric rings reaching out toward the plaza edge rather than hugging
+    // the centrepiece, with seating clustered so townsfolk have places to gather.
+    if (t.plazaR < 8) return;
+    const int innerR = cp.dimX / 2 + 4;            // just outside the centrepiece
+
+    auto inCentrepiece = [&](int rx, int rz) {
+        return rx >= cp.wx - 1 && rx < cp.wx + cp.dimX + 1 &&
+               rz >= cp.wz - 1 && rz < cp.wz + cp.dimZ + 1;
     };
-    for (int i = 0; i < nSlots; i++) {
-        float a  = (6.2831853f / (float)nSlots) * (float)i;
-        int   rx = t.center.x + (int)(std::cos(a) * (float)ringR);
-        int   rz = t.center.y + (int)(std::sin(a) * (float)ringR);
-        // Check not inside the centrepiece building.
-        if (rx >= cp.wx - 1 && rx < cp.wx + cp.dimX + 1 &&
-            rz >= cp.wz - 1 && rz < cp.wz + cp.dimZ + 1) continue;
+    auto faceCentre = [&](int rx, int rz) {
+        return glm::degrees(std::atan2((float)(t.center.x - rx),
+                                       (float)(t.center.y - rz)));
+    };
+    auto placeFacing = [&](PropType type, int rx, int rz, float yaw) {
+        if (inCentrepiece(rx, rz)) return;
         int gy = groundAt(rx, rz);
-        if (gy < WORLD_SEA_LEVEL) continue;
-        float faceInYaw = glm::degrees(std::atan2(
-            (float)(t.center.x - rx), (float)(t.center.y - rz)));
-        g_placements.push_back({ RING_PROPS[i % 4],
+        if (gy < WORLD_SEA_LEVEL) return;
+        g_placements.push_back({ type,
             glm::vec3((float)rx + 0.5f, (float)(gy + 1), (float)rz + 0.5f),
-            faceInYaw, 0 });
+            yaw, 0 });
+    };
+
+    // A notice board near the eastern plaza edge, facing in toward the square.
+    {
+        int nbR = std::max(innerR + 5, t.plazaR - 4);
+        int nx = t.center.x + nbR, nz = t.center.y;
+        placeFacing(PropType::NoticeBoard, nx, nz, faceCentre(nx, nz));
+    }
+
+    // Market & well towns get a few covered stalls on a mid-plaza ring.
+    if (t.centerpiece == TownCenter::Market || t.centerpiece == TownCenter::Well) {
+        const int sR = std::max(innerR + 7, (int)(t.plazaR * 0.55f));
+        const int nStalls = (t.plazaR >= 22) ? 4 : 3;
+        for (int i = 0; i < nStalls; i++) {
+            // Offset from 0 so a stall never lands on the east-side notice board.
+            float a  = 0.6f + (6.2831853f / (float)nStalls) * (float)i;
+            int   rx = t.center.x + (int)(std::cos(a) * (float)sR);
+            int   rz = t.center.y + (int)(std::sin(a) * (float)sR);
+            placeFacing(PropType::MarketStall, rx, rz, faceCentre(rx, rz));
+        }
+    }
+
+    // Two concentric rings of seating, flowers and greenery across the square.
+    // Benches face inward so seated townsfolk look onto the centre.
+    static const PropType RING_A[] = {
+        PropType::Bench, PropType::FlowerBed, PropType::Bench, PropType::PottedPlant
+    };
+    static const PropType RING_B[] = {
+        PropType::FlowerBed, PropType::Bench, PropType::PottedPlant, PropType::Bench
+    };
+    struct Ring { int radius; const PropType* props; float phase; };
+    const int outerR = std::max(innerR + 10, (int)(t.plazaR * 0.78f));
+    const Ring rings[2] = {
+        { innerR, RING_A, 0.0f },
+        { outerR, RING_B, 0.5f },
+    };
+    for (const Ring& ring : rings) {
+        if (ring.radius >= t.plazaR) continue;
+        int nSlots = std::max(4, (int)(6.2831853f * (float)ring.radius / 7.0f));
+        for (int i = 0; i < nSlots; i++) {
+            float a  = (6.2831853f / (float)nSlots) * ((float)i + ring.phase);
+            int   rx = t.center.x + (int)(std::cos(a) * (float)ring.radius);
+            int   rz = t.center.y + (int)(std::sin(a) * (float)ring.radius);
+            placeFacing(ring.props[i % 4], rx, rz, faceCentre(rx, rz));
+        }
     }
 }
 
@@ -801,4 +857,81 @@ const std::vector<PropPlacement>& getPropPlacements() {
 const std::vector<DoorPlacement>& getDoorPlacements() {
     std::call_once(g_doorsOnce, [] { buildDoors(); });
     return g_doors;
+}
+
+// --- Wild bush scatter ------------------------------------------------------
+namespace {
+inline uint32_t wildHash(int x, int z, uint32_t seed) {
+    uint32_t h = seed + 0x9E3779B9u;
+    h ^= (uint32_t)x * 0x85EBCA77u; h = (h ^ (h >> 15)) * 0xC2B2AE3Du;
+    h ^= (uint32_t)z * 0x27D4EB2Fu; h = (h ^ (h >> 13)) * 0x165667B1u;
+    h ^= h >> 16; return h;
+}
+inline uint64_t wildKeyFor(int cx, int cz, int slot) {
+    uint64_t k = ((uint64_t)(uint32_t)cx << 32) | (uint32_t)cz;
+    return k ^ (0x9E3779B97F4A7C15ull * (uint64_t)(slot + 1));
+}
+// Bush variant biased by biome (Plains=0, Forest=1, Desert=2, Mountains=3,
+// Tundra=4, Savanna=5, Jungle=6).
+PropType wildBushVariant(int biome, uint32_t h) {
+    uint32_t v = h % 100u;
+    switch (biome) {
+        case 2: return PropType::BushDry;                                    // Desert
+        case 5: return (v < 68) ? PropType::BushDry : PropType::Bush;         // Savanna
+        case 3:                                                              // Mountains
+        case 4: return (v < 55) ? PropType::BushConifer : PropType::BushDry;  // Tundra
+        case 1:                                                              // Forest
+        case 6: return (v < 45) ? PropType::Bush                             // Jungle
+                      : (v < 72) ? PropType::BushBerry : PropType::BushFlowering;
+        default: return (v < 50) ? PropType::Bush                            // Plains, etc.
+                       : (v < 76) ? PropType::BushFlowering : PropType::BushBerry;
+    }
+}
+}  // namespace
+
+void gatherWildProps(const glm::vec3& center, float radius,
+                     const std::unordered_set<uint64_t>& live,
+                     std::vector<WildProp>& out) {
+    out.clear();
+    const int      CELL = 11;                 // world blocks per scatter cell
+    const float    in2  = radius * radius;
+    const uint32_t seed = worldSeed();
+    const size_t   CAP  = 32;                  // cap new bushes (and surface samples) per call
+    const int cx0 = (int)std::floor((center.x - radius) / CELL);
+    const int cx1 = (int)std::floor((center.x + radius) / CELL);
+    const int cz0 = (int)std::floor((center.z - radius) / CELL);
+    const int cz1 = (int)std::floor((center.z + radius) / CELL);
+
+    for (int cz = cz0; cz <= cz1 && out.size() < CAP; cz++)
+        for (int cx = cx0; cx <= cx1 && out.size() < CAP; cx++) {
+            uint32_t h = wildHash(cx, cz, seed);
+            int n = 0;
+            uint32_t r = h & 0xF;
+            if      (r < 6) n = 1;             // ~44% of cells get one bush
+            else if (r < 8) n = 2;             // ~12% get two
+            for (int s = 0; s < n; s++) {
+                uint32_t sh = h ^ (0x9E3779B1u * (uint32_t)(s + 1));
+                float px = (float)cx * CELL + (float)(sh & 0xFF) / 255.0f * (CELL - 1);
+                float pz = (float)cz * CELL + (float)((sh >> 8) & 0xFF) / 255.0f * (CELL - 1);
+                float dx = px - center.x, dz = pz - center.z;
+                if (dx * dx + dz * dz > in2) continue;
+                uint64_t key = wildKeyFor(cx, cz, s);
+                if (live.count(key)) continue;            // already spawned — skip the sampling
+                int wx = (int)std::floor(px), wz = (int)std::floor(pz);
+                if (townFlatLevelAt(wx, wz) >= 1) continue;       // leave town ground to town props
+                // Rest on the ACTUAL top solid block (the 3D-density surface the
+                // chunk really generates) — not sampleSurface()'s smooth blended
+                // target, which sits a block off and leaves bushes hovering.
+                int gy = sampleSurfaceSolid(wx, wz);
+                if (gy < WORLD_SEA_LEVEL + 1) continue;           // never in water
+                int biome = sampleSurface(wx, wz).biome;          // climate → variant + density
+                uint32_t cull = (sh >> 16) & 0xFF;
+                if ((biome == 2 || biome == 4) && cull > 96)  continue;  // ~38% keep (Desert/Tundra)
+                if (biome == 3 && cull > 165) continue;                  // ~65% keep (Mountains)
+                out.push_back({ key, { wildBushVariant(biome, sh),
+                                       glm::vec3(px, (float)(gy + 1), pz),
+                                       (float)((sh >> 24) % 360u), sh } });
+                if (out.size() >= CAP) break;
+            }
+        }
 }

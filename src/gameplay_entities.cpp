@@ -231,6 +231,7 @@ void syncNPCObjects(AppContext& ctx) {
             n->health     = np.health;
             n->walking    = (np.flags & 1) != 0;
             n->attackFlag = (np.flags & 2) != 0;
+            n->sitting    = (np.flags & 8) != 0;
             n->dyingFlag  = nowDying;
             n->lastUpdate = now;
 

@@ -127,6 +127,8 @@
     <!-- Networking & Session -->
     <ClCompile Include="src\network.cpp"><Filter>Networking &amp; Session</Filter></ClCompile>
     <ClCompile Include="src\game_session.cpp"><Filter>Networking &amp; Session</Filter></ClCompile>
+    <!-- Audio -->
+    <ClCompile Include="src\audio.cpp"><Filter>Core &amp; App</Filter></ClCompile>
     <!-- Third-Party -->
     <ClCompile Include="third_party\imgui\imgui.cpp"><Filter>Third-Party\ImGui</Filter></ClCompile>
     <ClCompile Include="third_party\imgui\imgui_draw.cpp"><Filter>Third-Party\ImGui</Filter></ClCompile>
@@ -134,6 +136,7 @@
     <ClCompile Include="third_party\imgui\imgui_tables.cpp"><Filter>Third-Party\ImGui</Filter></ClCompile>
     <ClCompile Include="third_party\imgui\backends\imgui_impl_glfw.cpp"><Filter>Third-Party\ImGui</Filter></ClCompile>
     <ClCompile Include="third_party\imgui\backends\imgui_impl_opengl3.cpp"><Filter>Third-Party\ImGui</Filter></ClCompile>
+    <ClCompile Include="third_party\miniaudio\miniaudio_impl.cpp"><Filter>Third-Party</Filter></ClCompile>
   </ItemGroup>
 
   <!-- Header files -->

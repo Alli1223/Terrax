@@ -7,7 +7,7 @@ else
   OPT_FLAGS := -O2 -DNDEBUG
 endif
 
-CXXFLAGS := -std=c++17 $(OPT_FLAGS) -Wall -Iinclude -Isrc -Ithird_party/imgui -Ithird_party/imgui/backends -MMD -MP
+CXXFLAGS := -std=c++17 $(OPT_FLAGS) -Wall -Iinclude -Isrc -Ithird_party/imgui -Ithird_party/imgui/backends -Ithird_party/miniaudio -MMD -MP
 LIBS     := -lGL -lglfw -lm -lpthread -ldl
 
 IMGUI_DIR := third_party/imgui
@@ -16,6 +16,10 @@ IMGUI_SRCS := $(IMGUI_DIR)/imgui.cpp $(IMGUI_DIR)/imgui_draw.cpp $(IMGUI_DIR)/im
 IMGUI_BACKEND_SRCS := $(IMGUI_DIR)/backends/imgui_impl_glfw.cpp $(IMGUI_DIR)/backends/imgui_impl_opengl3.cpp
 IMGUI_OBJS := $(IMGUI_SRCS:$(IMGUI_DIR)/%.cpp=build/imgui/%.o)
 IMGUI_BACKEND_OBJS := $(IMGUI_BACKEND_SRCS:$(IMGUI_DIR)/backends/%.cpp=build/imgui/%.o)
+
+# miniaudio: a single vendored header compiled in one TU (header-only library).
+MINIAUDIO_DIR  := third_party/miniaudio
+MINIAUDIO_OBJS := build/miniaudio/miniaudio_impl.o
 
 SRCS := src/main.cpp src/shader.cpp src/camera.cpp src/world.cpp src/world_gen.cpp \
         src/town.cpp \
@@ -35,10 +39,10 @@ SRCS := src/main.cpp src/shader.cpp src/camera.cpp src/world.cpp src/world_gen.c
         src/building_special.cpp src/items.cpp src/inventory.cpp \
         src/clothing_painter.cpp src/weapon_builder.cpp src/item_generator.cpp \
         src/inventory_ui.cpp src/loot_drop.cpp src/projectile.cpp \
-        src/npc_appearance.cpp
+        src/npc_appearance.cpp src/audio.cpp
 OBJS := $(SRCS:src/%.cpp=build/%.o)
 
-DEPS := $(OBJS:.o=.d) $(IMGUI_OBJS:.o=.d) $(IMGUI_BACKEND_OBJS:.o=.d)
+DEPS := $(OBJS:.o=.d) $(IMGUI_OBJS:.o=.d) $(IMGUI_BACKEND_OBJS:.o=.d) $(MINIAUDIO_OBJS:.o=.d)
 -include $(DEPS)
 
 TARGET := terrax
@@ -63,7 +67,7 @@ TEST_SRCS    := $(TEST_ENGINE_SRCS) tests/gl_stub.cpp $(TEST_CASE_SRCS)
 # link the pthread runtime on Linux (harmless elsewhere).
 TEST_FLAGS   := -std=c++17 -O0 -g -Wall -pthread -Iinclude -Isrc -Itests -DTERRAX_TESTING
 
-$(shell mkdir -p build/imgui)
+$(shell mkdir -p build/imgui build/miniaudio)
 
 .PHONY: all build run clean test
 
@@ -80,11 +84,14 @@ test: $(TEST_TARGET)
 $(TEST_TARGET): $(TEST_SRCS)
 	$(CXX) $(TEST_FLAGS) -o $@ $^ -lm
 
-$(TARGET): $(OBJS) $(IMGUI_OBJS) $(IMGUI_BACKEND_OBJS)
+$(TARGET): $(OBJS) $(IMGUI_OBJS) $(IMGUI_BACKEND_OBJS) $(MINIAUDIO_OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LIBS)
 
 build/%.o: src/%.cpp
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+build/miniaudio/%.o: $(MINIAUDIO_DIR)/%.cpp
+	$(CXX) $(CXXFLAGS) -w -c -o $@ $<
 
 build/imgui/%.o: $(IMGUI_DIR)/%.cpp
 	$(CXX) $(CXXFLAGS) -c -o $@ $<

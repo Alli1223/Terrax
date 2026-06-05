@@ -1,5 +1,7 @@
 #pragma once
 #include <vector>
+#include <unordered_set>
+#include <cstdint>
 #include <glm/glm.hpp>
 #include "prop.h"
 
@@ -28,3 +30,18 @@ struct DoorPlacement {
 
 // Deterministic list of every house door world-wide; streamed like props.
 const std::vector<DoorPlacement>& getDoorPlacements();
+
+// A procedurally-scattered wild prop (bushes) with a stable per-cell key, so the
+// streamer can spawn and retire instances incrementally as the player explores.
+struct WildProp {
+    uint64_t      key;
+    PropPlacement p;
+};
+
+// Fills `out` with the wild bushes whose position lies within `radius` of
+// `center`, skipping any whose key is already in `live` (so the expensive
+// surface/biome sampling only runs for newly-revealed bushes). Fully
+// deterministic from the world seed — every client scatters the same bushes.
+void gatherWildProps(const glm::vec3& center, float radius,
+                     const std::unordered_set<uint64_t>& live,
+                     std::vector<WildProp>& out);

@@ -552,7 +552,18 @@ void stampTownPlaza(Chunk* c, const Town& t) {
             }
             if (gtop < WORLD_SEA_LEVEL) continue;                 // no square under water
             BlockType cur = c->get(lx, gtop, lz);
-            if (cur == BlockType::Gravel || cur == BlockType::Stone) continue;  // keep the lanes
+            if (cur == BlockType::Gravel || cur == BlockType::Stone) {
+                // A lane crosses the square. stampRoadCell engraved it one block
+                // down, so it sits recessed below the plaza and any bench, stall
+                // or lamp placed on it hovers a block up. Lift the lane flush with
+                // the plaza (fill the sunken block) before paving it over, so the
+                // whole square is one level and props rest on the ground. The
+                // empty-above check keeps this a no-op if the cell is revisited.
+                if (gtop + 2 < CHUNK_HEIGHT && c->get(lx, gtop + 1, lz) == BlockType::Air) {
+                    c->set(lx, gtop + 1, lz, BlockType::Stone);
+                    gtop += 1;
+                }
+            }
             const bool rim   = d > (float)R - 2.0f;
             const bool ring  = std::abs(d - (float)R * 0.55f) < 1.2f;
             BlockType surface;

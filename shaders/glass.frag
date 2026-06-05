@@ -41,6 +41,13 @@ void main() {
     result += skyAmbient * fres * (0.25 * sunFactor + 0.05);
     float alpha = mix(0.32, 0.85, fres);
 
+    // Lit windows: as dusk falls the panes glow a warm amber, as if lamps burn
+    // within, so a town sparkles at night seen from outside. It ramps off the
+    // sun (invisible by day) and stands the glass up more opaque so it reads.
+    float nightAmt = 1.0 - smoothstep(0.0, 0.22, sunFactor);
+    result += vec3(1.00, 0.73, 0.42) * nightAmt * 0.55;
+    alpha   = max(alpha, nightAmt * 0.80);
+
     // Atmospheric fog — keep glass consistent with the terrain haze.
     float fogDist  = length(FragWorldPos - camPos);
     float fogStart = mix(26.0, 10.0, u_weather);

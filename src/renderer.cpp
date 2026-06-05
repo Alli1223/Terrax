@@ -48,6 +48,9 @@ struct LanternLightList {
 static constexpr glm::vec3 LANTERN_DEFAULT_COLOR = glm::vec3(1.00f, 0.76f, 0.40f);
 // Warmer, redder cast for open hearth flame.
 static constexpr glm::vec3 FIRE_COLOR = glm::vec3(1.00f, 0.52f, 0.22f);
+// Softer, warmer amber for static town pools (house lanterns, street lamps) so
+// lit streets glow cosily rather than glaring a hard white-gold.
+static constexpr glm::vec3 POOL_COLOR = glm::vec3(1.00f, 0.70f, 0.36f);
 
 static glm::vec3 lanternWorldPos(const glm::vec3& feetPos, float yaw, bool held) {
     glm::vec3 fwd   = glm::vec3(sinf(glm::radians(yaw)), 0.0f, cosf(glm::radians(yaw)));
@@ -63,7 +66,7 @@ static void addLantern(LanternLightList& lights, const glm::vec3& feetPos, float
     int i = lights.count++;
     lights.pos[i]       = lanternWorldPos(feetPos, yaw, held);
     lights.intensity[i] = (held ? 0.9f : 0.4f) * flicker;
-    lights.radius[i]    = held ? 20.0f : 10.0f;
+    lights.radius[i]    = held ? 22.0f : 12.0f;   // a little broader = softer pool
     lights.color[i]     = LANTERN_DEFAULT_COLOR;
 }
 
@@ -153,12 +156,14 @@ static void collectLanternLights(const AppContext& ctx, float flicker, LanternLi
             color     = FIRE_COLOR;
         } else if (night && pp.type == PropType::Lantern) {
             lp        = pp.pos + glm::vec3(0.0f, 0.45f, 0.0f);
-            intensity = 0.57f * perLightFlicker(t, pp.pos.x, pp.pos.z) * nightFactor;
-            radius    = 21.0f;
+            intensity = 0.55f * perLightFlicker(t, pp.pos.x, pp.pos.z) * nightFactor;
+            radius    = 25.0f;                     // wider, gentler pool
+            color     = POOL_COLOR;
         } else if (night && pp.type == PropType::StreetLamp) {
             lp        = pp.pos + glm::vec3(0.0f, 3.15f, 0.0f);
-            intensity = 0.61f * perLightFlicker(t, pp.pos.x, pp.pos.z) * nightFactor;
-            radius    = 26.0f;
+            intensity = 0.58f * perLightFlicker(t, pp.pos.x, pp.pos.z) * nightFactor;
+            radius    = 30.0f;
+            color     = POOL_COLOR;
         } else {
             continue;
         }
@@ -178,7 +183,7 @@ static void collectLanternLights(const AppContext& ctx, float flicker, LanternLi
             if (d2 > COLLECT2) continue;
             cand.push_back({ lp,
                              0.75f * perLightFlicker(t, lp.x, lp.z) * nightFactor,
-                             24.0f, d2, LANTERN_DEFAULT_COLOR });
+                             28.0f, d2, LANTERN_DEFAULT_COLOR });
         }
     std::sort(cand.begin(), cand.end(),
               [](const Cand& a, const Cand& b) { return a.d2 < b.d2; });
@@ -759,15 +764,28 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     {
         GLuint ml    = glGetUniformLocation(charShader.id, "model");
         GLint  seLoc = glGetUniformLocation(charShader.id, "u_skyExposure");
+        GLint  swLoc = glGetUniformLocation(charShader.id, "u_sway");
+        glUniform1f(swLoc, 0.0f);                 // player + everything rigid by default
         if (ctx.localPlayer) {
             glUniform1f(seLoc, skyExposureAt(ctx.world, ctx.localPlayer->position));
             ctx.localPlayer->draw(ml);
         }
         for (const auto& o : ctx.objectManager.objects()) {
             if (o->dead) continue;
+            // Bushes catch the wind like the grass; everything else stays rigid.
+            float sway = 0.0f;
+            if (o->kind == ObjectKind::Prop) {
+                PropType pt = static_cast<const Prop*>(o.get())->type;
+                if (pt == PropType::Bush      || pt == PropType::BushFlowering ||
+                    pt == PropType::BushBerry || pt == PropType::BushConifer   ||
+                    pt == PropType::BushDry)
+                    sway = 0.006f;
+            }
+            glUniform1f(swLoc, sway);
             glUniform1f(seLoc, skyExposureAt(ctx.world, o->position));
             o->draw(ml);
         }
+        glUniform1f(swLoc, 0.0f);                 // reset before the death-particle batch
 
         // Voxel death-explosion particles — small cubes flung out when an
         // enemy dies, then settling on the ground. One draw call for the

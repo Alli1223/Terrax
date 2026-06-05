@@ -206,10 +206,12 @@ public:
 
 // Buildings are emitted into a fixed-size voxel grid before being tight-cropped
 // to their non-air bounds. The grid has to be large enough for the biggest
-// concrete Building subclass (currently the Manor template + a steep roof).
-static constexpr int HOUSE_VX = 32;
+// footprint — the enlarged composite houses (L/T/U/+/courtyard/H/Z/E), whose
+// widest case (a staggered Z) reaches ~48 cells across — plus a 1-block eave
+// border and centring margin. Height fits each wing's own (per-wing) roof.
+static constexpr int HOUSE_VX = 56;
 static constexpr int HOUSE_VY = 40;
-static constexpr int HOUSE_VZ = 32;
+static constexpr int HOUSE_VZ = 56;
 
 // Representative display colour for a block type (editor + placement ghost).
 Voxel houseBlockColor(BlockType t);

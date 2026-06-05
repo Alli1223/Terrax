@@ -46,6 +46,11 @@ struct LanternLightList {
 // Standard tungsten-lantern colour used by held lanterns, props,
 // streetlamps, and town campfires. Magic-bolt lights set their own.
 static constexpr glm::vec3 LANTERN_DEFAULT_COLOR = glm::vec3(1.00f, 0.76f, 0.40f);
+// Warmer, redder cast for open hearth flame.
+static constexpr glm::vec3 FIRE_COLOR = glm::vec3(1.00f, 0.52f, 0.22f);
+// Softer, warmer amber for static town pools (house lanterns, street lamps) so
+// lit streets glow cosily rather than glaring a hard white-gold.
+static constexpr glm::vec3 POOL_COLOR = glm::vec3(1.00f, 0.70f, 0.36f);
 
 static glm::vec3 lanternWorldPos(const glm::vec3& feetPos, float yaw, bool held) {
     glm::vec3 fwd   = glm::vec3(sinf(glm::radians(yaw)), 0.0f, cosf(glm::radians(yaw)));
@@ -61,7 +66,7 @@ static void addLantern(LanternLightList& lights, const glm::vec3& feetPos, float
     int i = lights.count++;
     lights.pos[i]       = lanternWorldPos(feetPos, yaw, held);
     lights.intensity[i] = (held ? 0.9f : 0.4f) * flicker;
-    lights.radius[i]    = held ? 20.0f : 10.0f;
+    lights.radius[i]    = held ? 22.0f : 12.0f;   // a little broader = softer pool
     lights.color[i]     = LANTERN_DEFAULT_COLOR;
 }
 
@@ -123,49 +128,63 @@ static void collectLanternLights(const AppContext& ctx, float flicker, LanternLi
         addLantern(lights, n->position, n->yaw, /*held=*/false, flicker);
     }
 
-    // House lanterns and town street lamps only glow after dark.
+    // Indoor hearths glow day AND night (interiors stay dark by daylight);
+    // house lanterns, street lamps and campfires only kick in after dark.
     float sunY        = sunElevation(ctx.gameTime);
     float nightFactor = 1.0f - smoothstep(-0.08f, 0.12f, sunY);
-    if (nightFactor <= 0.01f) return;
+    const bool night  = nightFactor > 0.01f;
 
     // Collected nearest-first so distant lights drop off the fixed-size list.
     const glm::vec3 cam = ctx.camera.position;
-    const float COLLECT2 = 112.0f * 112.0f;
-    const float t        = ctx.flickerTime;
-    struct Cand { glm::vec3 pos; float intensity, radius, d2; };
+    // Gather town lights out to ~16 chunks so a whole nearby town stays lit at
+    // night. Candidates are sorted nearest-first below and the closest
+    // MAX_LANTERNS kept (player/NPC lanterns were already added above).
+    const float LIGHT_RANGE = 16.0f * (float)CHUNK_SIZE;   // 256 blocks (> 15 chunks)
+    const float COLLECT2     = LIGHT_RANGE * LIGHT_RANGE;
+    const float t            = ctx.flickerTime;
+    struct Cand { glm::vec3 pos; float intensity, radius, d2; glm::vec3 color; };
     std::vector<Cand> cand;
 
     for (const PropPlacement& pp : getPropPlacements()) {
         glm::vec3 lp;
         float intensity = 0.0f, radius = 0.0f;
-        if (pp.type == PropType::Lantern) {
+        glm::vec3 color = LANTERN_DEFAULT_COLOR;
+        if (pp.type == PropType::Fireplace) {
+            lp        = pp.pos + glm::vec3(0.0f, 0.70f, 0.0f);
+            intensity = 0.70f * perLightFlicker(t, pp.pos.x, pp.pos.z);
+            radius    = 15.0f;
+            color     = FIRE_COLOR;
+        } else if (night && pp.type == PropType::Lantern) {
             lp        = pp.pos + glm::vec3(0.0f, 0.45f, 0.0f);
-            intensity = 0.57f * perLightFlicker(t, pp.pos.x, pp.pos.z) * nightFactor;
-            radius    = 21.0f;
-        } else if (pp.type == PropType::StreetLamp) {
+            intensity = 0.55f * perLightFlicker(t, pp.pos.x, pp.pos.z) * nightFactor;
+            radius    = 25.0f;                     // wider, gentler pool
+            color     = POOL_COLOR;
+        } else if (night && pp.type == PropType::StreetLamp) {
             lp        = pp.pos + glm::vec3(0.0f, 3.15f, 0.0f);
-            intensity = 0.61f * perLightFlicker(t, pp.pos.x, pp.pos.z) * nightFactor;
-            radius    = 26.0f;
+            intensity = 0.58f * perLightFlicker(t, pp.pos.x, pp.pos.z) * nightFactor;
+            radius    = 30.0f;
+            color     = POOL_COLOR;
         } else {
             continue;
         }
         float dx = lp.x - cam.x, dz = lp.z - cam.z;
         float d2 = dx * dx + dz * dz;
         if (d2 > COLLECT2) continue;
-        cand.push_back({ lp, intensity, radius, d2 });
+        cand.push_back({ lp, intensity, radius, d2, color });
     }
     // Town campfires glow after dark too.
-    for (const Town& t2 : getTownPlan().towns) {
-        if (t2.centerpiece != TownCenter::Campfire) continue;
-        glm::vec3 lp((float)t2.center.x + 0.5f, (float)t2.baseY + 2.5f,
-                     (float)t2.center.y + 0.5f);
-        float dx = lp.x - cam.x, dz = lp.z - cam.z;
-        float d2 = dx * dx + dz * dz;
-        if (d2 > COLLECT2) continue;
-        cand.push_back({ lp,
-                         0.75f * perLightFlicker(t, lp.x, lp.z) * nightFactor,
-                         24.0f, d2 });
-    }
+    if (night)
+        for (const Town& t2 : getTownPlan().towns) {
+            if (t2.centerpiece != TownCenter::Campfire) continue;
+            glm::vec3 lp((float)t2.center.x + 0.5f, (float)t2.baseY + 2.5f,
+                         (float)t2.center.y + 0.5f);
+            float dx = lp.x - cam.x, dz = lp.z - cam.z;
+            float d2 = dx * dx + dz * dz;
+            if (d2 > COLLECT2) continue;
+            cand.push_back({ lp,
+                             0.75f * perLightFlicker(t, lp.x, lp.z) * nightFactor,
+                             28.0f, d2, LANTERN_DEFAULT_COLOR });
+        }
     std::sort(cand.begin(), cand.end(),
               [](const Cand& a, const Cand& b) { return a.d2 < b.d2; });
     for (const Cand& c : cand) {
@@ -174,7 +193,7 @@ static void collectLanternLights(const AppContext& ctx, float flicker, LanternLi
         lights.pos[i]       = c.pos;
         lights.intensity[i] = c.intensity;
         lights.radius[i]    = c.radius;
-        lights.color[i]     = LANTERN_DEFAULT_COLOR;
+        lights.color[i]     = c.color;
     }
 }
 
@@ -590,6 +609,29 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     glm::vec3 overcastAmb = glm::vec3(0.30f, 0.33f, 0.40f) * (0.32f + 0.68f * dayness);
     skyAmbient = glm::mix(skyAmbient, overcastAmb, weather * 0.80f);
 
+    // --- Per-area mood ---
+    // Tint the ambient toward the local biome's character so each region of the
+    // world is lit differently — warm bleached deserts, cold blue tundra, green
+    // humid jungle, crisp mountains. The tint eases over a couple of seconds so
+    // biome borders don't snap, and because the fog colour below is derived from
+    // skyAmbient, the haze picks up the same mood.
+    {
+        static const glm::vec3 BIOME_TINT[7] = {
+            glm::vec3(1.00f, 1.00f, 1.00f),   // Plains    — neutral
+            glm::vec3(0.94f, 1.02f, 0.93f),   // Forest    — soft green
+            glm::vec3(1.10f, 1.02f, 0.86f),   // Desert    — warm, sun-bleached
+            glm::vec3(0.96f, 1.00f, 1.07f),   // Mountains — cool, crisp
+            glm::vec3(0.92f, 0.99f, 1.10f),   // Tundra    — cold blue
+            glm::vec3(1.10f, 1.01f, 0.84f),   // Savanna   — golden, dry
+            glm::vec3(0.87f, 1.02f, 0.90f),   // Jungle    — lush green
+        };
+        const glm::vec3& cp = ctx.camera.position;
+        int b = sampleSurface((int)cp.x, (int)cp.z).biome;
+        glm::vec3 target = (b >= 0 && b < 7) ? BIOME_TINT[b] : glm::vec3(1.0f);
+        areaTint = glm::mix(areaTint, target, glm::min(1.0f, ctx.deltaTime * 0.6f));
+        skyAmbient *= areaTint;
+    }
+
     // --- Lantern ---
     ctx.flickerTime += ctx.deltaTime;
     float flicker = 1.0f
@@ -722,15 +764,28 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     {
         GLuint ml    = glGetUniformLocation(charShader.id, "model");
         GLint  seLoc = glGetUniformLocation(charShader.id, "u_skyExposure");
+        GLint  swLoc = glGetUniformLocation(charShader.id, "u_sway");
+        glUniform1f(swLoc, 0.0f);                 // player + everything rigid by default
         if (ctx.localPlayer) {
             glUniform1f(seLoc, skyExposureAt(ctx.world, ctx.localPlayer->position));
             ctx.localPlayer->draw(ml);
         }
         for (const auto& o : ctx.objectManager.objects()) {
             if (o->dead) continue;
+            // Bushes catch the wind like the grass; everything else stays rigid.
+            float sway = 0.0f;
+            if (o->kind == ObjectKind::Prop) {
+                PropType pt = static_cast<const Prop*>(o.get())->type;
+                if (pt == PropType::Bush      || pt == PropType::BushFlowering ||
+                    pt == PropType::BushBerry || pt == PropType::BushConifer   ||
+                    pt == PropType::BushDry)
+                    sway = 0.006f;
+            }
+            glUniform1f(swLoc, sway);
             glUniform1f(seLoc, skyExposureAt(ctx.world, o->position));
             o->draw(ml);
         }
+        glUniform1f(swLoc, 0.0f);                 // reset before the death-particle batch
 
         // Voxel death-explosion particles — small cubes flung out when an
         // enemy dies, then settling on the ground. One draw call for the
@@ -992,23 +1047,34 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
         glm::vec3 camRight(view[0][0], view[1][0], view[2][0]);
         glm::vec3 camUp   (view[0][1], view[1][1], view[2][1]);
 
-        static std::vector<Vertex> av;
-        av.clear();
-        av.reserve(ctx.ambientParticles.size() * 6);
-        // Vertex packing: position in xyz, colour in the normal slot,
-        // billboard UV in u/v, per-particle alpha in skyLight.
-        auto avtx = [&](const glm::vec3& p, const glm::vec3& col,
-                        float u, float vv, float a) {
-            av.push_back({ p.x, p.y, p.z, col.r, col.g, col.b,
-                           u, vv, 0.f, a, 0.f, 0.f });
+        // Two lists: glowing motes (additive) and soft grey smoke (alpha-over).
+        // Vertex packing: position xyz, colour in the normal slot, billboard UV
+        // in u/v, per-particle alpha in skyLight.
+        static std::vector<Vertex> av, smv;
+        av.clear(); smv.clear();
+        auto emit = [&](std::vector<Vertex>& out, const glm::vec3& c,
+                        const glm::vec3& col, float size, float a) {
+            glm::vec3 ax = camRight * size, ay = camUp * size;
+            glm::vec3 bl = c - ax - ay, br = c + ax - ay,
+                      tr = c + ax + ay, tl = c - ax + ay;
+            auto pv = [&](const glm::vec3& p, float u, float vv) {
+                out.push_back({ p.x, p.y, p.z, col.r, col.g, col.b,
+                                u, vv, 0.f, a, 0.f, 0.f });
+            };
+            pv(bl, 0.f, 0.f); pv(br, 1.f, 0.f); pv(tr, 1.f, 1.f);
+            pv(bl, 0.f, 0.f); pv(tr, 1.f, 1.f); pv(tl, 0.f, 1.f);
         };
         for (const auto& ap : ctx.ambientParticles) {
             float t = (ap.maxLife - ap.life) + ap.seed;
             float fadeIn  = std::min((ap.maxLife - ap.life) / 0.8f, 1.0f);
             float fadeOut = std::min(ap.life / 1.5f, 1.0f);
             float fade    = std::max(0.0f, std::min(1.0f, fadeIn * fadeOut));
-            float baseA   = 0.45f;
-            float pulse   = 1.0f;
+            if (ap.kind == 3) {                        // smoke — soft, alpha-blended
+                float a = 0.30f * fade;
+                if (a > 0.0f) emit(smv, ap.pos, ap.color, ap.size, a);
+                continue;
+            }
+            float baseA = 0.45f, pulse = 1.0f;
             if (ap.kind == 1) {
                 baseA = 0.95f;
                 pulse = 0.55f + 0.45f * (0.5f + 0.5f * sinf(t * 4.2f));
@@ -1018,30 +1084,27 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
                 if (pulse < 0.0f) pulse = 0.0f;
             }
             float alpha = baseA * pulse * fade;
-            if (alpha <= 0.0f) continue;
-            glm::vec3 ax = camRight * ap.size;
-            glm::vec3 ay = camUp    * ap.size;
-            glm::vec3 c  = ap.pos;
-            glm::vec3 bl = c - ax - ay, br = c + ax - ay,
-                      tr = c + ax + ay, tl = c - ax + ay;
-            avtx(bl, ap.color, 0.f, 0.f, alpha);
-            avtx(br, ap.color, 1.f, 0.f, alpha);
-            avtx(tr, ap.color, 1.f, 1.f, alpha);
-            avtx(bl, ap.color, 0.f, 0.f, alpha);
-            avtx(tr, ap.color, 1.f, 1.f, alpha);
-            avtx(tl, ap.color, 0.f, 1.f, alpha);
+            if (alpha > 0.0f) emit(av, ap.pos, ap.color, ap.size, alpha);
         }
-        if (!av.empty()) {
+        if (!av.empty() || !smv.empty()) {
             ambientShader.use();
             ambientShader.setMat4("view",       view);
             ambientShader.setMat4("projection", proj);
-            glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-            glDepthMask(GL_FALSE); glDisable(GL_CULL_FACE);
+            glEnable(GL_BLEND); glDepthMask(GL_FALSE); glDisable(GL_CULL_FACE);
             glBindVertexArray(particleVao);
             glBindBuffer(GL_ARRAY_BUFFER, particleVbo);
-            glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(av.size() * sizeof(Vertex)),
-                         av.data(), GL_DYNAMIC_DRAW);
-            glDrawArrays(GL_TRIANGLES, 0, (GLsizei)av.size());
+            if (!smv.empty()) {                        // smoke first, under the glints
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(smv.size() * sizeof(Vertex)),
+                             smv.data(), GL_DYNAMIC_DRAW);
+                glDrawArrays(GL_TRIANGLES, 0, (GLsizei)smv.size());
+            }
+            if (!av.empty()) {                         // glowing motes: additive
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+                glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(av.size() * sizeof(Vertex)),
+                             av.data(), GL_DYNAMIC_DRAW);
+                glDrawArrays(GL_TRIANGLES, 0, (GLsizei)av.size());
+            }
             glBindVertexArray(0);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             glDepthMask(GL_TRUE); glDisable(GL_BLEND); glEnable(GL_CULL_FACE);
@@ -1070,6 +1133,17 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     postShader.setFloat("u_rayStrength", rayStrength);
     postShader.setVec3("u_rayColor",
         glm::mix(glm::vec3(1.00f, 0.95f, 0.82f), glm::vec3(1.00f, 0.72f, 0.40f), dawnDusk));
+    // Distance fog: fade the world into the horizon as it nears the chunk-load
+    // radius, so freshly generated terrain stays hidden in fog instead of
+    // popping into view. The colour matches the shaders' atmospheric fog
+    // (sky-ambient based, so it tracks time/weather and the per-area tint) and
+    // is gamma-encoded to sit in the same space as the post scene buffer.
+    float viewDistBlocks = (float)(ctx.world.renderDistance * CHUNK_SIZE);
+    glm::vec3 fogLin = skyAmbient * glm::max(sunFactor, 0.12f) * glm::mix(0.90f, 0.72f, weather);
+    glm::vec3 fogCol = glm::pow(glm::clamp(fogLin, glm::vec3(0.0f), glm::vec3(1.0f)),
+                                glm::vec3(1.0f / 2.2f));
+    postShader.setFloat("u_viewDist", viewDistBlocks);
+    postShader.setVec3 ("u_fogColor", fogCol);
     glBindVertexArray(postVao);
     glDrawArrays(GL_TRIANGLES, 0, 3);
     glBindVertexArray(0);

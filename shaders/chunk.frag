@@ -7,6 +7,7 @@ in vec3  FragWorldPos;
 in vec3  FragNormal;
 in vec4  FragPosLightSpace;
 in float Snowable;
+in float MaterialID;
 
 out vec4 FragColor;
 
@@ -16,7 +17,7 @@ uniform float sunFactor;
 uniform vec3  skyAmbient;
 uniform vec3  camPos;
 uniform vec3  u_sunDir;
-#define MAX_LANTERNS 48
+#define MAX_LANTERNS 192
 uniform int   u_lanternCount;
 uniform vec3  u_lanternPos[MAX_LANTERNS];
 uniform float u_lanternIntensity[MAX_LANTERNS];
@@ -57,8 +58,10 @@ float lightVisibility(vec3 fragPos, vec3 lightPos, vec3 nrm) {
 vec3 calcLanternLight(vec3 worldPos, vec3 nrm) {
     vec3 contrib = vec3(0.0);
     for (int i = 0; i < u_lanternCount; i++) {
-        float ldist = length(worldPos - u_lanternPos[i]);
-        if (ldist >= u_lanternRadius[i]) continue;
+        vec3  d = worldPos - u_lanternPos[i];
+        float r = u_lanternRadius[i];
+        if (dot(d, d) >= r * r) continue;     // squared-distance cull — skip sqrt for far lights
+        float ldist = length(d);
         float falloff = 1.0 - ldist / u_lanternRadius[i];
         falloff *= falloff;
         float vis = lightVisibility(worldPos, u_lanternPos[i], nrm);
@@ -122,6 +125,28 @@ void main() {
     // tints the result so it sits naturally in the scene.
     float snowMask = Snowable * clamp(u_snowAmount, 0.0, 1.0);
     base = mix(base, vec3(0.96, 0.97, 1.00), snowMask);
+
+    // Per-position ground colour variation: large grass / sand / stone expanses
+    // otherwise read as one flat colour. Low-frequency world-space noise breaks
+    // them into natural patches — lighter/darker, and for grass warmer (dry,
+    // golden) or cooler (lush, deep green). Painted building blocks, leaves,
+    // wood, etc. are left untouched so their authored colours stay exact.
+    int mat = int(MaterialID + 0.5);
+    if (mat == 1 || mat == 2 || mat == 3 || mat == 6 || mat == 7 || mat == 8 || mat == 10) {
+        float vLarge = cloudFBM(FragWorldPos.xz * 0.022);          // ~45-block patches
+        float vFine  = cloudFBM(FragWorldPos.xz * 0.085 + 21.7);   // finer mottling
+        float v      = clamp(vLarge * 0.6 + vFine * 0.4, 0.0, 1.0);
+        base *= mix(0.85, 1.13, v);                                // brightness drift
+        if (mat == 1) {                                            // grass: green<->gold
+            vec3 lush = base * vec3(0.86, 1.05, 0.82);
+            vec3 dry  = base * vec3(1.13, 1.02, 0.70);
+            base = mix(lush, dry, smoothstep(0.32, 0.70, vLarge));
+        } else if (mat == 6 || mat == 10) {                        // sand / sandstone
+            base *= mix(vec3(0.95, 0.94, 0.89), vec3(1.07, 1.04, 0.97), vFine);
+        } else if (mat == 8) {                                     // snow: faint blue drift
+            base *= mix(vec3(0.94, 0.97, 1.05), vec3(1.03, 1.02, 1.00), vFine);
+        }
+    }
 
     // Directional sun: NdotL with soft ramp
     float NdotL   = max(dot(FragNormal, u_sunDir), 0.0);

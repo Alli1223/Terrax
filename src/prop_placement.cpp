@@ -14,7 +14,7 @@ std::once_flag            g_once;
 
 // Height of a table's top surface above its base, in world units (the table
 // model is 13 voxels tall — see buildTable). Crockery rests here.
-constexpr float TABLE_TOP_H = 13.0f * PROP_SCALE;
+constexpr float TABLE_TOP_H = 16.0f * PROP_SCALE;   // matches the enlarged table top
 
 inline int hidx(const TownBuilding& b, int x, int y, int z) {
     return ((y * b.dimZ) + z) * b.dimX + x;
@@ -48,23 +48,23 @@ FurnitureRule furnitureForRoom(RoomType t) {
         case RoomType::Kitchen:
             r.wallPicks  = { PropType::Cooker, PropType::Sink, PropType::KitchenCounter,
                              PropType::KitchenCounter, PropType::Crockery };
-            r.openPicks  = { PropType::Table, PropType::Chair };
-            r.capMin = 4; r.capMax = 7;
+            r.openPicks  = { PropType::Table, PropType::Chair, PropType::FlowerVase };
+            r.capMin = 5; r.capMax = 8;
             r.wallLanternEvery = 6;
             break;
         case RoomType::Bedroom:
             r.wallPicks  = { PropType::Bed, PropType::Wardrobe, PropType::SideTable,
-                             PropType::SideTable, PropType::Bookshelf };
-            r.openPicks  = { PropType::Chair };
-            r.capMin = 4; r.capMax = 6;
+                             PropType::SideTable, PropType::Bookshelf, PropType::WallPainting };
+            r.openPicks  = { PropType::Chair, PropType::FlowerVase, PropType::PottedPlant };
+            r.capMin = 5; r.capMax = 8;
             r.wallLanternEvery = 5;
             r.allowTableTopper = false;
             break;
         case RoomType::Study:
             r.wallPicks  = { PropType::Bookshelf, PropType::Bookshelf, PropType::Bookshelf,
-                             PropType::Desk, PropType::Desk };
-            r.openPicks  = { PropType::Chair, PropType::Chair };
-            r.capMin = 4; r.capMax = 7;
+                             PropType::Desk, PropType::Desk, PropType::WallPainting };
+            r.openPicks  = { PropType::Chair, PropType::Chair, PropType::FlowerVase };
+            r.capMin = 5; r.capMax = 8;
             r.wallLanternEvery = 4;
             break;
         case RoomType::DiningHall:
@@ -105,9 +105,9 @@ FurnitureRule furnitureForRoom(RoomType t) {
             break;
         case RoomType::Library:
             r.wallPicks  = { PropType::Bookshelf, PropType::Bookshelf, PropType::Bookshelf,
-                             PropType::Bookshelf, PropType::Desk };
+                             PropType::Bookshelf, PropType::Desk, PropType::WallPainting };
             r.openPicks  = { PropType::Chair, PropType::Table };
-            r.capMin = 5; r.capMax = 9;
+            r.capMin = 6; r.capMax = 10;
             r.wallLanternEvery = 5;
             break;
         case RoomType::Hallway:
@@ -117,12 +117,34 @@ FurnitureRule furnitureForRoom(RoomType t) {
             r.wallLanternEvery = 2;
             r.allowTableTopper = false;
             break;
+        case RoomType::Apothecary:
+            r.wallPicks  = { PropType::BarCounter, PropType::Bookshelf,
+                             PropType::AlchemyTable, PropType::KitchenCounter };
+            r.openPicks  = { PropType::Cauldron, PropType::Table, PropType::Chair };
+            r.capMin = 5; r.capMax = 8;
+            r.wallLanternEvery = 3;
+            break;
+        case RoomType::Bakery:
+            r.wallPicks  = { PropType::Forge, PropType::KitchenCounter,
+                             PropType::BarCounter, PropType::Bookshelf };  // oven, counters, shelves
+            r.openPicks  = { PropType::Table, PropType::Chair };
+            r.capMin = 4; r.capMax = 7;
+            r.wallLanternEvery = 3;
+            break;
+        case RoomType::Stable:
+        case RoomType::Chapel:
+            // Stalls / pews / altar are built as block détail in building.cpp;
+            // keep the prop placer out of these rooms entirely.
+            r.wallLanternEvery = 0;
+            r.capMin = 0; r.capMax = 0;
+            break;
         case RoomType::LivingRoom:
         default:
             r.wallPicks  = { PropType::Couch, PropType::Bookshelf, PropType::Bookshelf,
-                             PropType::SideTable };
-            r.openPicks  = { PropType::Table, PropType::Chair, PropType::Chair };
-            r.capMin = 5; r.capMax = 9;
+                             PropType::SideTable, PropType::WallPainting, PropType::WallPainting };
+            r.openPicks  = { PropType::Table, PropType::Chair, PropType::Chair,
+                             PropType::FlowerVase, PropType::PottedPlant };
+            r.capMin = 7; r.capMax = 13;
             r.wallLanternEvery = 5;
             break;
     }
@@ -137,6 +159,7 @@ bool prefersWall(PropType t) {
         case PropType::Cooker: case PropType::Sink: case PropType::KitchenCounter:
         case PropType::SideTable: case PropType::Couch: case PropType::Desk:
         case PropType::BarCounter: case PropType::Forge: case PropType::AlchemyTable:
+        case PropType::Fireplace: case PropType::WallPainting:
             return true;
         default:
             return false;
@@ -195,6 +218,34 @@ void placeFurniture(const TownBuilding& b) {
         int placed = 0;
         std::vector<glm::ivec3> used;
         int wallSeen = 0;
+
+        // Cosy centrepieces for living spaces: a hearth against a wall (so most
+        // homes get a glowing fireplace) and a rug near the room centre. Placed
+        // before the random fill so they're guaranteed. The fireplace reserves
+        // its cell in `used`; the flat rug doesn't, so furniture may sit on it.
+        if (room.type == RoomType::LivingRoom || room.type == RoomType::DiningHall) {
+            for (const Spot& s : spots) {
+                if (!s.wall) continue;
+                g_placements.push_back({ PropType::Fireplace,
+                    glm::vec3((float)(b.wx + s.x) + 0.5f, (float)(b.baseY + s.y + 1),
+                              (float)(b.wz + s.z) + 0.5f), s.yaw, (uint32_t)rng() });
+                used.push_back(glm::ivec3(s.x, s.y, s.z));
+                break;
+            }
+            const int rcx = (x0 + x1) / 2, rcz = (z0 + z1) / 2;
+            const Spot* rug = nullptr; int rugD = 1 << 30;
+            for (const Spot& s : spots) {
+                if (s.wall) continue;
+                int d = std::abs(s.x - rcx) + std::abs(s.z - rcz);
+                if (d < rugD) { rugD = d; rug = &s; }
+            }
+            if (rug)
+                g_placements.push_back({ PropType::Rug,
+                    glm::vec3((float)(b.wx + rug->x) + 0.5f, (float)(b.baseY + rug->y + 1),
+                              (float)(b.wz + rug->z) + 0.5f),
+                    (float)((rng() % 2) * 90), (uint32_t)rng() });
+        }
+
         for (const Spot& s : spots) {
             if (placed >= cap) break;
 
@@ -225,21 +276,38 @@ void placeFurniture(const TownBuilding& b) {
             // vice versa, so big wall units don't sit awkwardly in the middle.
             if (!s.wall && prefersWall(t)) continue;
 
+            // Wall lanterns mount high; framed art hangs at head height; the
+            // rest sit on the floor.
+            float mountY = wallLantern ? 3.0f
+                         : (t == PropType::WallPainting ? 2.4f : 0.0f);
             glm::vec3 pos((float)(b.wx + s.x) + 0.5f,
-                          (float)(b.baseY + s.y + 1) + (wallLantern ? 3.0f : 0.0f),
+                          (float)(b.baseY + s.y + 1) + mountY,
                           (float)(b.wz + s.z) + 0.5f);
-            g_placements.push_back({ t, pos, s.yaw, rng() });
+            g_placements.push_back({ t, pos, s.yaw, (uint32_t)rng() });
 
             if (rule.allowTableTopper && t == PropType::Table) {
                 glm::vec3 cp = pos; cp.y += TABLE_TOP_H;
-                PropType on = (rng() % 5 == 0) ? PropType::Crockery : PropType::Lantern;
-                g_placements.push_back({ on, cp, s.yaw, rng() });
+                int roll = (int)(rng() % 6);
+                PropType on = (roll == 0) ? PropType::Crockery
+                            : (roll == 1) ? PropType::FlowerVase
+                                          : PropType::Lantern;
+                g_placements.push_back({ on, cp, s.yaw, (uint32_t)rng() });
             }
 
             used.push_back(glm::ivec3(s.x, s.y, s.z));
             placed++;
         }
     }
+}
+
+// Ground rest-height for a prop. Inside a town's hard-flat zone we use the
+// leveled baseY so the prop sits exactly on the flattened/paved surface; outside
+// it (e.g. a fence run along an open highway) we fall back to the raw terrain
+// surface. Resting on the raw surface inside a town floats props by the
+// raw-vs-flattened wobble (the same reason the lamp/plaza passes prefer it).
+int townGroundLevel(int wx, int wz) {
+    int gy = townFlatLevelAt(wx, wz);
+    return (gy < 1) ? sampleSurfaceSolid(wx, wz) : gy;
 }
 
 // Lines a town's gravel paths with lamps, benches, planters and greenery.
@@ -257,8 +325,8 @@ void placeDecorations(const Town& t) {
     };
     // Street lamps and fences are emitted by their own passes; these are the
     // roadside dressing scattered at intervals along each path.
-    static const PropType DECOS[] = { PropType::Bush, PropType::PottedPlant,
-                                      PropType::Bench };
+    static const PropType DECOS[] = { PropType::Bush, PropType::FlowerBed,
+                                      PropType::PottedPlant, PropType::Bench };
     int decoIdx = 0;
     for (const TownRoad& path : t.paths) {
         for (size_t i = 0; i + 1 < path.pts.size(); i++) {
@@ -275,11 +343,11 @@ void placeDecorations(const Town& t) {
                 int oz = a.y + (int)(dz * u + perpZ * 5.0f * side);
                 decoIdx++;
                 if (insideBuilding(ox, oz)) continue;
-                int gy = sampleSurfaceSolid(ox, oz);
+                int gy = townGroundLevel(ox, oz);
                 if (gy < WORLD_SEA_LEVEL) continue;            // keep them out of water
-                g_placements.push_back({ DECOS[decoIdx % 3],
+                g_placements.push_back({ DECOS[decoIdx % 4],
                     glm::vec3((float)ox + 0.5f, (float)(gy + 1), (float)oz + 0.5f),
-                    (float)((rng() % 4) * 90), rng() });
+                    (float)((rng() % 4) * 90), (uint32_t)rng() });
             }
         }
     }
@@ -325,7 +393,7 @@ void placeStreetLampProps(const Town& t) {
         if (gy < 1) gy = sampleSurfaceSolid(L.x, L.y);
         g_placements.push_back({ PropType::StreetLamp,
             glm::vec3((float)L.x + 0.5f, (float)(gy + 1), (float)L.y + 0.5f),
-            (float)((rng() % 4) * 90), rng() });
+            (float)((rng() % 4) * 90), (uint32_t)rng() });
     }
 }
 
@@ -353,10 +421,10 @@ void placeFenceRun(const TownPlan& plan, const std::vector<glm::ivec2>& pts,
             int gx = (int)std::floor(px), gz = (int)std::floor(pz);
             if (insideAnyBuilding(plan, gx, gz)) continue;
             if (townGated && !nearAnyTown(plan, px, pz, 80.0f)) continue;
-            int gy = sampleSurfaceSolid(gx, gz);
+            int gy = townGroundLevel(gx, gz);
             if (gy < WORLD_SEA_LEVEL) continue;
             g_placements.push_back({ PropType::Fence,
-                glm::vec3(px, (float)(gy + 1), pz), yaw, rng() });
+                glm::vec3(px, (float)(gy + 1), pz), yaw, (uint32_t)rng() });
         }
         traveled += segLen;
     }
@@ -395,58 +463,12 @@ struct DoorCellLocal { int x; int z; int baseY; bool valid; };
 DoorCellLocal findFrontDoorCell(const TownBuilding& b) {
     DoorCellLocal out{0, 0, 0, false};
     if ((b.doorDX == 0 && b.doorDZ == 0) || b.rooms.empty()) return out;
-
-    auto solid = [&](int x, int y, int z) {
-        if (x < 0 || x >= b.dimX || y < 0 || y >= b.dimY ||
-            z < 0 || z >= b.dimZ) return false;
-        return b.blocks[((size_t)y * b.dimZ + z) * b.dimX + x]
-               != (uint8_t)BlockType::Air;
-    };
-    auto airRun = [](int n, auto air) {
-        int bestS = n / 2, bestL = 0, rs = -1, rl = 0;
-        for (int i = 0; i <= n; i++) {
-            bool a = (i < n) && air(i);
-            if (a) { if (rs < 0) rs = i; rl++; }
-            else { if (rl > bestL) { bestL = rl; bestS = rs; } rs = -1; rl = 0; }
-        }
-        return bestL > 0 ? bestS + bestL / 2 : n / 2;
-    };
-
-    if (b.doorDZ != 0) {
-        const int thr = std::max(3, b.dimX / 3);
-        auto rowSolids = [&](int z) {
-            int n = 0;
-            for (int x = 0; x < b.dimX; x++) if (solid(x, 2, z)) n++;
-            return n;
-        };
-        int wz;
-        if (b.doorDZ < 0) {
-            wz = 0;
-            while (wz < b.dimZ - 1 && rowSolids(wz) < thr) wz++;
-        } else {
-            wz = b.dimZ - 1;
-            while (wz > 0 && rowSolids(wz) < thr) wz--;
-        }
-        out.x = airRun(b.dimX, [&](int x){ return !solid(x, 2, wz); });
-        out.z = wz;
-    } else {
-        const int thr = std::max(3, b.dimZ / 3);
-        auto colSolids = [&](int x) {
-            int n = 0;
-            for (int z = 0; z < b.dimZ; z++) if (solid(x, 2, z)) n++;
-            return n;
-        };
-        int wx;
-        if (b.doorDX < 0) {
-            wx = 0;
-            while (wx < b.dimX - 1 && colSolids(wx) < thr) wx++;
-        } else {
-            wx = b.dimX - 1;
-            while (wx > 0 && colSolids(wx) < thr) wx--;
-        }
-        out.x = wx;
-        out.z = airRun(b.dimZ, [&](int z){ return !solid(wx, 2, z); });
-    }
+    // The building generator recorded the door's exact local cell (bakeBuilding
+    // rotated it to match b.blocks). Use it directly — scanning the wall for the
+    // widest air gap mis-fires on composite (L/T/U/...) footprints, where the
+    // widest gap in the front row is a set-back or courtyard mouth, not the door.
+    out.x = b.doorX;
+    out.z = b.doorZ;
     out.baseY = b.baseY;
     out.valid = true;
     return out;
@@ -491,15 +513,301 @@ void placeTradeSign(const TownBuilding& b) {
     g_placements.push_back({ t, glm::vec3(px, py, pz), yaw, 0 });
 }
 
+// A wall lantern mounted beside every front door — a warm porch light for each
+// home. Lit after dark through the Lantern path in renderer.cpp.
+void placeDoorLantern(const TownBuilding& b) {
+    if ((b.doorDX == 0 && b.doorDZ == 0) || b.rooms.empty()) return;
+    DoorCellLocal dc = findFrontDoorCell(b);
+    if (!dc.valid) return;
+
+    const float fwdX = (float)b.doorDX, fwdZ = (float)b.doorDZ;   // door outward normal
+    const float alongX = -fwdZ, alongZ = fwdX;                    // along the wall
+    const int   side   = ((b.wx * 7 + b.wz * 13) & 1) ? 1 : -1;   // which side, deterministically
+    // Two cells to one side of the 3-wide door cut, pushed just past the wall.
+    const float cx = (float)(b.wx + dc.x) + 0.5f + alongX * 2.0f * (float)side;
+    const float cz = (float)(b.wz + dc.z) + 0.5f + alongZ * 2.0f * (float)side;
+    const float px = cx + fwdX * 0.55f;
+    const float pz = cz + fwdZ * 0.55f;
+    const float py = (float)b.baseY + 2.6f;                       // head-height sconce
+    const float yaw = glm::degrees(std::atan2(fwdX, fwdZ));
+    g_placements.push_back({ PropType::Lantern, glm::vec3(px, py, pz), yaw, 0 });
+}
+
+// A fenced paddock behind each stable — a rectangular run of fence posts,
+// skipping any that would land inside a building or below the sea, so horses
+// have a yard to graze. Gives stables a recognisable "fences outside" look.
+void placeStablePaddock(const TownPlan& plan, const TownBuilding& b) {
+    std::mt19937 rng(worldSeed() ^ (uint32_t)(b.wx * 2654435761u)
+                                 ^ (uint32_t)(b.wz * 40503u) ^ 0x5AB1Eu);
+    int cx = b.wx + b.dimX / 2, cz = b.wz + b.dimZ / 2;
+    int bdx = -b.doorDX, bdz = -b.doorDZ;            // out the back of the stable
+    if (bdx == 0 && bdz == 0) bdz = 1;
+    int ext = (bdx != 0) ? b.dimX / 2 : b.dimZ / 2;
+    const int half = 7;
+    int pcx = cx + bdx * (ext + 4 + half);
+    int pcz = cz + bdz * (ext + 4 + half);
+    auto post = [&](int x, int z, float yaw) {
+        if (insideAnyBuilding(plan, x, z)) return;
+        int gy = townGroundLevel(x, z);
+        if (gy < WORLD_SEA_LEVEL) return;
+        g_placements.push_back({ PropType::Fence,
+            glm::vec3((float)x + 0.5f, (float)(gy + 1), (float)z + 0.5f), yaw, (uint32_t)rng() });
+    };
+    for (int x = pcx - half; x <= pcx + half; x += 2) {
+        post(x, pcz - half, 90.0f);
+        post(x, pcz + half, 90.0f);
+    }
+    for (int z = pcz - half + 2; z <= pcz + half - 2; z += 2) {
+        post(pcx - half, z, 0.0f);
+        post(pcx + half, z, 0.0f);
+    }
+}
+
+// Flower pots flanking every building's front door, plus a cluster of barrels
+// beside pubs, blacksmiths, and bakeries.
+void placeEntranceDecorations(const TownBuilding& b) {
+    if ((b.doorDX == 0 && b.doorDZ == 0) || b.rooms.empty()) return;
+    DoorCellLocal dc = findFrontDoorCell(b);
+    if (!dc.valid) return;
+
+    const float fwdX  = (float)b.doorDX, fwdZ  = (float)b.doorDZ;
+    const float sideX = -fwdZ,           sideZ  =  fwdX;
+
+    // One flower pot on each side of the door, just clear of the wall.
+    for (int side : { -1, 1 }) {
+        float cx = (float)(b.wx + dc.x) + 0.5f + sideX * 2.5f * (float)side;
+        float cz = (float)(b.wz + dc.z) + 0.5f + sideZ * 2.5f * (float)side;
+        g_placements.push_back({ PropType::FlowerPot,
+            glm::vec3(cx + fwdX * 0.6f, (float)(b.baseY + 1), cz + fwdZ * 0.6f),
+            glm::degrees(std::atan2(fwdX, fwdZ)), 0 });
+    }
+
+    // Barrels beside pubs, blacksmiths, and bakeries.
+    auto kind = (BuildingKind)b.kind;
+    if (kind == BuildingKind::Pub || kind == BuildingKind::Blacksmith ||
+        kind == BuildingKind::Bakery) {
+        const int wallSide = ((b.wx * 5 + b.wz * 11) & 1) ? 1 : -1;
+        for (int i = 0; i < 2; i++) {
+            float cx = (float)(b.wx + dc.x) + 0.5f + sideX * (4.5f + (float)i) * (float)wallSide;
+            float cz = (float)(b.wz + dc.z) + 0.5f + sideZ * (4.5f + (float)i) * (float)wallSide;
+            g_placements.push_back({ PropType::Barrel,
+                glm::vec3(cx + fwdX * 0.7f, (float)(b.baseY + 1), cz + fwdZ * 0.7f),
+                (float)((b.wx * 3 + b.wz * 7 + i * 37) % 4) * 90.0f, 0 });
+        }
+    }
+}
+
+// Tiles BuntingSpan segments along chains of nearby lamp posts, creating the
+// appearance of festive bunting zigzagging across the street from post to post.
+//
+// Town selection: Market/Statue towns always get bunting, Campfire towns never
+// do, Well towns get it on a coin-flip.  This keeps bunting out of the most
+// rural settlements while making market towns feel distinctly festive.
+//
+// Chain strategy: start from each unvisited post, then keep extending to the
+// nearest unused neighbour within MAX_SPAN.  Because lamp posts alternate sides
+// of the road, the chain naturally zigzags A(left)→B(right)→C(left)→D(right)…
+// spanning the whole street rather than just one crossing.
+void placeBuntingSpans(const Town& t) {
+    // Campfire villages are too rural for bunting.
+    if (t.centerpiece == TownCenter::Campfire) return;
+    // Well towns get bunting in roughly half of cases.
+    if (t.centerpiece == TownCenter::Well) {
+        uint32_t h = worldSeed() ^ (uint32_t)(t.center.x * 2654435761u)
+                                 ^ (uint32_t)(t.center.y * 40503u) ^ 0xFE57u;
+        if (h & 1u) return;
+    }
+    // Market and Statue towns always get bunting.
+
+    constexpr float MAX_SPAN = 18.0f;
+    constexpr float SEG_LEN  = 50.0f * PROP_SCALE;   // 3.0 world units per segment
+
+    auto groundAt = [](int wx, int wz) {
+        int gy = townFlatLevelAt(wx, wz);
+        return gy < 1 ? sampleSurfaceSolid(wx, wz) : gy;
+    };
+
+    // Emit one span's worth of tiled segments between posts a and b.
+    auto stringSpan = [&](size_t a, size_t b) {
+        int   gy1 = groundAt(t.lampPosts[a].x, t.lampPosts[a].y);
+        int   gy2 = groundAt(t.lampPosts[b].x, t.lampPosts[b].y);
+        float hangY = (float)std::max(gy1, gy2) + 3.5f;
+
+        float ax = (float)t.lampPosts[a].x + 0.5f, az = (float)t.lampPosts[a].y + 0.5f;
+        float bx = (float)t.lampPosts[b].x + 0.5f, bz = (float)t.lampPosts[b].y + 0.5f;
+        float dx = bx - ax, dz = bz - az;
+        float dist    = std::sqrt(dx * dx + dz * dz);
+        float spanYaw = glm::degrees(std::atan2(dx, dz));
+        for (float u = SEG_LEN * 0.5f; u < dist; u += SEG_LEN) {
+            float frac = u / dist;
+            g_placements.push_back({ PropType::BuntingSpan,
+                glm::vec3(ax + dx * frac, hangY, az + dz * frac),
+                spanYaw, 0 });
+        }
+    };
+
+    const size_t n = t.lampPosts.size();
+    std::vector<bool> used(n, false);
+
+    for (size_t i = 0; i < n; i++) {
+        if (used[i]) continue;
+        used[i] = true;
+        size_t cur = i;
+
+        // Extend the chain greedily: always jump to the nearest unused post.
+        while (true) {
+            float  bestDist = MAX_SPAN + 1.0f;
+            size_t bestNext = n;
+            for (size_t j = 0; j < n; j++) {
+                if (used[j]) continue;
+                float dx = (float)(t.lampPosts[j].x - t.lampPosts[cur].x);
+                float dz = (float)(t.lampPosts[j].y - t.lampPosts[cur].y);
+                float d  = std::sqrt(dx * dx + dz * dz);
+                if (d < bestDist) { bestDist = d; bestNext = j; }
+            }
+            if (bestNext == n || bestDist > MAX_SPAN) break;
+
+            stringSpan(cur, bestNext);
+            used[bestNext] = true;
+            cur = bestNext;
+        }
+    }
+}
+
+// Adds detail to the town centre: physical goods on market stalls, produce
+// and crates around the market, a fountain for civilised settlements, and a
+// light scatter of flowers and benches around the central plaza.
+void placePlazaDetail(const Town& t) {
+    if (t.buildings.empty()) return;
+    const TownBuilding& cp = t.buildings[0];   // centrepiece is always first
+    if (cp.kind != 0) return;
+
+    auto groundAt = [](int wx, int wz) {
+        int gy = townFlatLevelAt(wx, wz);
+        return gy < 1 ? sampleSurfaceSolid(wx, wz) : gy;
+    };
+
+    // ── Market: ProducePile on each stall counter, Barrel/Crate outside ──────
+    if (t.centerpiece == TownCenter::Market) {
+        // The 4 stalls sit at local corners (1,1), (9,1), (1,9), (9,9).
+        // The counter top is at baseY + 2, so props placed there rest on the counter.
+        struct StallInfo { int lx, lz; float yaw; PropType outside; };
+        const StallInfo STALLS[4] = {
+            { 2,  2,   0.0f, PropType::Barrel },
+            {10,  2,  90.0f, PropType::Crate  },
+            { 2, 10, 180.0f, PropType::Crate  },
+            {10, 10, 270.0f, PropType::Barrel },
+        };
+        for (const StallInfo& s : STALLS) {
+            // Produce pile on the counter.
+            g_placements.push_back({ PropType::ProducePile,
+                glm::vec3((float)(cp.wx + s.lx) + 0.5f, (float)(cp.baseY + 2),
+                          (float)(cp.wz + s.lz) + 0.5f),
+                s.yaw, 0 });
+            // Barrel or crate beside the stall (1 block outside building footprint).
+            int ox = cp.wx + s.lx + (s.lx < 6 ? -2 : 2);
+            int oz = cp.wz + s.lz + (s.lz < 6 ? -2 : 2);
+            int gy = groundAt(ox, oz);
+            g_placements.push_back({ s.outside,
+                glm::vec3((float)ox + 0.5f, (float)(gy + 1), (float)oz + 0.5f),
+                s.yaw, 0 });
+        }
+    }
+
+    // ── Fountain: placed 5 blocks east of the centrepiece for non-Well/Market towns
+    if (t.centerpiece == TownCenter::Statue || t.centerpiece == TownCenter::Campfire) {
+        int fx = t.center.x + cp.dimX / 2 + 4;
+        int fz = t.center.y;
+        int gy = groundAt(fx, fz);
+        g_placements.push_back({ PropType::Fountain,
+            glm::vec3((float)fx + 0.5f, (float)(gy + 1), (float)fz + 0.5f),
+            0.0f, 0 });
+    }
+
+    // ── Plaza furnishings ─────────────────────────────────────────────────────
+    // The paved square grew a lot when towns were spread out, so detail is laid
+    // in concentric rings reaching out toward the plaza edge rather than hugging
+    // the centrepiece, with seating clustered so townsfolk have places to gather.
+    if (t.plazaR < 8) return;
+    const int innerR = cp.dimX / 2 + 4;            // just outside the centrepiece
+
+    auto inCentrepiece = [&](int rx, int rz) {
+        return rx >= cp.wx - 1 && rx < cp.wx + cp.dimX + 1 &&
+               rz >= cp.wz - 1 && rz < cp.wz + cp.dimZ + 1;
+    };
+    auto faceCentre = [&](int rx, int rz) {
+        return glm::degrees(std::atan2((float)(t.center.x - rx),
+                                       (float)(t.center.y - rz)));
+    };
+    auto placeFacing = [&](PropType type, int rx, int rz, float yaw) {
+        if (inCentrepiece(rx, rz)) return;
+        int gy = groundAt(rx, rz);
+        if (gy < WORLD_SEA_LEVEL) return;
+        g_placements.push_back({ type,
+            glm::vec3((float)rx + 0.5f, (float)(gy + 1), (float)rz + 0.5f),
+            yaw, 0 });
+    };
+
+    // A notice board near the eastern plaza edge, facing in toward the square.
+    {
+        int nbR = std::max(innerR + 5, t.plazaR - 4);
+        int nx = t.center.x + nbR, nz = t.center.y;
+        placeFacing(PropType::NoticeBoard, nx, nz, faceCentre(nx, nz));
+    }
+
+    // Market & well towns get a few covered stalls on a mid-plaza ring.
+    if (t.centerpiece == TownCenter::Market || t.centerpiece == TownCenter::Well) {
+        const int sR = std::max(innerR + 7, (int)(t.plazaR * 0.55f));
+        const int nStalls = (t.plazaR >= 22) ? 4 : 3;
+        for (int i = 0; i < nStalls; i++) {
+            // Offset from 0 so a stall never lands on the east-side notice board.
+            float a  = 0.6f + (6.2831853f / (float)nStalls) * (float)i;
+            int   rx = t.center.x + (int)(std::cos(a) * (float)sR);
+            int   rz = t.center.y + (int)(std::sin(a) * (float)sR);
+            placeFacing(PropType::MarketStall, rx, rz, faceCentre(rx, rz));
+        }
+    }
+
+    // Two concentric rings of seating, flowers and greenery across the square.
+    // Benches face inward so seated townsfolk look onto the centre.
+    static const PropType RING_A[] = {
+        PropType::Bench, PropType::FlowerBed, PropType::Bench, PropType::PottedPlant
+    };
+    static const PropType RING_B[] = {
+        PropType::FlowerBed, PropType::Bench, PropType::PottedPlant, PropType::Bench
+    };
+    struct Ring { int radius; const PropType* props; float phase; };
+    const int outerR = std::max(innerR + 10, (int)(t.plazaR * 0.78f));
+    const Ring rings[2] = {
+        { innerR, RING_A, 0.0f },
+        { outerR, RING_B, 0.5f },
+    };
+    for (const Ring& ring : rings) {
+        if (ring.radius >= t.plazaR) continue;
+        int nSlots = std::max(4, (int)(6.2831853f * (float)ring.radius / 7.0f));
+        for (int i = 0; i < nSlots; i++) {
+            float a  = (6.2831853f / (float)nSlots) * ((float)i + ring.phase);
+            int   rx = t.center.x + (int)(std::cos(a) * (float)ring.radius);
+            int   rz = t.center.y + (int)(std::sin(a) * (float)ring.radius);
+            placeFacing(ring.props[i % 4], rx, rz, faceCentre(rx, rz));
+        }
+    }
+}
+
 void build() {
     const TownPlan& plan = getTownPlan();
     for (const Town& t : plan.towns) {
         for (const TownBuilding& b : t.buildings) {
             if (!b.rooms.empty()) placeFurniture(b);
             placeTradeSign(b);
+            placeDoorLantern(b);
+            placeEntranceDecorations(b);
+            if (b.kind == (int)BuildingKind::Stable) placeStablePaddock(plan, b);
         }
         placeStreetLampProps(t);
         placeDecorations(t);
+        placeBuntingSpans(t);
+        placePlazaDetail(t);
     }
     placeFences(plan);
 }
@@ -510,16 +818,6 @@ std::once_flag             g_doorsOnce;
 // One door per house, in the gap of its front wall.
 void buildDoors() {
     const TownPlan& plan = getTownPlan();
-    // Centre index of the widest run of `air` cells over [0, n).
-    auto airRunCentre = [](int n, auto air) {
-        int bestS = n / 2, bestL = 0, rs = -1, rl = 0;
-        for (int i = 0; i <= n; i++) {
-            bool a = (i < n) && air(i);
-            if (a) { if (rs < 0) rs = i; rl++; }
-            else { if (rl > bestL) { bestL = rl; bestS = rs; } rs = -1; rl = 0; }
-        }
-        return bestL > 0 ? bestS + bestL / 2 : n / 2;
-    };
     for (const Town& t : plan.towns)
         for (const TownBuilding& b : t.buildings) {
             // Every residential or special building has a door direction set
@@ -527,54 +825,13 @@ void buildDoors() {
             // doorDX/doorDZ at zero and are skipped here.
             if ((b.doorDX == 0 && b.doorDZ == 0) || b.rooms.empty()) continue;
 
-            auto solid = [&](int x, int y, int z) {
-                if (x < 0 || x >= b.dimX || y < 0 || y >= b.dimY ||
-                    z < 0 || z >= b.dimZ) return false;
-                return b.blocks[((size_t)y * b.dimZ + z) * b.dimX + x]
-                       != (uint8_t)BlockType::Air;
-            };
-            // The footprint edge can be a roof eave OR a porch (a small step +
-            // 2 posts + an overhanging roof slab in front of the actual wall).
-            // The porch row is mostly air at door height, so we scan inward
-            // until we find a row that's at least 1/3 solid at y=2 — that's
-            // the real wall plane. Then airRunCentre on that plane finds the
-            // doorway cut.
-            const int wallThreshold = std::max(3, b.dimX / 3);
-            const int wallThresholdZ = std::max(3, b.dimZ / 3);
-            int wallX, wallZ;
-            if (b.doorDZ != 0) {
-                auto rowSolids = [&](int z) {
-                    int n = 0;
-                    for (int x = 0; x < b.dimX; x++) if (solid(x, 2, z)) n++;
-                    return n;
-                };
-                int wz;
-                if (b.doorDZ < 0) {
-                    wz = 0;
-                    while (wz < b.dimZ - 1 && rowSolids(wz) < wallThreshold) wz++;
-                } else {
-                    wz = b.dimZ - 1;
-                    while (wz > 0 && rowSolids(wz) < wallThreshold) wz--;
-                }
-                int dx = airRunCentre(b.dimX, [&](int x){ return !solid(x, 2, wz); });
-                wallX = b.wx + dx; wallZ = b.wz + wz;
-            } else {
-                auto colSolids = [&](int x) {
-                    int n = 0;
-                    for (int z = 0; z < b.dimZ; z++) if (solid(x, 2, z)) n++;
-                    return n;
-                };
-                int wx;
-                if (b.doorDX < 0) {
-                    wx = 0;
-                    while (wx < b.dimX - 1 && colSolids(wx) < wallThresholdZ) wx++;
-                } else {
-                    wx = b.dimX - 1;
-                    while (wx > 0 && colSolids(wx) < wallThresholdZ) wx--;
-                }
-                int dz = airRunCentre(b.dimZ, [&](int z){ return !solid(wx, 2, z); });
-                wallX = b.wx + wx; wallZ = b.wz + dz;
-            }
+            // The generator recorded the door's exact local cell (bakeBuilding
+            // rotated it to match b.blocks); world-project it. Scanning the wall
+            // for the widest air gap mis-fires on composite (L/T/U/...) houses,
+            // where the widest front-row gap is a set-back or courtyard mouth
+            // rather than the doorway.
+            const int wallX = b.wx + b.doorX;
+            const int wallZ = b.wz + b.doorZ;
 
             float Wx = -(float)b.doorDZ, Wz = (float)b.doorDX;   // along the wall
             float Fx =  (float)b.doorDX, Fz = (float)b.doorDZ;   // outward
@@ -600,4 +857,81 @@ const std::vector<PropPlacement>& getPropPlacements() {
 const std::vector<DoorPlacement>& getDoorPlacements() {
     std::call_once(g_doorsOnce, [] { buildDoors(); });
     return g_doors;
+}
+
+// --- Wild bush scatter ------------------------------------------------------
+namespace {
+inline uint32_t wildHash(int x, int z, uint32_t seed) {
+    uint32_t h = seed + 0x9E3779B9u;
+    h ^= (uint32_t)x * 0x85EBCA77u; h = (h ^ (h >> 15)) * 0xC2B2AE3Du;
+    h ^= (uint32_t)z * 0x27D4EB2Fu; h = (h ^ (h >> 13)) * 0x165667B1u;
+    h ^= h >> 16; return h;
+}
+inline uint64_t wildKeyFor(int cx, int cz, int slot) {
+    uint64_t k = ((uint64_t)(uint32_t)cx << 32) | (uint32_t)cz;
+    return k ^ (0x9E3779B97F4A7C15ull * (uint64_t)(slot + 1));
+}
+// Bush variant biased by biome (Plains=0, Forest=1, Desert=2, Mountains=3,
+// Tundra=4, Savanna=5, Jungle=6).
+PropType wildBushVariant(int biome, uint32_t h) {
+    uint32_t v = h % 100u;
+    switch (biome) {
+        case 2: return PropType::BushDry;                                    // Desert
+        case 5: return (v < 68) ? PropType::BushDry : PropType::Bush;         // Savanna
+        case 3:                                                              // Mountains
+        case 4: return (v < 55) ? PropType::BushConifer : PropType::BushDry;  // Tundra
+        case 1:                                                              // Forest
+        case 6: return (v < 45) ? PropType::Bush                             // Jungle
+                      : (v < 72) ? PropType::BushBerry : PropType::BushFlowering;
+        default: return (v < 50) ? PropType::Bush                            // Plains, etc.
+                       : (v < 76) ? PropType::BushFlowering : PropType::BushBerry;
+    }
+}
+}  // namespace
+
+void gatherWildProps(const glm::vec3& center, float radius,
+                     const std::unordered_set<uint64_t>& live,
+                     std::vector<WildProp>& out) {
+    out.clear();
+    const int      CELL = 11;                 // world blocks per scatter cell
+    const float    in2  = radius * radius;
+    const uint32_t seed = worldSeed();
+    const size_t   CAP  = 32;                  // cap new bushes (and surface samples) per call
+    const int cx0 = (int)std::floor((center.x - radius) / CELL);
+    const int cx1 = (int)std::floor((center.x + radius) / CELL);
+    const int cz0 = (int)std::floor((center.z - radius) / CELL);
+    const int cz1 = (int)std::floor((center.z + radius) / CELL);
+
+    for (int cz = cz0; cz <= cz1 && out.size() < CAP; cz++)
+        for (int cx = cx0; cx <= cx1 && out.size() < CAP; cx++) {
+            uint32_t h = wildHash(cx, cz, seed);
+            int n = 0;
+            uint32_t r = h & 0xF;
+            if      (r < 6) n = 1;             // ~44% of cells get one bush
+            else if (r < 8) n = 2;             // ~12% get two
+            for (int s = 0; s < n; s++) {
+                uint32_t sh = h ^ (0x9E3779B1u * (uint32_t)(s + 1));
+                float px = (float)cx * CELL + (float)(sh & 0xFF) / 255.0f * (CELL - 1);
+                float pz = (float)cz * CELL + (float)((sh >> 8) & 0xFF) / 255.0f * (CELL - 1);
+                float dx = px - center.x, dz = pz - center.z;
+                if (dx * dx + dz * dz > in2) continue;
+                uint64_t key = wildKeyFor(cx, cz, s);
+                if (live.count(key)) continue;            // already spawned — skip the sampling
+                int wx = (int)std::floor(px), wz = (int)std::floor(pz);
+                if (townFlatLevelAt(wx, wz) >= 1) continue;       // leave town ground to town props
+                // Rest on the ACTUAL top solid block (the 3D-density surface the
+                // chunk really generates) — not sampleSurface()'s smooth blended
+                // target, which sits a block off and leaves bushes hovering.
+                int gy = sampleSurfaceSolid(wx, wz);
+                if (gy < WORLD_SEA_LEVEL + 1) continue;           // never in water
+                int biome = sampleSurface(wx, wz).biome;          // climate → variant + density
+                uint32_t cull = (sh >> 16) & 0xFF;
+                if ((biome == 2 || biome == 4) && cull > 96)  continue;  // ~38% keep (Desert/Tundra)
+                if (biome == 3 && cull > 165) continue;                  // ~65% keep (Mountains)
+                out.push_back({ key, { wildBushVariant(biome, sh),
+                                       glm::vec3(px, (float)(gy + 1), pz),
+                                       (float)((sh >> 24) % 360u), sh } });
+                if (out.size() >= CAP) break;
+            }
+        }
 }

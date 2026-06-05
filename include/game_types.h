@@ -11,4 +11,4 @@ static constexpr float REACH             = 5.0f;
 static constexpr float PLAYER_HEIGHT     = 1.8f;
 static constexpr float PLAYER_WIDTH      = 0.4f;
 static constexpr float WATER_LEVEL_Y     = 65.0f;
-static constexpr int   MAX_LANTERNS      = 48;
+static constexpr int   MAX_LANTERNS      = 192;   // per-frame point lights (town lamps out to ~15 chunks)

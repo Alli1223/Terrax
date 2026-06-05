@@ -31,6 +31,13 @@ VoxelVolume* buildBarStool();
 VoxelVolume* buildCauldron();
 VoxelVolume* buildAlchemyTable();
 
+// Cosy home furnishings (furniture.cpp): a glowing stone hearth, a floor rug,
+// framed wall art and a vase of flowers.
+VoxelVolume* buildFireplace();
+VoxelVolume* buildRug();
+VoxelVolume* buildWallPainting();
+VoxelVolume* buildFlowerVase();
+
 // Trade signs hanging from a wooden post — one builder per icon. Each shares
 // the same post + frame geometry; the body of the shield differs.
 VoxelVolume* buildTradeSignAnvil();
@@ -42,8 +49,21 @@ VoxelVolume* buildTradeSignWheat();
 VoxelVolume* buildStreetLamp();
 VoxelVolume* buildPottedPlant();
 VoxelVolume* buildBush();
+VoxelVolume* buildBushFlowering();
+VoxelVolume* buildBushBerry();
+VoxelVolume* buildBushConifer();
+VoxelVolume* buildBushDry();
 VoxelVolume* buildBench();
 VoxelVolume* buildFenceSection();
+VoxelVolume* buildFlowerPot();
+VoxelVolume* buildFlowerBed();
+VoxelVolume* buildBarrel();
+VoxelVolume* buildBuntingSpan();
+VoxelVolume* buildCrate();
+VoxelVolume* buildProducePile();
+VoxelVolume* buildFountain();
+VoxelVolume* buildMarketStall();
+VoxelVolume* buildNoticeBoard();
 
 // Openable house door panel, one mesh per style/colour (the Door object).
 VoxelVolume* buildDoor(int variant);

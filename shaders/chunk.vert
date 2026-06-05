@@ -21,6 +21,7 @@ out vec3  FragWorldPos;
 out vec3  FragNormal;
 out vec4  FragPosLightSpace;
 out float Snowable;
+out float MaterialID;
 
 void main() {
     vec4 worldPos = model * vec4(aPos, 1.0);
@@ -31,6 +32,7 @@ void main() {
     FragNormal        = aNormal;
     FragPosLightSpace = lightSpaceMatrix * worldPos;
     Snowable          = aSnowable;
+    MaterialID        = aMaterialID;
 
     gl_ClipDistance[0] = dot(worldPos.xyz, u_clipPlane.xyz) + u_clipPlane.w;
     gl_Position        = projection * view * worldPos;

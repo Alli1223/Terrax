@@ -1,4 +1,11 @@
+// Core building kit: the shared block-grid primitives, the per-template
+// HouseSpec data and the emitFromSpec shell generator that every Building
+// subclass builds on, plus the public materialPalette + rotateBuilding entry
+// points. The composite-shape house generator lives in building_house.cpp; the
+// specialist buildings (pub, smith, chapel, ...) in building_special.cpp.
+// Shared declarations: building_internal.h.
 #include "building.h"
+#include "building_internal.h"
 #include "voxel_model.h"
 #include <algorithm>
 #include <cstdint>
@@ -10,17 +17,20 @@ MaterialPalette materialPalette(int material) {
     auto paint = [](int i) { return (BlockType)((int)BlockType::PaintFirst + i); };
     MaterialPalette p;
     p.accent = paint(7);                              // brick red — chimneys, gable trim
+    // wallDark is a darker shade of the wall used for corner posts on wooden /
+    // plastered houses (signalling a different cut of wood). Stone materials set
+    // `stone` and are left plain — the earlier brick coursing read poorly.
     switch (material) {
-        case 1: p.wall = paint(0);  p.roof = paint(7);  break;  // Cottage:   white / brick red
-        case 2: p.wall = paint(3);  p.roof = paint(4);  break;  // Stone:     slate / charcoal
-        case 3: p.wall = paint(2);  p.roof = paint(20); break;  // Manor:     light grey / navy
-        case 4: p.wall = paint(12); p.roof = paint(4);  break;  // Cabin:     chestnut / charcoal
-        case 5: p.wall = paint(13); p.roof = paint(6);  break;  // Sandstone: sand / terracotta
-        case 6: p.wall = paint(15); p.roof = paint(16); break;  // Forest:    sage / forest green
-        case 7: p.wall = paint(0);  p.roof = paint(21); break;  // Coastal:   white / steel blue
-        case 8: p.wall = paint(6);  p.roof = paint(9);  break;  // Autumn:    terracotta / rust
-        case 9: p.wall = paint(23); p.roof = paint(22); break;  // Plum:      dusty rose / plum
-        default:p.wall = paint(13); p.roof = paint(12); break;  // Timber:    sand / chestnut
+        case 1: p.wall = paint(0);  p.roof = paint(7);  p.wallDark = paint(2);  break;  // Cottage:   white / brick red
+        case 2: p.wall = paint(3);  p.roof = paint(4);  p.wallDark = paint(4);  p.stone = true; break;  // Stone:     slate / charcoal
+        case 3: p.wall = paint(2);  p.roof = paint(20); p.wallDark = paint(3);  p.stone = true; break;  // Manor:     light grey / navy
+        case 4: p.wall = paint(12); p.roof = paint(4);  p.wallDark = paint(24); break;  // Cabin:     chestnut / charcoal
+        case 5: p.wall = paint(13); p.roof = paint(6);  p.wallDark = paint(25); p.stone = true; break;  // Sandstone: sand / terracotta
+        case 6: p.wall = paint(15); p.roof = paint(16); p.wallDark = paint(14); break;  // Forest:    sage / forest green
+        case 7: p.wall = paint(0);  p.roof = paint(21); p.wallDark = paint(2);  break;  // Coastal:   white / steel blue
+        case 8: p.wall = paint(6);  p.roof = paint(9);  p.wallDark = paint(27); break;  // Autumn:    terracotta / rust
+        case 9: p.wall = paint(23); p.roof = paint(22); p.wallDark = paint(22); break;  // Plum:      dusty rose / plum
+        default:p.wall = paint(13); p.roof = paint(12); p.wallDark = paint(12); break;  // Timber:    sand / chestnut
     }
     return p;
 }
@@ -73,41 +83,7 @@ void rotateBuilding(int sx, int sy, int sz,
     }
 }
 
-// --- HouseBuilding: multi-room residential generator -------------------------
-
-namespace {
-
-constexpr BlockType paint(int i) {
-    return (BlockType)((int)BlockType::PaintFirst + i);
-}
-
-// Specification for one residential house template. Phase 2 expands the
-// original ten templates with bigger footprints, taller storeys and per-floor
-// room layouts. Roof/material are picked elsewhere; the rest is data only here.
-struct FloorPlan {
-    // Up to two partition cuts per floor define 2..4 rooms. `cutX` is in
-    // interior coordinates (relative to interior x0). -1 means no cut.
-    int  cutX = -1;
-    int  cutZ = -1;
-    // Room assignment, indexed (frontLeft, frontRight, backLeft, backRight).
-    // Indices that don't exist (because the corresponding cut is missing) are
-    // ignored. "front" is the -Z side (the side with the front door).
-    RoomType rooms[4] = { RoomType::LivingRoom, RoomType::None,
-                          RoomType::None,       RoomType::None };
-};
-
-struct HouseSpec {
-    int   wallSpanX = 18;       // exterior X span (walls inclusive)
-    int   wallSpanZ = 14;       // exterior Z span
-    int   floors    = 1;
-    int   floorH    = 6;        // height of each storey in blocks
-    int   roof      = 1;        // 0 flat, 1 gabled, 2 hipped, 3 pyramid, 4 steep-gable (Norse)
-    bool  porch     = false;    // small overhanging porch over the front door
-    bool  threeRow  = false;    // longhouse-style: two parallel cuts → three rooms
-    bool  chimney   = true;     // emit a brick chimney at the back-right
-    bool  doorOpen  = true;     // punch a 3-wide door opening on the front wall
-    FloorPlan plans[4];         // up to 4 floors
-};
+namespace buildint {
 
 HouseSpec pickHouseSpec(int templateType) {
     HouseSpec s;
@@ -251,26 +227,6 @@ int marginFor(int span, int gridSpan) {
     return std::max(0, m);
 }
 
-struct Grid {
-    BlockType*  data;
-    int gx, gy, gz;
-    void set(int x, int y, int z, BlockType t) {
-        if (x < 0 || x >= gx || y < 0 || y >= gy || z < 0 || z >= gz) return;
-        data[((size_t)z * gy + y) * gx + x] = t;
-    }
-    BlockType get(int x, int y, int z) const {
-        if (x < 0 || x >= gx || y < 0 || y >= gy || z < 0 || z >= gz)
-            return BlockType::Air;
-        return data[((size_t)z * gy + y) * gx + x];
-    }
-    void box(int ax, int bx, int ay, int by, int az, int bz, BlockType t) {
-        for (int x = ax; x <= bx; x++)
-            for (int y = ay; y <= by; y++)
-                for (int z = az; z <= bz; z++)
-                    set(x, y, z, t);
-    }
-};
-
 // Cuts a 2-block-wide × 3-tall doorway in a vertical partition wall at `wallX`
 // spanning z in [zA, zB], centred near `prefZ`. Air-only — caller adds a frame.
 // 2-block-wide so a player carrying a torch / lantern can pass through without
@@ -287,6 +243,117 @@ void cutDoorwayAlongX(Grid& g, int wallZ, int xA, int xB, int yFloor, int prefX)
     g.box(cx, cx + 1, yFloor + 1, yFloor + 3, wallZ, wallZ, BlockType::Air);
 }
 
+// Stamps a roof of the given style over the rectangle [x0,x1]×[z0,z1] (walls sit
+// at those coords, eaves one block beyond), returning the highest roof Y. Shared
+// by emitFromSpec (one rectangle) and emitFromWings (one call per wing of an
+// L/T/U house). Styles: 0 flat, 1 gabled, 2 hipped, 3 pyramid, 4 steep gable.
+int stampRoof(Grid& g, int roof, int x0, int x1, int z0, int z1,
+              int wallH, BlockType roofB, BlockType wallB) {
+    const int rx0 = x0 - 1, rx1 = x1 + 1, rz0 = z0 - 1, rz1 = z1 + 1;
+    const int ry = wallH + 1;
+    const int xspan = x1 - x0, zspan = z1 - z0;
+    const bool ridgeX = (xspan >= zspan);
+    int roofTopY = ry;
+    if (roof == 0) {
+        g.box(rx0, rx1, ry, ry, rz0, rz1, roofB);
+    } else if (roof == 3) {
+        int ax0 = rx0, ax1 = rx1, az0 = rz0, az1 = rz1, h = 0;
+        while (ax0 <= ax1 && az0 <= az1) {
+            g.box(ax0, ax1, ry + h, ry + h, az0, az1, roofB);
+            roofTopY = ry + h;
+            ax0++; ax1--; az0++; az1--; h++;
+        }
+    } else if (roof == 2) {
+        int ax0 = rx0, ax1 = rx1, az0 = rz0, az1 = rz1, h = 0;
+        if (ridgeX) {
+            while (az0 <= az1) {
+                g.box(ax0, ax1, ry + h, ry + h, az0, az1, roofB);
+                roofTopY = ry + h;
+                az0++; az1--;
+                if (ax1 - ax0 > 4) { ax0++; ax1--; }
+                h++;
+            }
+        } else {
+            while (ax0 <= ax1) {
+                g.box(ax0, ax1, ry + h, ry + h, az0, az1, roofB);
+                roofTopY = ry + h;
+                ax0++; ax1--;
+                if (az1 - az0 > 4) { az0++; az1--; }
+                h++;
+            }
+        }
+    } else if (roof == 4) {
+        int h = 0;
+        if (ridgeX) {
+            int az0 = rz0, az1 = rz1;
+            while (az0 <= az1) {
+                for (int ly = 0; ly < 2; ly++) {
+                    g.box(rx0, rx1, ry + h + ly, ry + h + ly, az0, az1, roofB);
+                    const int g0 = std::max(az0, z0), g1 = std::min(az1, z1);
+                    g.box(x0, x0, ry + h + ly, ry + h + ly, g0, g1, wallB);
+                    g.box(x1, x1, ry + h + ly, ry + h + ly, g0, g1, wallB);
+                    roofTopY = ry + h + ly;
+                }
+                az0++; az1--; h += 2;
+            }
+        } else {
+            int ax0 = rx0, ax1 = rx1;
+            while (ax0 <= ax1) {
+                for (int ly = 0; ly < 2; ly++) {
+                    g.box(ax0, ax1, ry + h + ly, ry + h + ly, rz0, rz1, roofB);
+                    const int g0 = std::max(ax0, x0), g1 = std::min(ax1, x1);
+                    g.box(g0, g1, ry + h + ly, ry + h + ly, z0, z0, wallB);
+                    g.box(g0, g1, ry + h + ly, ry + h + ly, z1, z1, wallB);
+                    roofTopY = ry + h + ly;
+                }
+                ax0++; ax1--; h += 2;
+            }
+        }
+    } else { // Gabled
+        int h = 0;
+        if (ridgeX) {
+            int az0 = rz0, az1 = rz1;
+            while (az0 <= az1) {
+                g.box(rx0, rx1, ry + h, ry + h, az0, az1, roofB);
+                const int g0 = std::max(az0, z0), g1 = std::min(az1, z1);
+                g.box(x0, x0, ry + h, ry + h, g0, g1, wallB);
+                g.box(x1, x1, ry + h, ry + h, g0, g1, wallB);
+                roofTopY = ry + h;
+                az0++; az1--; h++;
+            }
+        } else {
+            int ax0 = rx0, ax1 = rx1;
+            while (ax0 <= ax1) {
+                g.box(ax0, ax1, ry + h, ry + h, rz0, rz1, roofB);
+                const int g0 = std::max(ax0, x0), g1 = std::min(ax1, x1);
+                g.box(g0, g1, ry + h, ry + h, z0, z0, wallB);
+                g.box(g0, g1, ry + h, ry + h, z1, z1, wallB);
+                roofTopY = ry + h;
+                ax0++; ax1--; h++;
+            }
+        }
+    }
+    return roofTopY;
+}
+
+// Adds texture to a finished wall box: darker corner posts on wooden / plastered
+// houses, so each shows its structural corners (read as a different cut of wood
+// or a quoin). Stone houses are left plain — the earlier brick coursing read
+// poorly. Only cells still equal to pal.wall are recoloured, so windows, doors
+// and trim are kept.
+void textureWalls(Grid& g, int x0, int x1, int z0, int z1, int y0, int y1,
+                  const MaterialPalette& pal) {
+    if (pal.stone) return;                       // masonry walls stay plain
+    const BlockType w = pal.wall, d = pal.wallDark;
+    if (d == w) return;
+    auto dark = [&](int x, int y, int z) { if (g.get(x, y, z) == w) g.set(x, y, z, d); };
+    // Four vertical corner posts.
+    for (int y = y0; y <= y1; y++) {
+        dark(x0, y, z0); dark(x1, y, z0);
+        dark(x0, y, z1); dark(x1, y, z1);
+    }
+}
+
 // Common shell-generation routine shared by HouseBuilding / PubBuilding /
 // BlacksmithBuilding / MageTowerBuilding. Reads `spec` (size, floors, room
 // layout per floor) and produces a tight-cropped, world-aligned block grid
@@ -295,9 +362,13 @@ void emitFromSpec(const HouseSpec& specIn, int material,
                   std::vector<uint8_t>& outBlocks,
                   std::vector<Room>& outRooms,
                   int& dimX, int& dimY, int& dimZ,
-                  int& doorDX, int& doorDZ)
+                  int& doorDX, int& doorDZ,
+                  int& doorX, int& doorZ)
 {
     HouseSpec spec = specIn;
+    // Never index plans[] (or the per-floor loops) past the array — a caller
+    // asking for more storeys than HouseSpec::MAX_FLOORS would overrun the stack.
+    spec.floors = std::max(1, std::min(HouseSpec::MAX_FLOORS, spec.floors));
     MaterialPalette pal = materialPalette(material);
     const BlockType foundationB = BlockType::Stone;
     const BlockType floorB      = paint(12);              // chestnut floorboards
@@ -322,7 +393,8 @@ void emitFromSpec(const HouseSpec& specIn, int material,
     if (wallH + 2 >= HOUSE_VY) {
         // Roof would overflow; fall back to fewer floors. Should not happen
         // with the bundled specs but guards against future edits.
-        spec.floors = std::max(1, (HOUSE_VY - 3) / spec.floorH);
+        spec.floors = std::max(1, std::min(HouseSpec::MAX_FLOORS,
+                                           (HOUSE_VY - 3) / spec.floorH));
     }
 
     // Foundation, shell, hollow interior.
@@ -501,94 +573,11 @@ void emitFromSpec(const HouseSpec& specIn, int material,
         }
     }
 
+    // Corner posts + (for stone houses) brick coursing on the exterior walls.
+    textureWalls(g, x0, x1, z0, z1, 1, wallH, pal);
+
     // Roof.
-    const int rx0 = x0 - 1, rx1 = x1 + 1, rz0 = z0 - 1, rz1 = z1 + 1;
-    const int ry = wallH + 1;
-    const bool ridgeX = (xspan >= zspan);
-    int roofTopY = ry;
-    if (spec.roof == 0) {
-        g.box(rx0, rx1, ry, ry, rz0, rz1, roofB);
-    } else if (spec.roof == 3) {
-        int ax0 = rx0, ax1 = rx1, az0 = rz0, az1 = rz1, h = 0;
-        while (ax0 <= ax1 && az0 <= az1) {
-            g.box(ax0, ax1, ry + h, ry + h, az0, az1, roofB);
-            roofTopY = ry + h;
-            ax0++; ax1--; az0++; az1--; h++;
-        }
-    } else if (spec.roof == 2) {
-        int ax0 = rx0, ax1 = rx1, az0 = rz0, az1 = rz1, h = 0;
-        if (ridgeX) {
-            while (az0 <= az1) {
-                g.box(ax0, ax1, ry + h, ry + h, az0, az1, roofB);
-                roofTopY = ry + h;
-                az0++; az1--;
-                if (ax1 - ax0 > 4) { ax0++; ax1--; }
-                h++;
-            }
-        } else {
-            while (ax0 <= ax1) {
-                g.box(ax0, ax1, ry + h, ry + h, az0, az1, roofB);
-                roofTopY = ry + h;
-                ax0++; ax1--;
-                if (az1 - az0 > 4) { az0++; az1--; }
-                h++;
-            }
-        }
-    } else if (spec.roof == 4) {
-        // Steep Gabled — Norse / stave-church pointy roof. Each "level" of the
-        // gable shrinks by 1 in Z (or X) but climbs by 2 in Y, doubling the
-        // pitch of the regular gabled roof. The result is a tall A-frame
-        // that reads as Viking-style from any angle.
-        int h = 0;
-        if (ridgeX) {
-            int az0 = rz0, az1 = rz1;
-            while (az0 <= az1) {
-                for (int ly = 0; ly < 2; ly++) {
-                    g.box(rx0, rx1, ry + h + ly, ry + h + ly, az0, az1, roofB);
-                    const int g0 = std::max(az0, z0), g1 = std::min(az1, z1);
-                    g.box(x0, x0, ry + h + ly, ry + h + ly, g0, g1, wallB);
-                    g.box(x1, x1, ry + h + ly, ry + h + ly, g0, g1, wallB);
-                    roofTopY = ry + h + ly;
-                }
-                az0++; az1--; h += 2;
-            }
-        } else {
-            int ax0 = rx0, ax1 = rx1;
-            while (ax0 <= ax1) {
-                for (int ly = 0; ly < 2; ly++) {
-                    g.box(ax0, ax1, ry + h + ly, ry + h + ly, rz0, rz1, roofB);
-                    const int g0 = std::max(ax0, x0), g1 = std::min(ax1, x1);
-                    g.box(g0, g1, ry + h + ly, ry + h + ly, z0, z0, wallB);
-                    g.box(g0, g1, ry + h + ly, ry + h + ly, z1, z1, wallB);
-                    roofTopY = ry + h + ly;
-                }
-                ax0++; ax1--; h += 2;
-            }
-        }
-    } else { // Gabled
-        int h = 0;
-        if (ridgeX) {
-            int az0 = rz0, az1 = rz1;
-            while (az0 <= az1) {
-                g.box(rx0, rx1, ry + h, ry + h, az0, az1, roofB);
-                const int g0 = std::max(az0, z0), g1 = std::min(az1, z1);
-                g.box(x0, x0, ry + h, ry + h, g0, g1, wallB);
-                g.box(x1, x1, ry + h, ry + h, g0, g1, wallB);
-                roofTopY = ry + h;
-                az0++; az1--; h++;
-            }
-        } else {
-            int ax0 = rx0, ax1 = rx1;
-            while (ax0 <= ax1) {
-                g.box(ax0, ax1, ry + h, ry + h, rz0, rz1, roofB);
-                const int g0 = std::max(ax0, x0), g1 = std::min(ax1, x1);
-                g.box(g0, g1, ry + h, ry + h, z0, z0, wallB);
-                g.box(g0, g1, ry + h, ry + h, z1, z1, wallB);
-                roofTopY = ry + h;
-                ax0++; ax1--; h++;
-            }
-        }
-    }
+    const int roofTopY = stampRoof(g, spec.roof, x0, x1, z0, z1, wallH, roofB, wallB);
 
     // Chimney — most residential buildings get a brick stack at the back.
     if (spec.chimney && xspan >= 7 && zspan >= 7) {
@@ -617,6 +606,7 @@ void emitFromSpec(const HouseSpec& specIn, int material,
         outBlocks.clear();
         outRooms.clear();
         doorDX = 0; doorDZ = -1;
+        doorX = 0; doorZ = 0;
         return;
     }
 
@@ -640,107 +630,9 @@ void emitFromSpec(const HouseSpec& specIn, int material,
     }
 
     doorDX = 0; doorDZ = -1;
+    // The door was cut at (dcx, z0) on the front wall; report it in cropped coords.
+    doorX = dcx - mnx;
+    doorZ = z0 - mnz;
 }
 
-} // namespace
-
-// --- HouseBuilding -----------------------------------------------------------
-
-void HouseBuilding::generate(uint32_t /*seed*/,
-                             std::vector<uint8_t>& outBlocks,
-                             std::vector<Room>& outRooms,
-                             int& dimX, int& dimY, int& dimZ,
-                             int& doorDX, int& doorDZ)
-{
-    HouseSpec spec = pickHouseSpec(templateType);
-    if (roofType >= 0 && roofType <= 3) spec.roof = roofType;
-    emitFromSpec(spec, material, outBlocks, outRooms, dimX, dimY, dimZ,
-                 doorDX, doorDZ);
-}
-
-// --- PubBuilding -------------------------------------------------------------
-// A tall single-storey common room with a bar counter along the back wall, a
-// front dining hall and a small bedroom in the back-right for travellers.
-
-void PubBuilding::generate(uint32_t /*seed*/,
-                           std::vector<uint8_t>& outBlocks,
-                           std::vector<Room>& rooms,
-                           int& dimX, int& dimY, int& dimZ,
-                           int& doorDX, int& doorDZ)
-{
-    HouseSpec spec;
-    spec.wallSpanX = 22; spec.wallSpanZ = 16; spec.floors = 1;
-    spec.floorH    = 8;          // tall ceiling so a hall doesn't feel cramped
-    spec.roof      = roofType;
-    spec.chimney   = true;
-    spec.porch     = true;
-    // Two cuts: split off a back-right bedroom plus an enclosed bar area.
-    // splitX:    bar runs along the back behind a partition (between Z half and z1)
-    // splitZ:    separates the front dining hall from the back two rooms
-    spec.plans[0].cutX = 14;
-    spec.plans[0].cutZ = 11;
-    spec.plans[0].rooms[0] = RoomType::DiningHall;    // front-left, the open hall
-    spec.plans[0].rooms[1] = RoomType::DiningHall;    // front-right, also dining
-    spec.plans[0].rooms[2] = RoomType::BarArea;       // back-left
-    spec.plans[0].rooms[3] = RoomType::Bedroom;       // back-right guest room
-    emitFromSpec(spec, material, outBlocks, rooms, dimX, dimY, dimZ,
-                 doorDX, doorDZ);
-}
-
-// --- BlacksmithBuilding ------------------------------------------------------
-// Forge bay in the front-right + workshop occupying the rest. The forge bay
-// has a wide cooker prop placed against the back wall (the Forge prop) and an
-// anvil in the open area; the workshop hosts the smith's living quarters.
-
-void BlacksmithBuilding::generate(uint32_t /*seed*/,
-                                  std::vector<uint8_t>& outBlocks,
-                                  std::vector<Room>& rooms,
-                                  int& dimX, int& dimY, int& dimZ,
-                                  int& doorDX, int& doorDZ)
-{
-    HouseSpec spec;
-    spec.wallSpanX = 18; spec.wallSpanZ = 12; spec.floors = 1;
-    spec.floorH    = 6;
-    spec.roof      = roofType;
-    spec.chimney   = true;
-    spec.porch     = false;
-    spec.plans[0].cutX = 9;
-    spec.plans[0].cutZ = -1;
-    spec.plans[0].rooms[0] = RoomType::Workshop;      // left: workshop / smith's room
-    spec.plans[0].rooms[1] = RoomType::Forge;         // right: forge bay
-    emitFromSpec(spec, material, outBlocks, rooms, dimX, dimY, dimZ,
-                 doorDX, doorDZ);
-}
-
-// --- MageTowerBuilding -------------------------------------------------------
-// A small square tower with a steep pyramid roof. Each storey is a single
-// themed room: alchemy lab, library, bedroom, study (top-floor observatory).
-
-void MageTowerBuilding::generate(uint32_t /*seed*/,
-                                 std::vector<uint8_t>& outBlocks,
-                                 std::vector<Room>& rooms,
-                                 int& dimX, int& dimY, int& dimZ,
-                                 int& doorDX, int& doorDZ)
-{
-    HouseSpec spec;
-    // Wider than a stereotypical narrow wizard tower so the staircase fits
-    // without choking each storey — a 12×12 interior is much easier to
-    // navigate up than a 8×8 one and still reads as a tower thanks to the
-    // pyramid roof and the storey stack.
-    spec.wallSpanX = 14; spec.wallSpanZ = 14;
-    spec.floors    = std::max(2, std::min(4, floors));
-    spec.floorH    = 6;
-    spec.roof      = 3;          // a tower deserves a pyramid roof
-    spec.chimney   = false;      // mages don't burn ordinary wood
-    spec.porch     = false;
-    static const RoomType STACK[4] = {
-        RoomType::AlchemyLab,
-        RoomType::Library,
-        RoomType::Bedroom,
-        RoomType::Study,
-    };
-    for (int f = 0; f < spec.floors; f++)
-        spec.plans[f].rooms[0] = STACK[std::min(3, f)];
-    emitFromSpec(spec, material, outBlocks, rooms, dimX, dimY, dimZ,
-                 doorDX, doorDZ);
-}
+}  // namespace buildint

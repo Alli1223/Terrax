@@ -63,6 +63,12 @@ private:
     float      lightVolTimer = 1.0e9f;
     void updateLightVolume(AppContext& ctx);
 
+    // Eased per-area (biome) lighting tint. Lerps toward the local biome's mood
+    // each frame so crossing a biome border shifts the light gradually instead
+    // of snapping. Flows through to the fog colour, which is derived from the
+    // (tinted) sky ambient.
+    glm::vec3  areaTint = glm::vec3(1.0f);
+
     void setupSkybox();
     void renderSkybox(const glm::mat4& view, const glm::mat4& proj,
                       float gameTime, float time, float weather);

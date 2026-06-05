@@ -37,6 +37,11 @@ public:
                      const std::vector<DoorPlacement>& placements,
                      const PropLibrary& lib, const glm::vec3* playerPos);
 
+    // Spawns/retires procedurally-scattered wild bushes around `center`. Unlike
+    // streamProps these are generated on the fly (gatherWildProps) rather than
+    // from a fixed list, and tracked separately so the two passes never fight.
+    void streamWildProps(const glm::vec3& center, float radius, const PropLibrary& lib);
+
     std::vector<std::unique_ptr<GameObject>>&       objects()       { return objs; }
     const std::vector<std::unique_ptr<GameObject>>& objects() const { return objs; }
 
@@ -44,4 +49,5 @@ private:
     std::vector<std::unique_ptr<GameObject>> objs;
     std::unordered_set<uint32_t>             liveProps;   // prop placement indices spawned
     std::unordered_set<uint32_t>             liveDoors;   // door placement indices spawned
+    std::unordered_set<uint64_t>             liveWild;    // scatter keys of live wild bushes
 };

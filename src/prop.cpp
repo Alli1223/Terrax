@@ -3,6 +3,7 @@
 #include "voxel_model.h"
 #include "object_manager.h"
 #include "game_object.h"
+#include "audio.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 
@@ -62,6 +63,23 @@ void PropLibrary::buildAll() {
     volumes[(int)PropType::SignMug]        = buildTradeSignMug();
     volumes[(int)PropType::SignStar]       = buildTradeSignStar();
     volumes[(int)PropType::SignWheat]      = buildTradeSignWheat();
+    volumes[(int)PropType::Fireplace]      = buildFireplace();
+    volumes[(int)PropType::Rug]            = buildRug();
+    volumes[(int)PropType::WallPainting]   = buildWallPainting();
+    volumes[(int)PropType::FlowerVase]     = buildFlowerVase();
+    volumes[(int)PropType::FlowerPot]     = buildFlowerPot();
+    volumes[(int)PropType::FlowerBed]     = buildFlowerBed();
+    volumes[(int)PropType::Barrel]        = buildBarrel();
+    volumes[(int)PropType::BuntingSpan]   = buildBuntingSpan();
+    volumes[(int)PropType::Crate]         = buildCrate();
+    volumes[(int)PropType::ProducePile]   = buildProducePile();
+    volumes[(int)PropType::Fountain]      = buildFountain();
+    volumes[(int)PropType::MarketStall]   = buildMarketStall();
+    volumes[(int)PropType::NoticeBoard]   = buildNoticeBoard();
+    volumes[(int)PropType::BushFlowering] = buildBushFlowering();
+    volumes[(int)PropType::BushBerry]     = buildBushBerry();
+    volumes[(int)PropType::BushConifer]   = buildBushConifer();
+    volumes[(int)PropType::BushDry]       = buildBushDry();
     for (int i = 0; i < DOOR_VARIANTS; i++) doorVolumes[i] = buildDoor(i);
     for (auto* v : volumes)
         if (v) v->updateMesh();
@@ -108,7 +126,7 @@ bool Prop::getInteraction(Interaction& out) const {
     // the player rig sits "on top of" the furniture rather than inside it.
     // The yaw is the prop's own yaw — a chair facing south seats the player
     // facing south.
-    const float SEAT_Y_OFFSET = 0.55f;   // ~ chair seat height in world units
+    const float SEAT_Y_OFFSET = 0.66f;   // ~ chair seat height in world units (enlarged chair)
     const float BED_Y_OFFSET  = 0.45f;   // mattress height
     switch (type) {
         case PropType::Chair:
@@ -187,8 +205,16 @@ void Door::update(float dt, World&) {
     }
 
     float step = dt * DOOR_SPEED;
+    float before = openAmount;
     if (openAmount < target) openAmount = std::min(target, openAmount + step);
     else                     openAmount = std::max(target, openAmount - step);
+    // Creak as the panel passes the half-open mark (each way, once).
+    if (g_audio) {
+        if (before < 0.5f && openAmount >= 0.5f)
+            g_audio->playAt(SoundId::DoorOpen, position, 0.6f);
+        else if (before >= 0.5f && openAmount < 0.5f)
+            g_audio->playAt(SoundId::DoorClose, position, 0.6f);
+    }
 }
 
 void Door::draw(GLuint modelLoc) const {

@@ -693,7 +693,7 @@ void NetworkServer::broadcastUDP(const void* data, size_t size) {
     PacketHeader header { PacketType::PlayerPos, (uint32_t)size };
     std::vector<uint8_t> packet(sizeof(PacketHeader) + size);
     memcpy(packet.data(), &header, sizeof(PacketHeader));
-    memcpy(packet.data() + sizeof(PacketHeader), data, packet.size() - sizeof(PacketHeader));
+    memcpy(packet.data() + sizeof(PacketHeader), data, size);
 
     std::lock_guard<std::mutex> lock(udpClientsMutex);
     for (auto& uc : udp_clients) {
@@ -1022,10 +1022,10 @@ void NetworkClient::send(PacketType type, const void* data, size_t size) {
 }
 
 void NetworkClient::sendUDP(const void* data, size_t size) {
-    if (!connected || size == 0 || !data) return;
+    if (!connected || size == 0 || size > 65535 || !data) return;
     std::vector<uint8_t> packet(sizeof(PacketHeader) + size);
     PacketHeader header { PacketType::PlayerPos, (uint32_t)size };
     memcpy(packet.data(), &header, sizeof(PacketHeader));
-    memcpy(packet.data() + sizeof(PacketHeader), data, packet.size() - sizeof(PacketHeader));
+    memcpy(packet.data() + sizeof(PacketHeader), data, size);
     udp_socket.send_to(boost::asio::buffer(packet), server_udp_endpoint);
 }

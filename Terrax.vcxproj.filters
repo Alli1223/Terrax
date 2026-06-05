@@ -1,116 +1,207 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- Subsystem folders. These are virtual (IDE-only) groupings; they do not
+       affect the on-disk layout (src/ + include/) or the build. -->
   <ItemGroup>
-    <Filter Include="Source">
-      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
-      <Extensions>cpp;c</Extensions>
+    <Filter Include="Core &amp; App">
+      <UniqueIdentifier>{a0000001-0000-0000-0000-000000000001}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Headers">
-      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
-      <Extensions>h;hpp</Extensions>
+    <Filter Include="Rendering">
+      <UniqueIdentifier>{a0000001-0000-0000-0000-000000000002}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="World &amp; Terrain">
+      <UniqueIdentifier>{a0000001-0000-0000-0000-000000000003}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Towns">
+      <UniqueIdentifier>{a0000001-0000-0000-0000-000000000004}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Buildings">
+      <UniqueIdentifier>{a0000001-0000-0000-0000-000000000005}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Voxel Models">
+      <UniqueIdentifier>{a0000001-0000-0000-0000-000000000006}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Entities">
+      <UniqueIdentifier>{a0000001-0000-0000-0000-000000000007}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NPCs &amp; Wildlife">
+      <UniqueIdentifier>{a0000001-0000-0000-0000-000000000008}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Props &amp; Vehicles">
+      <UniqueIdentifier>{a0000001-0000-0000-0000-000000000009}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Items &amp; Inventory">
+      <UniqueIdentifier>{a0000001-0000-0000-0000-00000000000a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="UI">
+      <UniqueIdentifier>{a0000001-0000-0000-0000-00000000000b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Gameplay">
+      <UniqueIdentifier>{a0000001-0000-0000-0000-00000000000c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Networking &amp; Session">
+      <UniqueIdentifier>{a0000001-0000-0000-0000-00000000000d}</UniqueIdentifier>
     </Filter>
     <Filter Include="Shaders">
-      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <UniqueIdentifier>{a0000001-0000-0000-0000-00000000000e}</UniqueIdentifier>
       <Extensions>vert;frag;glsl</Extensions>
     </Filter>
-    <Filter Include="Source\ImGui">
-      <UniqueIdentifier>{B2E5D5A1-3C4D-4F6E-8A9B-0C1D2E3F4A5B}</UniqueIdentifier>
+    <Filter Include="Build">
+      <UniqueIdentifier>{a0000001-0000-0000-0000-00000000000f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Third-Party">
+      <UniqueIdentifier>{a0000001-0000-0000-0000-000000000010}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Third-Party\ImGui">
+      <UniqueIdentifier>{a0000001-0000-0000-0000-000000000011}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
 
   <!-- Source files -->
   <ItemGroup>
-    <ClCompile Include="src\main.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\renderer.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\world.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\town.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\object_manager.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\player_object.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\prop.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\furniture.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\decorations.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\prop_placement.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\vehicles.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\ferry_routes.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\npc.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\animal.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\vegetation.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\building.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\items.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\inventory.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\clothing_painter.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\weapon_builder.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\item_generator.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\inventory_ui.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\loot_drop.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\projectile.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\npc_appearance.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\network.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\ui.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\voxel_model.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\shader.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\gameplay.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\game_session.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\input.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\physics.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\camera.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\app_context.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\graphics_settings.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\atlas.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="src\gl_loader.cpp"><Filter>Source</Filter></ClCompile>
-    <ClCompile Include="third_party\imgui\imgui.cpp"><Filter>Source\ImGui</Filter></ClCompile>
-    <ClCompile Include="third_party\imgui\imgui_draw.cpp"><Filter>Source\ImGui</Filter></ClCompile>
-    <ClCompile Include="third_party\imgui\imgui_widgets.cpp"><Filter>Source\ImGui</Filter></ClCompile>
-    <ClCompile Include="third_party\imgui\imgui_tables.cpp"><Filter>Source\ImGui</Filter></ClCompile>
-    <ClCompile Include="third_party\imgui\backends\imgui_impl_glfw.cpp"><Filter>Source\ImGui</Filter></ClCompile>
-    <ClCompile Include="third_party\imgui\backends\imgui_impl_opengl3.cpp"><Filter>Source\ImGui</Filter></ClCompile>
+    <!-- Core & App -->
+    <ClCompile Include="src\main.cpp"><Filter>Core &amp; App</Filter></ClCompile>
+    <ClCompile Include="src\app_context.cpp"><Filter>Core &amp; App</Filter></ClCompile>
+    <ClCompile Include="src\input.cpp"><Filter>Core &amp; App</Filter></ClCompile>
+    <ClCompile Include="src\physics.cpp"><Filter>Core &amp; App</Filter></ClCompile>
+    <ClCompile Include="src\camera.cpp"><Filter>Core &amp; App</Filter></ClCompile>
+    <!-- Rendering -->
+    <ClCompile Include="src\renderer.cpp"><Filter>Rendering</Filter></ClCompile>
+    <ClCompile Include="src\shader.cpp"><Filter>Rendering</Filter></ClCompile>
+    <ClCompile Include="src\atlas.cpp"><Filter>Rendering</Filter></ClCompile>
+    <ClCompile Include="src\gl_loader.cpp"><Filter>Rendering</Filter></ClCompile>
+    <ClCompile Include="src\graphics_settings.cpp"><Filter>Rendering</Filter></ClCompile>
+    <!-- World & Terrain -->
+    <ClCompile Include="src\world.cpp"><Filter>World &amp; Terrain</Filter></ClCompile>
+    <ClCompile Include="src\world_gen.cpp"><Filter>World &amp; Terrain</Filter></ClCompile>
+    <ClCompile Include="src\vegetation.cpp"><Filter>World &amp; Terrain</Filter></ClCompile>
+    <!-- Towns -->
+    <ClCompile Include="src\town.cpp"><Filter>Towns</Filter></ClCompile>
+    <ClCompile Include="src\town_stamp.cpp"><Filter>Towns</Filter></ClCompile>
+    <ClCompile Include="src\town_roads.cpp"><Filter>Towns</Filter></ClCompile>
+    <ClCompile Include="src\town_layout.cpp"><Filter>Towns</Filter></ClCompile>
+    <ClCompile Include="src\town_buildings.cpp"><Filter>Towns</Filter></ClCompile>
+    <ClCompile Include="src\town_terrain.cpp"><Filter>Towns</Filter></ClCompile>
+    <!-- Buildings -->
+    <ClCompile Include="src\building.cpp"><Filter>Buildings</Filter></ClCompile>
+    <ClCompile Include="src\building_house.cpp"><Filter>Buildings</Filter></ClCompile>
+    <ClCompile Include="src\building_special.cpp"><Filter>Buildings</Filter></ClCompile>
+    <!-- Voxel Models -->
+    <ClCompile Include="src\voxel_model.cpp"><Filter>Voxel Models</Filter></ClCompile>
+    <ClCompile Include="src\voxel_rig.cpp"><Filter>Voxel Models</Filter></ClCompile>
+    <ClCompile Include="src\voxel_house.cpp"><Filter>Voxel Models</Filter></ClCompile>
+    <!-- Entities -->
+    <ClCompile Include="src\object_manager.cpp"><Filter>Entities</Filter></ClCompile>
+    <ClCompile Include="src\player_object.cpp"><Filter>Entities</Filter></ClCompile>
+    <ClCompile Include="src\projectile.cpp"><Filter>Entities</Filter></ClCompile>
+    <!-- NPCs & Wildlife -->
+    <ClCompile Include="src\npc.cpp"><Filter>NPCs &amp; Wildlife</Filter></ClCompile>
+    <ClCompile Include="src\animal.cpp"><Filter>NPCs &amp; Wildlife</Filter></ClCompile>
+    <ClCompile Include="src\npc_appearance.cpp"><Filter>NPCs &amp; Wildlife</Filter></ClCompile>
+    <!-- Props & Vehicles -->
+    <ClCompile Include="src\prop.cpp"><Filter>Props &amp; Vehicles</Filter></ClCompile>
+    <ClCompile Include="src\furniture.cpp"><Filter>Props &amp; Vehicles</Filter></ClCompile>
+    <ClCompile Include="src\decorations.cpp"><Filter>Props &amp; Vehicles</Filter></ClCompile>
+    <ClCompile Include="src\prop_placement.cpp"><Filter>Props &amp; Vehicles</Filter></ClCompile>
+    <ClCompile Include="src\vehicles.cpp"><Filter>Props &amp; Vehicles</Filter></ClCompile>
+    <ClCompile Include="src\ferry_routes.cpp"><Filter>Props &amp; Vehicles</Filter></ClCompile>
+    <!-- Items & Inventory -->
+    <ClCompile Include="src\items.cpp"><Filter>Items &amp; Inventory</Filter></ClCompile>
+    <ClCompile Include="src\inventory.cpp"><Filter>Items &amp; Inventory</Filter></ClCompile>
+    <ClCompile Include="src\clothing_painter.cpp"><Filter>Items &amp; Inventory</Filter></ClCompile>
+    <ClCompile Include="src\weapon_builder.cpp"><Filter>Items &amp; Inventory</Filter></ClCompile>
+    <ClCompile Include="src\item_generator.cpp"><Filter>Items &amp; Inventory</Filter></ClCompile>
+    <ClCompile Include="src\loot_drop.cpp"><Filter>Items &amp; Inventory</Filter></ClCompile>
+    <!-- UI -->
+    <ClCompile Include="src\ui.cpp"><Filter>UI</Filter></ClCompile>
+    <ClCompile Include="src\ui_menus.cpp"><Filter>UI</Filter></ClCompile>
+    <ClCompile Include="src\ui_editors.cpp"><Filter>UI</Filter></ClCompile>
+    <ClCompile Include="src\ui_map.cpp"><Filter>UI</Filter></ClCompile>
+    <ClCompile Include="src\ui_play.cpp"><Filter>UI</Filter></ClCompile>
+    <ClCompile Include="src\inventory_ui.cpp"><Filter>UI</Filter></ClCompile>
+    <!-- Gameplay -->
+    <ClCompile Include="src\gameplay.cpp"><Filter>Gameplay</Filter></ClCompile>
+    <ClCompile Include="src\gameplay_entities.cpp"><Filter>Gameplay</Filter></ClCompile>
+    <ClCompile Include="src\gameplay_effects.cpp"><Filter>Gameplay</Filter></ClCompile>
+    <ClCompile Include="src\gameplay_spells.cpp"><Filter>Gameplay</Filter></ClCompile>
+    <!-- Networking & Session -->
+    <ClCompile Include="src\network.cpp"><Filter>Networking &amp; Session</Filter></ClCompile>
+    <ClCompile Include="src\game_session.cpp"><Filter>Networking &amp; Session</Filter></ClCompile>
+    <!-- Audio -->
+    <ClCompile Include="src\audio.cpp"><Filter>Core &amp; App</Filter></ClCompile>
+    <!-- Third-Party -->
+    <ClCompile Include="third_party\imgui\imgui.cpp"><Filter>Third-Party\ImGui</Filter></ClCompile>
+    <ClCompile Include="third_party\imgui\imgui_draw.cpp"><Filter>Third-Party\ImGui</Filter></ClCompile>
+    <ClCompile Include="third_party\imgui\imgui_widgets.cpp"><Filter>Third-Party\ImGui</Filter></ClCompile>
+    <ClCompile Include="third_party\imgui\imgui_tables.cpp"><Filter>Third-Party\ImGui</Filter></ClCompile>
+    <ClCompile Include="third_party\imgui\backends\imgui_impl_glfw.cpp"><Filter>Third-Party\ImGui</Filter></ClCompile>
+    <ClCompile Include="third_party\imgui\backends\imgui_impl_opengl3.cpp"><Filter>Third-Party\ImGui</Filter></ClCompile>
+    <ClCompile Include="third_party\miniaudio\miniaudio_impl.cpp"><Filter>Third-Party</Filter></ClCompile>
   </ItemGroup>
 
   <!-- Header files -->
   <ItemGroup>
-    <ClInclude Include="include\app_context.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\atlas.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\camera.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\game_session.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\game_settings.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\game_types.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\gameplay.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\gl_loader.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\graphics_settings.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\input.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\network.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\physics.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\renderer.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\shader.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\ui.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\town.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\game_object.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\object_manager.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\player_object.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\prop.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\prop_builders.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\prop_placement.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\vehicle.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\ferry_routes.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\npc.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\animal.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\vegetation.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\items.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\inventory.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\clothing_painter.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\weapon_builder.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\item_generator.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\loot_drop.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\projectile.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\npc_appearance.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\voxel_model.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\building.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\interactable.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="include\world.h"><Filter>Headers</Filter></ClInclude>
-    <ClInclude Include="src\noise.h"><Filter>Headers</Filter></ClInclude>
+    <!-- Core & App -->
+    <ClInclude Include="include\app_context.h"><Filter>Core &amp; App</Filter></ClInclude>
+    <ClInclude Include="include\camera.h"><Filter>Core &amp; App</Filter></ClInclude>
+    <ClInclude Include="include\input.h"><Filter>Core &amp; App</Filter></ClInclude>
+    <ClInclude Include="include\physics.h"><Filter>Core &amp; App</Filter></ClInclude>
+    <ClInclude Include="include\game_settings.h"><Filter>Core &amp; App</Filter></ClInclude>
+    <ClInclude Include="include\game_types.h"><Filter>Core &amp; App</Filter></ClInclude>
+    <!-- Rendering -->
+    <ClInclude Include="include\renderer.h"><Filter>Rendering</Filter></ClInclude>
+    <ClInclude Include="include\shader.h"><Filter>Rendering</Filter></ClInclude>
+    <ClInclude Include="include\atlas.h"><Filter>Rendering</Filter></ClInclude>
+    <ClInclude Include="include\gl_loader.h"><Filter>Rendering</Filter></ClInclude>
+    <ClInclude Include="include\graphics_settings.h"><Filter>Rendering</Filter></ClInclude>
+    <!-- World & Terrain -->
+    <ClInclude Include="include\world.h"><Filter>World &amp; Terrain</Filter></ClInclude>
+    <ClInclude Include="src\world_internal.h"><Filter>World &amp; Terrain</Filter></ClInclude>
+    <ClInclude Include="src\noise.h"><Filter>World &amp; Terrain</Filter></ClInclude>
+    <ClInclude Include="include\vegetation.h"><Filter>World &amp; Terrain</Filter></ClInclude>
+    <!-- Towns -->
+    <ClInclude Include="include\town.h"><Filter>Towns</Filter></ClInclude>
+    <ClInclude Include="src\town_internal.h"><Filter>Towns</Filter></ClInclude>
+    <!-- Buildings -->
+    <ClInclude Include="include\building.h"><Filter>Buildings</Filter></ClInclude>
+    <ClInclude Include="src\building_internal.h"><Filter>Buildings</Filter></ClInclude>
+    <!-- Voxel Models -->
+    <ClInclude Include="include\voxel_model.h"><Filter>Voxel Models</Filter></ClInclude>
+    <!-- Entities -->
+    <ClInclude Include="include\game_object.h"><Filter>Entities</Filter></ClInclude>
+    <ClInclude Include="include\object_manager.h"><Filter>Entities</Filter></ClInclude>
+    <ClInclude Include="include\player_object.h"><Filter>Entities</Filter></ClInclude>
+    <ClInclude Include="include\projectile.h"><Filter>Entities</Filter></ClInclude>
+    <ClInclude Include="include\interactable.h"><Filter>Entities</Filter></ClInclude>
+    <!-- NPCs & Wildlife -->
+    <ClInclude Include="include\npc.h"><Filter>NPCs &amp; Wildlife</Filter></ClInclude>
+    <ClInclude Include="include\animal.h"><Filter>NPCs &amp; Wildlife</Filter></ClInclude>
+    <ClInclude Include="include\npc_appearance.h"><Filter>NPCs &amp; Wildlife</Filter></ClInclude>
+    <!-- Props & Vehicles -->
+    <ClInclude Include="include\prop.h"><Filter>Props &amp; Vehicles</Filter></ClInclude>
+    <ClInclude Include="include\prop_builders.h"><Filter>Props &amp; Vehicles</Filter></ClInclude>
+    <ClInclude Include="include\prop_placement.h"><Filter>Props &amp; Vehicles</Filter></ClInclude>
+    <ClInclude Include="include\vehicle.h"><Filter>Props &amp; Vehicles</Filter></ClInclude>
+    <ClInclude Include="include\ferry_routes.h"><Filter>Props &amp; Vehicles</Filter></ClInclude>
+    <!-- Items & Inventory -->
+    <ClInclude Include="include\items.h"><Filter>Items &amp; Inventory</Filter></ClInclude>
+    <ClInclude Include="include\inventory.h"><Filter>Items &amp; Inventory</Filter></ClInclude>
+    <ClInclude Include="include\clothing_painter.h"><Filter>Items &amp; Inventory</Filter></ClInclude>
+    <ClInclude Include="include\weapon_builder.h"><Filter>Items &amp; Inventory</Filter></ClInclude>
+    <ClInclude Include="include\item_generator.h"><Filter>Items &amp; Inventory</Filter></ClInclude>
+    <ClInclude Include="include\loot_drop.h"><Filter>Items &amp; Inventory</Filter></ClInclude>
+    <!-- UI -->
+    <ClInclude Include="include\ui.h"><Filter>UI</Filter></ClInclude>
+    <ClInclude Include="src\ui_internal.h"><Filter>UI</Filter></ClInclude>
+    <!-- Gameplay -->
+    <ClInclude Include="include\gameplay.h"><Filter>Gameplay</Filter></ClInclude>
+    <ClInclude Include="src\gameplay_internal.h"><Filter>Gameplay</Filter></ClInclude>
+    <!-- Networking & Session -->
+    <ClInclude Include="include\network.h"><Filter>Networking &amp; Session</Filter></ClInclude>
+    <ClInclude Include="include\game_session.h"><Filter>Networking &amp; Session</Filter></ClInclude>
   </ItemGroup>
 
-  <!-- Shader files -->
+  <!-- Shaders -->
   <ItemGroup>
     <None Include="shaders\chunk.vert"><Filter>Shaders</Filter></None>
     <None Include="shaders\chunk.frag"><Filter>Shaders</Filter></None>
@@ -122,7 +213,9 @@
     <None Include="shaders\char.frag"><Filter>Shaders</Filter></None>
     <None Include="shaders\shadow.vert"><Filter>Shaders</Filter></None>
     <None Include="shaders\shadow.frag"><Filter>Shaders</Filter></None>
-    <None Include="Makefile" />
-    <None Include="vcpkg.json" />
+    <None Include="shaders\glass.vert"><Filter>Shaders</Filter></None>
+    <None Include="shaders\glass.frag"><Filter>Shaders</Filter></None>
+    <None Include="Makefile"><Filter>Build</Filter></None>
+    <None Include="vcpkg.json"><Filter>Build</Filter></None>
   </ItemGroup>
 </Project>

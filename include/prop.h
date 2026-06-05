@@ -25,6 +25,15 @@ enum class PropType : uint8_t {
     // the building kind. Adding a new role just means adding a new PropType
     // here, a builder in furniture.cpp, and a case in placeTradeSign().
     SignAnvil, SignMug, SignStar, SignWheat,
+    // Cosy home furnishings. Fireplace also registers a warm point light in the
+    // renderer (collectLanternLights), so hearths glow day and night.
+    Fireplace, Rug, WallPainting, FlowerVase,
+    // Town atmosphere props
+    FlowerPot, FlowerBed, Barrel, BuntingSpan,
+    // Town centre detail
+    Crate, ProducePile, Fountain, MarketStall, NoticeBoard,
+    // Wild bush variants scattered across the world (see streamWildProps)
+    BushFlowering, BushBerry, BushConifer, BushDry,
     Count
 };
 
@@ -65,6 +74,8 @@ public:
 
     PropType type;
     uint32_t placementIndex = 0xFFFFFFFFu;   // index into getPropPlacements()
+    bool     wild     = false;               // a procedurally scattered wild bush
+    uint64_t wildKey  = 0;                    // its scatter key (when wild) — see streamWildProps
 
 private:
     const PropLibrary* library = nullptr;    // borrowed

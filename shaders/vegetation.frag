@@ -14,7 +14,7 @@ uniform vec3  u_sunDir;
 uniform vec3  camPos;
 uniform float u_weather;
 
-#define MAX_LANTERNS 48
+#define MAX_LANTERNS 192
 uniform int   u_lanternCount;
 uniform vec3  u_lanternPos[MAX_LANTERNS];
 uniform float u_lanternIntensity[MAX_LANTERNS];
@@ -26,8 +26,10 @@ const vec3 LANTERN_COLOR = vec3(1.00, 0.76, 0.40);
 vec3 calcLanternLight(vec3 worldPos) {
     vec3 contrib = vec3(0.0);
     for (int i = 0; i < u_lanternCount; i++) {
-        float ldist = length(worldPos - u_lanternPos[i]);
-        if (ldist >= u_lanternRadius[i]) continue;
+        vec3  d = worldPos - u_lanternPos[i];
+        float r = u_lanternRadius[i];
+        if (dot(d, d) >= r * r) continue;     // squared-distance cull — skip sqrt for far lights
+        float ldist = length(d);
         float falloff = 1.0 - ldist / u_lanternRadius[i];
         falloff *= falloff;
         contrib += falloff * u_lanternIntensity[i] * u_lanternColor[i];

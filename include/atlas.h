@@ -1,18 +1,18 @@
 #pragma once
 #include "gl_loader.h"
 
-// Texture atlas layout: 4 columns × 12 rows, each tile 64×64 px → 256×768 atlas.
+// Texture atlas layout: 4 columns × 13 rows, each tile 64×64 px → 256×832 atlas.
 static constexpr int ATLAS_COLS   = 4;
-static constexpr int ATLAS_ROWS   = 12;
+static constexpr int ATLAS_ROWS   = 13;
 static constexpr int TILE_PX      = 64;
 static constexpr int ATLAS_PX     = ATLAS_COLS * TILE_PX; // 256 (width)
-static constexpr int ATLAS_HEIGHT = ATLAS_ROWS * TILE_PX; // 768 (height)
+static constexpr int ATLAS_HEIGHT = ATLAS_ROWS * TILE_PX; // 832 (height)
 
 // 24-colour painted-block palette — a designer-style spread of muted, richer
 // tones. Painted blocks let houses be any of these colours; the atlas, world
 // meshing and house editor all index this table.
 struct RGB8 { unsigned char r, g, b; };
-static constexpr int  PAINT_COUNT = 24;
+static constexpr int  PAINT_COUNT = 28;
 static constexpr RGB8 PAINT_PALETTE[PAINT_COUNT] = {
     {238, 240, 243},  //  0 White
     {235, 224, 193},  //  1 Cream
@@ -38,6 +38,10 @@ static constexpr RGB8 PAINT_PALETTE[PAINT_COUNT] = {
     { 95, 123, 157},  // 21 Steel Blue
     {116,  73, 117},  // 22 Plum
     {199, 143, 151},  // 23 Dusty Rose
+    { 82,  52,  30},  // 24 Dark Brown      — wood corner posts (cabin / timber)
+    {170, 142,  95},  // 25 Dark Tan        — sandstone brick coursing
+    { 84,  92, 102},  // 26 Dim Gray        — pale-stone corner / brick
+    {150,  80,  56},  // 27 Dark Terracotta — autumn / warm-wall corner trim
 };
 static constexpr RGB8 GLASS_TINT = {200, 225, 238};
 

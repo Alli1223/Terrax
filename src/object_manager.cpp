@@ -11,6 +11,7 @@ void ObjectManager::clear() {
     objs.clear();
     liveProps.clear();
     liveDoors.clear();
+    liveWild.clear();
 }
 
 void ObjectManager::updateAll(float dt, World& world) {
@@ -45,13 +46,15 @@ void ObjectManager::streamProps(const glm::vec3& center, float radius,
     const float out  = radius + 24.0f;          // hysteresis band
     const float out2 = out * out;
 
-    // Retire props that drifted out of range.
+    // Retire props that drifted out of range (wild bushes stream separately).
     for (auto& o : objs) {
         if (o->dead || o->kind != ObjectKind::Prop) continue;
+        Prop* p = static_cast<Prop*>(o.get());
+        if (p->wild) continue;
         float dx = o->position.x - center.x, dz = o->position.z - center.z;
         if (dx * dx + dz * dz > out2) {
             o->dead = true;
-            liveProps.erase(static_cast<Prop*>(o.get())->placementIndex);
+            liveProps.erase(p->placementIndex);
         }
     }
 
@@ -101,5 +104,32 @@ void ObjectManager::streamDoors(const glm::vec3& center, float radius,
         objs.push_back(std::move(door));
         liveDoors.insert(idx);
         budget--;
+    }
+}
+
+void ObjectManager::streamWildProps(const glm::vec3& center, float radius,
+                                    const PropLibrary& lib) {
+    const float out  = radius + 32.0f;          // hysteresis band
+    const float out2 = out * out;
+
+    // Retire wild bushes that drifted out of range.
+    for (auto& o : objs) {
+        if (o->dead || o->kind != ObjectKind::Prop) continue;
+        Prop* p = static_cast<Prop*>(o.get());
+        if (!p->wild) continue;
+        float dx = o->position.x - center.x, dz = o->position.z - center.z;
+        if (dx * dx + dz * dz > out2) { o->dead = true; liveWild.erase(p->wildKey); }
+    }
+
+    // Spawn the newly-revealed ones. gatherWildProps skips keys already live, so
+    // it only samples the surface for genuinely new bushes (and self-caps).
+    std::vector<WildProp> fresh;
+    gatherWildProps(center, radius, liveWild, fresh);
+    for (const WildProp& w : fresh) {
+        auto prop = std::make_unique<Prop>(w.p.type, w.p.pos, w.p.yaw, &lib);
+        prop->wild    = true;
+        prop->wildKey = w.key;
+        objs.push_back(std::move(prop));
+        liveWild.insert(w.key);
     }
 }

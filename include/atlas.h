@@ -1,9 +1,9 @@
 #pragma once
 #include "gl_loader.h"
 
-// Texture atlas layout: 4 columns × 13 rows, each tile 64×64 px → 256×832 atlas.
+// Texture atlas layout: 4 columns × 14 rows, each tile 64×64 px → 256×896 atlas.
 static constexpr int ATLAS_COLS   = 4;
-static constexpr int ATLAS_ROWS   = 13;
+static constexpr int ATLAS_ROWS   = 14;
 static constexpr int TILE_PX      = 64;
 static constexpr int ATLAS_PX     = ATLAS_COLS * TILE_PX; // 256 (width)
 static constexpr int ATLAS_HEIGHT = ATLAS_ROWS * TILE_PX; // 832 (height)
@@ -70,7 +70,8 @@ enum class TileID : int {
     LeavesRed    = 21, // col 1, row 5 — deep autumn red
     LeavesPink   = 22, // col 2, row 5 — spring blossom pink
     Glass        = 23, // col 3, row 5 — window glass
-    PaintFirst   = 24, // 16 solid painted-colour tiles, ids 24..39 (rows 6..9)
+    PaintFirst   = 24, // 28 solid painted-colour tiles, ids 24..51 (rows 6..12)
+    Lantern      = 52, // col 0, row 13 — caged warm lantern (BlockType::Lantern)
 };
 
 // Returns atlas UV corners for a tile (with half-texel inset to prevent bleeding).

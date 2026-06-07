@@ -43,6 +43,33 @@ const Palette GUARD_PALETTES[] = {
     { {145, 150, 160, 255}, {180,  90,  35, 255} },   // grey iron + amber
 };
 
+// Farm workwear — denim/canvas overalls in muted blues, browns and hay tans.
+const Palette FARMER_PALETTES[] = {
+    { { 70,  90, 130, 255}, {120, 100,  70, 255} },   // blue denim overalls
+    { {120, 100,  70, 255}, { 80,  65,  45, 255} },   // brown workwear
+    { {150, 140, 100, 255}, {100,  85,  55, 255} },   // hay tan
+    { { 90, 110,  90, 255}, { 70,  60,  45, 255} },   // faded green
+    { {130, 110,  90, 255}, { 90,  70,  50, 255} },   // earth
+};
+
+// Bleached bone — skeletons (worn as pale cloth over the whole body).
+const Palette SKELETON_PALETTES[] = {
+    { {225, 222, 210, 255}, {150, 148, 138, 255} },   // bone white
+    { {205, 205, 195, 255}, {130, 130, 120, 255} },   // grey bone
+};
+
+// Heavy dark hide — brutes / ogres.
+const Palette BRUTE_PALETTES[] = {
+    { { 72,  60,  55, 255}, {120,  40,  40, 255} },   // dark hide + blood
+    { { 80,  72,  52, 255}, { 60,  90,  50, 255} },   // muddy green-brown
+};
+
+// Dusk-violet and crimson robes — cultists.
+const Palette CULTIST_PALETTES[] = {
+    { { 48,  38,  62, 255}, {135,  75, 155, 255} },   // dusk violet
+    { { 36,  34,  44, 255}, {120,  45,  45, 255} },   // black + crimson
+};
+
 template <typename T, size_t N>
 constexpr int arrLen(T (&)[N]) { return (int)N; }
 
@@ -57,7 +84,7 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
     // armour (clothing_painter does the actual rendering) and how it
     // sits on the body.
     ClothingTier tier = ClothingTier::Cloth;
-    if (type == NPCType::Enemy)      tier = ClothingTier::Leather;
+    if (type == NPCType::Enemy || type == NPCType::Brute) tier = ClothingTier::Leather;
     else if (type == NPCType::Guard) tier = ClothingTier::Plate;
 
     // Single palette picked once — used for every slot so the outfit
@@ -69,6 +96,14 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
             palettes = BANDIT_PALETTES; palCount = arrLen(BANDIT_PALETTES); break;
         case NPCType::Guard:
             palettes = GUARD_PALETTES;  palCount = arrLen(GUARD_PALETTES);  break;
+        case NPCType::Farmer:
+            palettes = FARMER_PALETTES;   palCount = arrLen(FARMER_PALETTES);   break;
+        case NPCType::Skeleton:
+            palettes = SKELETON_PALETTES; palCount = arrLen(SKELETON_PALETTES); break;
+        case NPCType::Brute:
+            palettes = BRUTE_PALETTES;    palCount = arrLen(BRUTE_PALETTES);    break;
+        case NPCType::Cultist:
+            palettes = CULTIST_PALETTES;  palCount = arrLen(CULTIST_PALETTES);  break;
         default: break;
     }
     const Palette& pal = palettes[pick(palCount)];
@@ -89,6 +124,12 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
         wear[2] = true;             // shirt always
         wear[3] = true;             // trousers always
         wear[4] = (pick(3) != 0);   // ~66% have shoes
+    } else if (type == NPCType::Farmer) {
+        wear[0] = true;             // straw hat always
+        wear[1] = false;            // no shoulders
+        wear[2] = true;             // overalls / shirt
+        wear[3] = true;             // trousers
+        wear[4] = true;             // work boots
     } else {
         wear[0] = (pick(2) == 0);   // ~50% have a helmet
         wear[1] = true;
@@ -97,14 +138,22 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
         wear[4] = true;
     }
 
+    // A hood / helm is part of the silhouette for cultists and skeletons.
+    if (type == NPCType::Cultist || type == NPCType::Skeleton) wear[0] = true;
+
     // Wipe the rig back to bare skin then layer the chosen clothing
     // pieces in slot order so accents stack correctly.
     rig.resetBaseBody();
     rig.applyCustomization();
     for (int i = 0; i < 5; i++) {
         if (!wear[i]) continue;
-        paintClothingOnto(rig, tier, ItemRarity::Common,
-                          SLOTS[i], pal.primary, pal.accent);
+        Voxel pri = pal.primary, acc = pal.accent;
+        if (type == NPCType::Farmer) {
+            // A straw hat and brown boots regardless of the overalls colour.
+            if (SLOTS[i] == EquipSlot::Helmet) { pri = {210, 190, 110, 255}; acc = {165, 140,  80, 255}; }
+            else if (SLOTS[i] == EquipSlot::Feet) { pri = { 95,  70,  45, 255}; acc = { 60,  45,  30, 255}; }
+        }
+        paintClothingOnto(rig, tier, ItemRarity::Common, SLOTS[i], pri, acc);
     }
 
     // Weapons — only bandits and guards carry them. Villagers are
@@ -130,6 +179,22 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
         // Polished weapons; shield reuses armour palette = town livery.
         mainPri = {210, 210, 220, 255};
         mainAcc = { 90,  60,  30, 255};
+    } else if (type == NPCType::Farmer) {
+        mainW   = (pick(2) == 0) ? WeaponType::Hoe : WeaponType::Scythe;
+        mainPri = {150, 150, 160, 255};   // steel head
+        mainAcc = {110,  80,  50, 255};   // wooden haft
+    } else if (type == NPCType::Skeleton) {
+        mainW   = (pick(3) == 0) ? WeaponType::Bow : WeaponType::Sword;
+        mainPri = {150, 150, 150, 255};
+        mainAcc = { 90,  80,  60, 255};
+    } else if (type == NPCType::Brute) {
+        mainW   = WeaponType::Axe;        // a great cleaver
+        mainPri = {130, 130, 135, 255};
+        mainAcc = { 70,  50,  35, 255};
+    } else if (type == NPCType::Cultist) {
+        mainW   = WeaponType::Staff;      // hurls bolts; uses the cast pose
+        mainPri = {120,  90, 150, 255};
+        mainAcc = {200, 160, 220, 255};
     }
 
     applyWeaponsToRig(rig,
@@ -147,4 +212,7 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
     else if (type == NPCType::Guard)    rig.hasLantern = (lampRoll < 70);
     else                                rig.hasLantern = false;
     rig.lanternHeld = false;   // NPCs always carry at the belt, never raised
+
+    // A brute towers over everyone else (height scale is applied at draw time).
+    if (type == NPCType::Brute) rig.heightScale = 1.4f;
 }

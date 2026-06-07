@@ -29,7 +29,7 @@
 namespace townint {
 
 // --- Survey parameters -------------------------------------------------------
-constexpr int REGION      = 24000;   // half-extent of the settled belt (blocks)
+constexpr int REGION      = 30000;   // half-extent of the settled belt (blocks)
 constexpr int SURVEY_STEP = 64;      // coarse survey grid spacing
 constexpr int GRID        = (REGION * 2) / SURVEY_STEP;   // cells per side
 constexpr int BUCKET      = 2800;    // one settlement per BUCKET-sized region
@@ -163,6 +163,7 @@ void layoutRings(Town& t, std::mt19937& rng, int numH, bool scattered,
                  const int* templ, int nT, const int* mats, int nM,
                  const int* roofs, int nR);
 void layoutTown(Town& t);
+void placeRoadsideStructures(TownPlan& plan, const std::vector<int16_t>& hgt);
 
 // --- Roads (town_roads.cpp) --------------------------------------------------
 void routeTownPaths(Town& t);

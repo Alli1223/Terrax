@@ -38,6 +38,10 @@ std::unique_ptr<WeaponItem> generateRandomWeapon(uint32_t seed,
 // Generate any random equippable item (clothing or weapon).
 std::unique_ptr<Item> generateRandomItem(uint32_t seed, int targetLevel = 1);
 
+// Generate a guaranteed-Legendary item (re-rolls until a legendary turns up).
+// Used for dungeon-boss drops.
+std::unique_ptr<Item> generateLegendaryItem(uint32_t seed, int targetLevel = 1);
+
 // Roll a single themed-set clothing piece. The generator picks a random
 // set from a fixed table (Wolfblood / Frostweave / Dragonscale / ...),
 // applies its signature palette + tier across whatever slot is picked,

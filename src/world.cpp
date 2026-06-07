@@ -64,13 +64,16 @@ void Chunk::computeLight() {
         }
     }
 
-    // ── Block light: seed Glowstone emitters ─────────────────────────────
+    // ── Block light: seed emitters (Glowstone full, Lantern slightly softer) ──
     for (int x = 0; x < CHUNK_SIZE; x++)
     for (int y = 0; y < CHUNK_HEIGHT; y++)
     for (int z = 0; z < CHUNK_SIZE; z++) {
-        if (get(x, y, z) == BlockType::Glowstone) {
-            setBlockLight(x, y, z, 15);
-            q.push({(uint8_t)x, (uint8_t)y, (uint8_t)z, (uint8_t)(0x80 | 15u)}); // block channel
+        BlockType b = get(x, y, z);
+        uint8_t emit = (b == BlockType::Glowstone) ? 15u
+                     : (b == BlockType::Lantern)   ? 14u : 0u;
+        if (emit) {
+            setBlockLight(x, y, z, emit);
+            q.push({(uint8_t)x, (uint8_t)y, (uint8_t)z, (uint8_t)(0x80 | emit)}); // block channel
         }
     }
 
@@ -145,6 +148,7 @@ static TileID getTile(BlockType bt, int face) {
         case BlockType::Sandstone: return TileID::Sandstone;
         case BlockType::Ice:       return TileID::Ice;
         case BlockType::Glowstone: return TileID::Glowstone;
+        case BlockType::Lantern:   return TileID::Lantern;
         case BlockType::Water:     return TileID::Water;
         case BlockType::Glass:     return TileID::Glass;
         default: {
@@ -304,7 +308,7 @@ void Chunk::buildMesh(World* world) {
                     float shade = SHADE[face];
                     float skyL   = ((rawLight >> 4) & 0xF) / 15.0f * shade;
                     float blockL = (rawLight & 0xF)        / 15.0f * shade;
-                    if (bt == BlockType::Glowstone) blockL = shade;
+                    if (bt == BlockType::Glowstone || bt == BlockType::Lantern) blockL = shade;
 
                     TileID tile = getTile(bt, face);
                     float u0, v0, u1, v1;
@@ -530,6 +534,7 @@ static void blockToMapRGB(BlockType bt, int y, uint8_t& r, uint8_t& g, uint8_t& 
         case BlockType::Wood:      ri=165; gi=110; bi=52;  break;
         case BlockType::Cactus:    ri=30;  gi=108; bi=22;  break;
         case BlockType::Glowstone: ri=255; gi=200; bi=50;  break;
+        case BlockType::Lantern:   ri=255; gi=190; bi=90;  break;
         default:                   ri=100; gi=100; bi=100; break;
     }
     if (bt != BlockType::Water) {

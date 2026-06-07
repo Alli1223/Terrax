@@ -60,15 +60,15 @@ Write-Host "Using glm from: $GlmInclude"
 $engine = @(
     'src\voxel_model.cpp','src\voxel_rig.cpp','src\voxel_house.cpp',
     'src\building.cpp','src\building_house.cpp',
-    'src\building_special.cpp','src\world.cpp','src\world_gen.cpp','src\town.cpp',
+    'src\building_special.cpp','src\building_farm.cpp','src\world.cpp','src\world_gen.cpp','src\town.cpp',
     'src\town_stamp.cpp','src\town_roads.cpp','src\town_layout.cpp',
-    'src\town_buildings.cpp','src\town_terrain.cpp',
+    'src\town_buildings.cpp','src\town_terrain.cpp','src\dungeon.cpp',
     'src\vegetation.cpp','src\atlas.cpp','src\camera.cpp','src\physics.cpp'
 )
 $cases = @(
     'tests\test_main.cpp','tests\test_voxel_model.cpp','tests\test_noise.cpp',
     'tests\test_camera.cpp','tests\test_world.cpp','tests\test_physics.cpp',
-    'tests\test_building.cpp','tests\test_atlas.cpp'
+    'tests\test_building.cpp','tests\test_atlas.cpp','tests\test_dungeon.cpp'
 )
 $srcs = $engine + @('tests\gl_stub.cpp') + $cases
 

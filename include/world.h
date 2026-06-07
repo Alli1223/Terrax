@@ -33,7 +33,8 @@ enum class BlockType : uint8_t {
     LeavesRed    = 15,
     LeavesPink   = 16,
     Glass        = 17,
-    PaintFirst   = 18,   // 16 painted-colour blocks: ids 18..33 (see PAINT_PALETTE)
+    PaintFirst   = 18,   // 28 painted-colour blocks: ids 18..45 (see PAINT_PALETTE)
+    Lantern      = 46,   // a wood/iron caged lantern — emits warm block light (see computeLight)
 };
 
 enum class ChunkState {

@@ -235,7 +235,7 @@ void syncNPCObjects(AppContext& ctx) {
             n->dyingFlag  = nowDying;
             n->lastUpdate = now;
 
-            if (!wasDying && nowDying && n->type == NPCType::Enemy) {
+            if (!wasDying && nowDying && isHostileNpc(n->type)) {
                 float dist = glm::distance(n->position, ctx.camera.position);
                 if (dist < 22.0f) awardEnemyKill(ctx, n);
             }

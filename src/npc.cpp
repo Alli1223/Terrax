@@ -4,6 +4,8 @@
 #include "world.h"
 #include "network.h"
 #include "npc_appearance.h"
+#include "farm_director.h"    // FarmDirector — crop state queried by farmer AI
+#include "dungeon.h"          // getDungeonPlan — enemy rosters per dungeon
 #include "prop_placement.h"   // getPropPlacements() — deterministic, server-safe
 #include <algorithm>
 #include <cmath>
@@ -27,6 +29,31 @@ static float frand01(std::mt19937& r) {
 
 static bool isNight(float gameTime) {
     return gameTime < 0.24f || gameTime > 0.76f;
+}
+
+// True if nothing solid blocks the straight line from an NPC's eye to a target
+// — used so ranged enemies don't fire (or chase) through dungeon walls.
+static bool hasLineOfSight(World& world, glm::vec3 fromFeet, glm::vec3 to) {
+    glm::vec3 eye = fromFeet + glm::vec3(0.0f, 1.4f, 0.0f);
+    glm::vec3 d   = to - eye;
+    float dist = glm::length(d);
+    if (dist < 0.5f) return true;
+    glm::ivec3 hb, hn;
+    // Stop a touch short so we don't count the block the target stands in.
+    return !world.raycast(eye, d / dist, std::max(0.5f, dist - 1.0f), hb, hn);
+}
+
+static bool isSolidBlk(BlockType b) { return b != BlockType::Air && b != BlockType::Water; }
+
+// Move an NPC by (dx,dz) only if no wall blocks the destination at body height,
+// so dungeon enemies stay in their rooms/corridors instead of ghosting through
+// walls. A 1-block step (gentle slope) is still allowed.
+static void moveNpcXZ(NPC& n, World& world, float dx, float dz) {
+    int   gy = (int)n.groundY;
+    float nx = n.position.x + dx, nz = n.position.z + dz;
+    if (isSolidBlk(world.getBlock((int)floorf(nx), gy + 1, (int)floorf(nz)))) return;
+    n.position.x = nx;
+    n.position.z = nz;
 }
 
 static constexpr int   CAMP_GRID  = 256;   // bandit-camp survey cell size, blocks
@@ -109,9 +136,17 @@ void NPC::update(float dt, World& world) {
 
     if (rig) {
         // Trigger the swing on the rising edge of the server's attack flag.
+        // Farmers play a tool-work clip (hoe/scythe) instead of a combat swing.
         if (attackFlag && !prevAttackFlag) {
-            rig->isAttacking = true;
-            rig->attackAnim  = 0.0f;
+            if (type == NPCType::Farmer) {
+                rig->playClip(ClipKind::Hoe, 0.7f);
+            } else if (type == NPCType::Cultist) {
+                rig->isCasting = true;
+                rig->castAnim  = 0.0f;
+            } else {
+                rig->isAttacking = true;
+                rig->attackAnim  = 0.0f;
+            }
         }
         prevAttackFlag = attackFlag;
         // A seated villager snaps to the resting pose; otherwise stand & walk.
@@ -295,6 +330,8 @@ void NpcDirector::update(float dt, const std::vector<DirectorPlayer>& players,
             depopulateTown(ti);
     }
     updateCamps(players);
+    if (farmDir) updateFarms(players);
+    updateDungeons(players);
 
     for (auto& n : active) {
         // A dying NPC plays its fall-over, then is swept from the world.
@@ -305,14 +342,212 @@ void NpcDirector::update(float dt, const std::vector<DirectorPlayer>& players,
             if (n->dyingTimer <= 0.0f) n->dead = true;
             continue;
         }
-        if      (n->type == NPCType::Enemy) stepBandit(*n, dt, world, players);
-        else if (n->type == NPCType::Guard) stepGuard(*n, dt, world, players);
-        else                                stepVillager(*n, dt, world, gameTime);
+        if (n->type == NPCType::Enemy || n->type == NPCType::Skeleton ||
+            n->type == NPCType::Brute)        stepBandit(*n, dt, world, players);
+        else if (n->type == NPCType::Cultist) stepRangedEnemy(*n, dt, world, players);
+        else if (n->type == NPCType::Guard)   stepGuard(*n, dt, world, players);
+        else if (n->type == NPCType::Farmer)  stepFarmer(*n, dt, world, gameTime);
+        else                                  stepVillager(*n, dt, world, gameTime);
     }
 
     active.erase(std::remove_if(active.begin(), active.end(),
                      [](const std::unique_ptr<NPC>& n) { return n->dead; }),
                  active.end());
+}
+
+// Farmers tend a field: walk the furrows to ripe wheat (scythe it) or bare soil
+// (hoe it), play a tool-work stroke, then move on. Crop state lives in the
+// FarmDirector; this only drives the body. Repurposed NPC fields:
+//   townIndex   = the farm index this farmer tends
+//   seatIndex   = the target crop tile index
+//   pendingAct  = the queued action (1 = scythe ripe, 2 = hoe bare)
+//   restAnchor  = the crop tile centre (used to face it while working)
+//   attackAnimTimer = work-stroke countdown (also drives the client clip flag)
+void NpcDirector::stepFarmer(NPC& n, float dt, World& world, float gameTime) {
+    (void)gameTime;
+    groundSnap(n, world);
+    int fi = n.townIndex;
+
+    // Mid work-stroke: hold still, then apply the crop edit when it finishes.
+    if (n.attackAnimTimer > 0.0f) {
+        n.attackAnimTimer -= dt;
+        n.walking  = false;
+        n.velocity = glm::vec3(0.0f);
+        if (n.attackAnimTimer <= 0.0f && farmDir) {
+            if (n.pendingAct == 1) farmDir->harvestTile(fi, n.seatIndex, world);
+            else                   farmDir->hoeTile(fi, n.seatIndex, world);
+            n.pendingAct = 0;
+            n.seatIndex  = -1;
+            n.idleTimer  = 0.3f + frand01(rng) * 0.7f;
+        }
+        return;
+    }
+
+    // Walking to the work cell.
+    if (n.pathIndex < n.path.size()) {
+        glm::vec2 wp = n.path[n.pathIndex];
+        glm::vec2 cur(n.position.x, n.position.z);
+        glm::vec2 d = wp - cur;
+        float dist = glm::length(d);
+        if (dist < 0.5f) {
+            n.pathIndex++;
+            if (n.pathIndex >= n.path.size()) {
+                n.walking  = false;
+                n.velocity = glm::vec3(0.0f);
+                glm::vec2 fd(n.restAnchor.x - cur.x, n.restAnchor.z - cur.y);
+                if (glm::length(fd) > 0.01f) n.yaw = glm::degrees(atan2f(fd.x, fd.y));
+                n.attackAnimTimer = 0.9f;   // work stroke (drives the hoe/scythe clip)
+            }
+            return;
+        }
+        const float speed = 1.7f;
+        glm::vec2 dir = d / dist;
+        n.position.x += dir.x * speed * dt;
+        n.position.z += dir.y * speed * dt;
+        n.velocity = glm::vec3(dir.x * speed, 0.0f, dir.y * speed);
+        n.walking  = true;
+        n.yaw      = glm::degrees(atan2f(dir.x, dir.y));
+        return;
+    }
+
+    // Idle between tasks.
+    if (n.idleTimer > 0.0f) {
+        n.idleTimer -= dt;
+        n.walking  = false;
+        n.velocity = glm::vec3(0.0f);
+        return;
+    }
+
+    // Pick the next tile to work and route to a furrow cell beside it.
+    glm::ivec2 cropXZ; int tileIdx = -1; bool ripe = false;
+    glm::vec2 pos(n.position.x, n.position.z);
+    if (farmDir && farmDir->nearestWorkTile(fi, pos, cropXZ, tileIdx, ripe)) {
+        int cy = (int)n.groundY;
+        glm::ivec2 stand = cropXZ;
+        bool found = false;
+        const int off[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+        for (auto& o : off) {
+            int sx = cropXZ.x + o[0], sz = cropXZ.y + o[1];
+            if (world.getBlock(sx, cy, sz) == BlockType::Air) { stand = glm::ivec2(sx, sz); found = true; break; }
+        }
+        if (!found) { n.idleTimer = 0.5f; return; }   // boxed in — try again shortly
+        n.path.assign(1, glm::vec2((float)stand.x + 0.5f, (float)stand.y + 0.5f));
+        n.pathIndex  = 0;
+        n.seatIndex  = tileIdx;
+        n.pendingAct = ripe ? 1 : 2;
+        n.restAnchor = glm::vec3((float)cropXZ.x + 0.5f, n.groundY, (float)cropXZ.y + 0.5f);
+        n.walking    = true;
+    } else {
+        n.idleTimer = 1.5f + frand01(rng) * 2.5f;     // no work right now — wait
+        n.walking   = false;
+        n.velocity  = glm::vec3(0.0f);
+    }
+}
+
+// Stream farmer NPCs in and out by player proximity. The farm registry + crop
+// state live in the FarmDirector; here we just keep 1-2 farmer bodies alive
+// near each active field (they flow through the normal NPCState broadcast).
+void NpcDirector::updateFarms(const std::vector<DirectorPlayer>& players) {
+    const std::vector<FarmField>& farms = farmDir->farms();
+    for (int fi = 0; fi < (int)farms.size(); fi++) {
+        const FarmField& f = farms[fi];
+        float best2 = 1e18f;
+        for (const DirectorPlayer& p : players) {
+            float dx = p.pos.x - (float)f.center.x, dz = p.pos.z - (float)f.center.y;
+            best2 = std::min(best2, dx * dx + dz * dz);
+        }
+        float act   = (float)f.radius + 120.0f;
+        float deact = (float)f.radius + 180.0f;
+        bool  pop   = populatedFarms.count(fi) > 0;
+        if (!pop && best2 < act * act && (int)active.size() < 220) spawnFarmers(fi);
+        else if (pop && best2 > deact * deact)                     despawnFarmers(fi);
+    }
+}
+
+void NpcDirector::spawnFarmers(int fi) {
+    const FarmField& f = farmDir->farms()[fi];
+    populatedFarms.insert(fi);
+    int count = 1 + (int)(rng() % 2u);   // 1..2 farmers per field
+    for (int k = 0; k < count; k++) {
+        auto n = std::make_unique<NPC>();
+        n->id   = nextFarmerId++;
+        n->type = NPCType::Farmer;
+        uint32_t aseed = hashU32((uint32_t)f.id ^ (uint32_t)(f.id >> 32), 0xFA12u + (uint32_t)k);
+        n->appearanceSeed = aseed ? aseed : 1u;
+        n->townIndex = fi;                    // repurposed: which farm this farmer tends
+        n->homePos   = glm::vec2((float)f.center.x, (float)f.center.y);
+        n->position  = glm::vec3((float)f.center.x + 0.5f, (float)f.cropY, (float)f.center.y + 0.5f);
+        n->groundY   = (float)f.cropY;
+        n->seatIndex = -1;
+        n->idleTimer = frand01(rng) * 1.5f;
+        active.push_back(std::move(n));
+    }
+}
+
+void NpcDirector::despawnFarmers(int fi) {
+    populatedFarms.erase(fi);
+    for (auto& n : active)
+        if (n->type == NPCType::Farmer && n->townIndex == fi) n->dead = true;
+}
+
+// --- dungeons --------------------------------------------------------------
+
+void NpcDirector::updateDungeons(const std::vector<DirectorPlayer>& players) {
+    const auto& dungeons = getDungeonPlan().dungeons;
+    for (size_t di = 0; di < dungeons.size(); di++) {
+        const Dungeon& d = *dungeons[di];
+        float best2 = 1e18f;
+        for (const DirectorPlayer& p : players) {
+            float dx = p.pos.x - (float)d.anchor.x, dz = p.pos.z - (float)d.anchor.y;
+            best2 = std::min(best2, dx * dx + dz * dz);
+        }
+        // Scale the stream radius to the dungeon's footprint so a large complex
+        // doesn't despawn while the player is still deep inside it.
+        float reach = 0.5f * (float)std::max(d.bbMax.x - d.bbMin.x, d.bbMax.y - d.bbMin.y);
+        const float ACT = 200.0f + reach, DEACT = ACT + 120.0f;
+        bool act = activeDungeons.count(di) > 0;
+        if (!act && best2 < ACT * ACT && (int)active.size() < 220) spawnDungeon(di);
+        else if (act && best2 > DEACT * DEACT)                     despawnDungeon(di);
+    }
+}
+
+void NpcDirector::spawnDungeon(size_t di) {
+    const auto& dungeons = getDungeonPlan().dungeons;
+    if (di >= dungeons.size()) return;
+    const Dungeon& d = *dungeons[di];
+    activeDungeons.insert(di);
+    uint32_t dseed = hashU32((uint32_t)d.anchor.x, (uint32_t)d.anchor.y);
+    std::vector<DungeonSpawn> spawns;
+    d.fillSpawnTable(spawns, dseed);
+    // Cap minions per dungeon for performance (big complexes have many rooms);
+    // the boss always spawns regardless of the cap.
+    const int DUNGEON_MINION_CAP = 42;
+    int minions = 0;
+    for (size_t k = 0; k < spawns.size(); k++) {
+        if ((int)active.size() >= 220) break;
+        const DungeonSpawn& s = spawns[k];
+        if (!s.boss && minions >= DUNGEON_MINION_CAP) continue;
+        if (!s.boss) minions++;
+        auto n = std::make_unique<NPC>();
+        n->id   = nextDungeonEnemyId++;
+        n->type = (NPCType)s.npcType;
+        n->boss = s.boss;
+        uint32_t aseed = hashU32((uint32_t)di * 2654435761u + (uint32_t)k, 0xD0E2u);
+        n->appearanceSeed = aseed ? aseed : 1u;
+        n->townIndex = (int)di;                       // tag the owning dungeon
+        n->position  = glm::vec3((float)s.pos.x + 0.5f, (float)s.pos.y, (float)s.pos.z + 0.5f);
+        n->groundY   = (float)s.pos.y;
+        n->homePos   = glm::vec2((float)s.pos.x, (float)s.pos.z);
+        n->health    = defaultNpcHealth((NPCType)s.npcType);
+        active.push_back(std::move(n));
+    }
+}
+
+void NpcDirector::despawnDungeon(size_t di) {
+    activeDungeons.erase(di);
+    for (auto& n : active)
+        if (n->id >= 0xA0000000u && n->id < 0xC0000000u && n->townIndex == (int)di)
+            n->dead = true;
 }
 
 void NpcDirector::populateTown(int ti) {
@@ -790,9 +1025,9 @@ void NpcDirector::playerHitNpc(uint32_t attackerId, uint32_t npcId,
             n->dyingTimer = 2.0f;
             // Spawn server-authoritative loot exactly once per kill. Only
             // bandits (Enemy) drop loot — villagers and guards don't.
-            if (!n->lootDropped && n->type == NPCType::Enemy && g_server) {
+            if (!n->lootDropped && isHostileNpc(n->type) && g_server) {
                 n->lootDropped = true;
-                g_server->spawnLootForKill(attackerId, n->position);
+                g_server->spawnLootForKill(attackerId, n->position, n->boss);   // boss → legendary
             }
         }
         return;
@@ -805,6 +1040,12 @@ void NpcDirector::stepBandit(NPC& n, float dt, World& world,
     if (n.attackCooldown  > 0.0f) n.attackCooldown  -= dt;
     if (n.attackAnimTimer > 0.0f) n.attackAnimTimer -= dt;
 
+    // Per-type combat profile: brutes hit hard and slow, skeletons fast and
+    // light, bandits in between.
+    float chaseSpeed = 3.4f, dmgPlayer = 7.0f, dmgGuard = 8.0f, atkCd = 1.5f;
+    if (n.type == NPCType::Brute)         { chaseSpeed = 2.6f; dmgPlayer = 18.0f; dmgGuard = 16.0f; atkCd = 2.2f; }
+    else if (n.type == NPCType::Skeleton) { chaseSpeed = 3.8f; dmgPlayer = 6.0f;  dmgGuard = 7.0f;  atkCd = 1.3f; }
+
     // Acquire a target: the nearest aggro-range player outside a town, or a town
     // guard that has closed within striking distance — so a raiding or cornered
     // bandit fights the watch back instead of ignoring it.
@@ -812,6 +1053,7 @@ void NpcDirector::stepBandit(NPC& n, float dt, World& world,
     float pBest = 22.0f * 22.0f;
     for (const DirectorPlayer& p : players) {
         if (inAnyTown(glm::vec2(p.pos.x, p.pos.z))) continue;
+        if (std::fabs(p.pos.y - n.position.y) > 6.0f) continue;  // no hitting through floors/ceilings
         float dx = p.pos.x - n.position.x, dz = p.pos.z - n.position.z;
         float d2 = dx * dx + dz * dz;
         if (d2 < pBest) { pBest = d2; pTarget = &p; }
@@ -820,6 +1062,7 @@ void NpcDirector::stepBandit(NPC& n, float dt, World& world,
     float gBest = 14.0f * 14.0f;
     for (auto& o : active) {
         if (o->type != NPCType::Guard || o->dyingTimer > 0.0f) continue;
+        if (std::fabs(o->position.y - n.position.y) > 6.0f) continue;
         float dx = o->position.x - n.position.x, dz = o->position.z - n.position.z;
         float d2 = dx * dx + dz * dz;
         if (d2 < gBest) { gBest = d2; gTarget = o.get(); }
@@ -837,28 +1080,25 @@ void NpcDirector::stepBandit(NPC& n, float dt, World& world,
         glm::vec2 dir = (dist > 0.01f) ? d / dist : glm::vec2(0.0f, 1.0f);
         n.yaw = glm::degrees(atan2f(dir.x, dir.y));
         if (dist > 2.0f) {                              // close the distance
-            float speed   = 3.4f;
+            float speed   = chaseSpeed;
             float stepLen = std::min(speed * dt, dist - 1.9f);
-            if (stepLen > 0.0f) {
-                n.position.x += dir.x * stepLen;
-                n.position.z += dir.y * stepLen;
-            }
+            if (stepLen > 0.0f) moveNpcXZ(n, world, dir.x * stepLen, dir.y * stepLen);
             n.velocity = glm::vec3(dir.x * speed, 0.0f, dir.y * speed);
             n.walking  = true;
         } else {                                        // in range — strike
             n.velocity = glm::vec3(0.0f);
             n.walking  = false;
             if (n.attackCooldown <= 0.0f) {
-                n.attackCooldown  = 1.5f;
+                n.attackCooldown  = atkCd;
                 n.attackAnimTimer = 0.45f;
                 if (hitGuard) {
-                    gTarget->health -= 8.0f;
+                    gTarget->health -= dmgGuard;
                     if (gTarget->health <= 0.0f) {
                         gTarget->health     = 0.0f;
                         gTarget->dyingTimer = 2.0f;
                     }
                 } else {
-                    pendingDamage.push_back({ pTarget->id, 7.0f });
+                    pendingDamage.push_back({ pTarget->id, dmgPlayer });
                 }
             }
         }
@@ -932,8 +1172,82 @@ void NpcDirector::stepBandit(NPC& n, float dt, World& world,
     const float speed = 2.8f;
     glm::vec2 dir = d / dist;
     float stepLen = std::min(speed * dt, dist);
-    n.position.x += dir.x * stepLen;
-    n.position.z += dir.y * stepLen;
+    moveNpcXZ(n, world, dir.x * stepLen, dir.y * stepLen);
+    n.yaw = glm::degrees(atan2f(dir.x, dir.y));
+    n.velocity = glm::vec3(dir.x * speed, 0.0f, dir.y * speed);
+    n.walking = true;
+}
+
+// Ranged caster enemy (cultist): keeps its distance and hurls bolts. Acquires
+// a target like a bandit but fires from range instead of closing to melee.
+void NpcDirector::stepRangedEnemy(NPC& n, float dt, World& world,
+                                  const std::vector<DirectorPlayer>& players) {
+    groundSnap(n, world);
+    if (n.attackCooldown  > 0.0f) n.attackCooldown  -= dt;
+    if (n.attackAnimTimer > 0.0f) n.attackAnimTimer -= dt;
+
+    const float AGGRO = 24.0f, FIRE = 15.0f;
+    const DirectorPlayer* tgt = nullptr;
+    float best = AGGRO * AGGRO;
+    for (const DirectorPlayer& p : players) {
+        if (inAnyTown(glm::vec2(p.pos.x, p.pos.z))) continue;
+        if (std::fabs(p.pos.y - n.position.y) > 6.0f) continue;  // no casting through floors/ceilings
+        float dx = p.pos.x - n.position.x, dz = p.pos.z - n.position.z;
+        float d2 = dx * dx + dz * dz;
+        if (d2 < best) { best = d2; tgt = &p; }
+    }
+
+    // Only engage a target the caster can actually see; otherwise it holds its
+    // room and loiters. Approaching only happens along a clear line, so it never
+    // shoots — or charges — through a wall.
+    if (tgt && hasLineOfSight(world, n.position, tgt->pos)) {
+        glm::vec2 cur(n.position.x, n.position.z);
+        glm::vec2 d(tgt->pos.x - cur.x, tgt->pos.z - cur.y);
+        float dist = glm::length(d);
+        glm::vec2 dir = (dist > 0.01f) ? d / dist : glm::vec2(0.0f, 1.0f);
+        n.yaw = glm::degrees(atan2f(dir.x, dir.y));
+        if (dist > FIRE) {                              // close to firing range
+            float speed = 2.6f;
+            float stepLen = std::min(speed * dt, dist - FIRE + 0.5f);
+            if (stepLen > 0.0f) moveNpcXZ(n, world, dir.x * stepLen, dir.y * stepLen);
+            n.velocity = glm::vec3(dir.x * speed, 0.0f, dir.y * speed);
+            n.walking  = true;
+        } else {                                        // in range — cast a bolt
+            n.velocity = glm::vec3(0.0f);
+            n.walking  = false;
+            if (n.attackCooldown <= 0.0f) {
+                n.attackCooldown  = 2.0f;
+                n.attackAnimTimer = 0.6f;               // drives the cast pose on clients
+                pendingDamage.push_back({ tgt->id, 9.0f });
+            }
+        }
+        n.path.clear(); n.pathIndex = 0;
+        return;
+    }
+
+    // No target — wander around the home anchor.
+    if (n.pathIndex >= n.path.size()) {
+        n.walking = false; n.velocity = glm::vec3(0.0f);
+        n.idleTimer -= dt;
+        if (n.idleTimer > 0.0f) return;
+        float ang = frand01(rng) * 6.2831853f, r = 5.0f + frand01(rng) * 16.0f;
+        n.path.clear();
+        n.path.push_back(glm::vec2(n.homePos.x + cosf(ang) * r, n.homePos.y + sinf(ang) * r));
+        n.pathIndex = 0;
+        return;
+    }
+    glm::vec2 wp(n.path[n.pathIndex]);
+    glm::vec2 cur(n.position.x, n.position.z);
+    glm::vec2 d = wp - cur;
+    float dist = glm::length(d);
+    if (dist < 0.6f) {
+        n.pathIndex++; n.walking = false; n.velocity = glm::vec3(0.0f);
+        n.idleTimer = 2.0f + frand01(rng) * 3.0f;
+        return;
+    }
+    const float speed = 2.4f;
+    glm::vec2 dir = d / dist;
+    moveNpcXZ(n, world, dir.x * speed * dt, dir.y * speed * dt);
     n.yaw = glm::degrees(atan2f(dir.x, dir.y));
     n.velocity = glm::vec3(dir.x * speed, 0.0f, dir.y * speed);
     n.walking = true;
@@ -954,7 +1268,7 @@ void NpcDirector::stepGuard(NPC& n, float dt, World& world,
     uint32_t  playerTgt = 0;
     glm::vec2 hostileXZ(0.0f);
     for (auto& o : active) {
-        if (o->type != NPCType::Enemy || o->dyingTimer > 0.0f) continue;
+        if (!isHostileNpc(o->type) || o->dyingTimer > 0.0f) continue;
         float dx = o->position.x - n.position.x, dz = o->position.z - n.position.z;
         float d2 = dx * dx + dz * dz;
         if (d2 < bestD2) {

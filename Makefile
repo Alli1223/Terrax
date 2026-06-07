@@ -24,7 +24,7 @@ MINIAUDIO_OBJS := build/miniaudio/miniaudio_impl.o
 SRCS := src/main.cpp src/shader.cpp src/camera.cpp src/world.cpp src/world_gen.cpp \
         src/town.cpp \
         src/town_stamp.cpp src/town_roads.cpp src/town_layout.cpp \
-        src/town_buildings.cpp src/town_terrain.cpp \
+        src/town_buildings.cpp src/town_terrain.cpp src/dungeon.cpp \
         src/gl_loader.cpp src/atlas.cpp src/network.cpp src/voxel_model.cpp \
         src/voxel_rig.cpp src/voxel_house.cpp \
         src/game_session.cpp src/app_context.cpp src/physics.cpp src/input.cpp \
@@ -36,10 +36,10 @@ SRCS := src/main.cpp src/shader.cpp src/camera.cpp src/world.cpp src/world_gen.c
         src/furniture.cpp src/decorations.cpp src/prop_placement.cpp \
         src/vehicles.cpp src/ferry_routes.cpp src/npc.cpp src/animal.cpp \
         src/vegetation.cpp src/building.cpp src/building_house.cpp \
-        src/building_special.cpp src/items.cpp src/inventory.cpp \
+        src/building_special.cpp src/building_farm.cpp src/items.cpp src/inventory.cpp \
         src/clothing_painter.cpp src/weapon_builder.cpp src/item_generator.cpp \
         src/inventory_ui.cpp src/loot_drop.cpp src/projectile.cpp \
-        src/npc_appearance.cpp src/audio.cpp
+        src/npc_appearance.cpp src/farm_director.cpp src/audio.cpp
 OBJS := $(SRCS:src/%.cpp=build/%.o)
 
 DEPS := $(OBJS:.o=.d) $(IMGUI_OBJS:.o=.d) $(IMGUI_BACKEND_OBJS:.o=.d) $(MINIAUDIO_OBJS:.o=.d)
@@ -54,14 +54,14 @@ TARGET := terrax
 TEST_TARGET  := terrax_tests
 TEST_ENGINE_SRCS := src/voxel_model.cpp src/voxel_rig.cpp src/voxel_house.cpp \
                     src/building.cpp src/building_house.cpp \
-                    src/building_special.cpp src/world.cpp src/world_gen.cpp \
+                    src/building_special.cpp src/building_farm.cpp src/world.cpp src/world_gen.cpp \
                     src/town.cpp \
                     src/town_stamp.cpp src/town_roads.cpp src/town_layout.cpp \
-                    src/town_buildings.cpp src/town_terrain.cpp \
+                    src/town_buildings.cpp src/town_terrain.cpp src/dungeon.cpp \
                     src/vegetation.cpp src/atlas.cpp src/camera.cpp src/physics.cpp
 TEST_CASE_SRCS   := tests/test_main.cpp tests/test_voxel_model.cpp tests/test_noise.cpp \
                     tests/test_camera.cpp tests/test_world.cpp tests/test_physics.cpp \
-                    tests/test_building.cpp tests/test_atlas.cpp
+                    tests/test_building.cpp tests/test_atlas.cpp tests/test_dungeon.cpp
 TEST_SRCS    := $(TEST_ENGINE_SRCS) tests/gl_stub.cpp $(TEST_CASE_SRCS)
 # -pthread: World spawns std::thread chunk workers, so the test binary must
 # link the pthread runtime on Linux (harmless elsewhere).

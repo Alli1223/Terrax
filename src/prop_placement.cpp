@@ -1,6 +1,7 @@
 #include "prop_placement.h"
 #include "town.h"
 #include "world.h"
+#include "dungeon.h"     // furnish dungeon/castle rooms with the same Prop furniture
 #include <mutex>
 #include <random>
 #include <cmath>
@@ -297,6 +298,126 @@ void placeFurniture(const TownBuilding& b) {
             used.push_back(glm::ivec3(s.x, s.y, s.z));
             placed++;
         }
+    }
+}
+
+// --- Dungeon room furnishing ------------------------------------------------
+// Dungeon rooms are furnished with the SAME detailed Prop furniture as houses
+// (not crude terrain blocks). Each DungeonRoom's `purpose` picks a furniture
+// pool; the placer scans the carved silhouette for wall / open spots and fills
+// them, exactly like placeFurniture() does for town rooms.
+FurnitureRule dungeonFurnitureRule(uint8_t purpose) {
+    FurnitureRule r;
+    r.wallLanternEvery = 0;   // dungeon lighting is dynamic point lights — no lantern props
+    switch (purpose) {
+    case 4: // Library
+        r.wallPicks = { PropType::Bookshelf, PropType::Bookshelf, PropType::Bookshelf,
+                        PropType::Bookshelf, PropType::Desk, PropType::WallPainting };
+        r.openPicks = { PropType::Chair, PropType::Table };
+        r.capMin = 8; r.capMax = 14; break;
+    case 6: // Vault / treasure
+        r.wallPicks = { PropType::Crate, PropType::Barrel, PropType::Bookshelf };
+        r.openPicks = { PropType::Crate, PropType::Barrel, PropType::ProducePile };
+        r.capMin = 8; r.capMax = 14; r.allowTableTopper = false; break;
+    case 7: // Prison / cells
+        r.wallPicks = { PropType::Bed, PropType::Barrel };
+        r.openPicks = { PropType::Crate };
+        r.capMin = 3; r.capMax = 6; r.allowTableTopper = false; break;
+    case 3: // Throne room
+        r.wallPicks = { PropType::Couch, PropType::SideTable, PropType::WallPainting, PropType::Bookshelf };
+        r.openPicks = { PropType::FlowerVase, PropType::PottedPlant, PropType::Chair };
+        r.capMin = 4; r.capMax = 8; break;
+    case 2: // Boss hall
+        r.wallPicks = { PropType::AlchemyTable, PropType::Bookshelf, PropType::Barrel };
+        r.openPicks = { PropType::Cauldron, PropType::Crate, PropType::FlowerVase };
+        r.capMin = 4; r.capMax = 7; break;
+    case 5: // Ornament (central monument is block-built)
+        r.wallPicks = { PropType::WallPainting, PropType::Bookshelf, PropType::Bench };
+        r.openPicks = { PropType::PottedPlant, PropType::FlowerVase };
+        r.capMin = 3; r.capMax = 6; break;
+    case 1: // Entrance
+        r.wallPicks = { PropType::SideTable, PropType::Bookshelf, PropType::Bench };
+        r.openPicks = { PropType::PottedPlant, PropType::Barrel };
+        r.capMin = 3; r.capMax = 5; break;
+    default: // Hall — a fully furnished living space (lots of small items, like a house)
+        r.wallPicks = { PropType::Couch, PropType::Bookshelf, PropType::SideTable, PropType::Wardrobe,
+                        PropType::Desk, PropType::Cooker, PropType::KitchenCounter,
+                        PropType::WallPainting, PropType::BarCounter };
+        r.openPicks = { PropType::Table, PropType::Chair, PropType::Chair, PropType::FlowerVase,
+                        PropType::PottedPlant, PropType::Cauldron, PropType::Crate,
+                        PropType::Barrel, PropType::BarStool };
+        r.capMin = 9; r.capMax = 16; break;
+    }
+    return r;
+}
+
+void furnishDungeonRoom(const Dungeon& d, const DungeonRoom& rm) {
+    const int rw = rm.mx.x - rm.mn.x, rd = rm.mx.z - rm.mn.z;
+    if (rw < 4 || rd < 4) return;
+    FurnitureRule rule = dungeonFurnitureRule(rm.purpose);
+
+    std::mt19937 rng(worldSeed() ^ (uint32_t)(rm.mn.x * 73856093)
+                                 ^ (uint32_t)(rm.mn.z * 19349663) ^ 0xD0F0u);
+    const int fY = rm.mn.y;                                   // walkable floor (solid slab at fY-1)
+    const int cx = (rm.mn.x + rm.mx.x) / 2, cz = (rm.mn.z + rm.mx.z) / 2;
+
+    // Keep furniture clear of the block-built architecture (matches the stamp).
+    auto blocked = [&](int x, int z) -> bool {
+        if (d.overground) {   // the castle switchback stair lane along the -Z wall
+            int lx0 = d.bbMin.x + 5, lx1 = d.bbMin.x + 5 + d.floorH, lz0 = d.bbMin.y + 2, lz1 = d.bbMin.y + 4;
+            if (x >= lx0 && x <= lx1 && z >= lz0 && z <= lz1) return true;
+        }
+        if (rm.purpose == 5 && std::abs(x - cx) <= 3 && std::abs(z - cz) <= 3) return true; // monument
+        if ((rm.purpose == 2 || rm.purpose == 3) && x <= rm.mn.x + 3) return true;          // throne
+        if (rm.purpose == 7 && x <= rm.mn.x + 3) return true;                               // cages
+        return false;
+    };
+
+    struct Spot { int x, z; bool wall; float yaw; };
+    std::vector<Spot> spots;
+    for (int x = rm.mn.x + 1; x <= rm.mx.x - 1; x++)
+        for (int z = rm.mn.z + 1; z <= rm.mx.z - 1; z++) {
+            if (!dungeonRoomContains(rm, x, z) || blocked(x, z)) continue;
+            Spot s{ x, z, false, (float)((rng() % 4) * 90) };
+            if      (!dungeonRoomContains(rm, x - 1, z)) { s.wall = true; s.yaw = 90.0f; }
+            else if (!dungeonRoomContains(rm, x + 1, z)) { s.wall = true; s.yaw = 270.0f; }
+            else if (!dungeonRoomContains(rm, x, z - 1)) { s.wall = true; s.yaw = 0.0f; }
+            else if (!dungeonRoomContains(rm, x, z + 1)) { s.wall = true; s.yaw = 180.0f; }
+            spots.push_back(s);
+        }
+    if (spots.empty()) return;
+    for (size_t i = spots.size(); i > 1; i--) std::swap(spots[i - 1], spots[rng() % i]);
+
+    // A rug near the centre of most rooms (flat — furniture can sit on it).
+    if (rule.capMax >= 4 && !blocked(cx, cz) && dungeonRoomContains(rm, cx, cz))
+        g_placements.push_back({ PropType::Rug, glm::vec3((float)cx + 0.5f, (float)fY, (float)cz + 0.5f),
+                                 (float)((rng() % 2) * 90), (uint32_t)rng() });
+
+    int cap = rule.capMin + (int)(rng() % std::max(1, rule.capMax - rule.capMin + 1));
+    int placed = 0;
+    std::vector<glm::ivec3> used;
+    for (const Spot& s : spots) {
+        if (placed >= cap) break;
+        bool tooClose = false;
+        for (const glm::ivec3& u : used)
+            if (std::abs(u.x - s.x) < 3 && std::abs(u.z - s.z) < 3) { tooClose = true; break; }
+        if (tooClose) continue;
+
+        PropType t;
+        if (s.wall) { if (rule.wallPicks.empty()) continue; t = rule.wallPicks[rng() % rule.wallPicks.size()]; }
+        else        { if (rule.openPicks.empty()) continue; t = rule.openPicks[rng() % rule.openPicks.size()]; }
+        if (!s.wall && prefersWall(t)) continue;
+
+        float mountY = (t == PropType::WallPainting) ? 2.4f : 0.0f;
+        glm::vec3 pos((float)s.x + 0.5f, (float)fY + mountY, (float)s.z + 0.5f);
+        g_placements.push_back({ t, pos, s.yaw, (uint32_t)rng() });
+        if (rule.allowTableTopper && t == PropType::Table) {
+            glm::vec3 cp = pos; cp.y += TABLE_TOP_H;
+            g_placements.push_back({ (rng() % 2) ? PropType::Crockery : PropType::FlowerVase,
+                                     cp, s.yaw, (uint32_t)rng() });
+        }
+        used.push_back(glm::ivec3(s.x, fY, s.z));
+        placed++;
     }
 }
 
@@ -810,6 +931,13 @@ void build() {
         placePlazaDetail(t);
     }
     placeFences(plan);
+
+    // Dungeons & castles: furnish every room with the same detailed Prop
+    // furniture houses use (tables, chairs, shelves, cookers, barrels, rugs…).
+    const DungeonPlan& dp = getDungeonPlan();
+    for (const auto& dptr : dp.dungeons)
+        for (const DungeonRoom& rm : dptr->rooms)
+            furnishDungeonRoom(*dptr, rm);
 }
 
 std::vector<DoorPlacement> g_doors;

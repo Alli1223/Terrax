@@ -3,6 +3,7 @@
 #include "voxel_model.h"
 #include "building.h"
 #include <algorithm>
+#include <chrono>
 #include <thread>
 #include <atomic>
 #include <cmath>
@@ -92,6 +93,7 @@ std::string makeTownName(int wx, int wz, TownType type) {
 // --- Survey & plan -----------------------------------------------------------
 
 TownPlan buildTownPlan() {
+    auto t0 = std::chrono::steady_clock::now();
     std::cout << "[Towns] Surveying region for settlement sites..." << std::endl;
     TownPlan plan;
     std::mt19937 rng(worldSeed() ^ 0x70776E21u);
@@ -260,6 +262,10 @@ TownPlan buildTownPlan() {
     reportStage(3, 0.0f);                  // "Routing roads"
     routeHighways(plan, hgt);
 
+    // Scatter the occasional roadside structure (watchtower / house / big farm)
+    // along the highways, well clear of any town.
+    placeRoadsideStructures(plan, hgt);
+
     // Street lights for every town's paths and highway approaches.
     reportStage(4, 0.0f);                  // "Lighting streets"
     placeStreetLamps(plan);
@@ -273,7 +279,11 @@ TownPlan buildTownPlan() {
               << totalBuildings << " buildings, "
               << plan.highways.size() << " highways, "
               << plan.bridges.size() << " bridges, "
-              << plan.docks.size() << " docks." << std::endl;
+              << plan.docks.size() << " docks, "
+              << plan.roadside.size() << " roadside." << std::endl;
+    double planMs = std::chrono::duration<double, std::milli>(
+                        std::chrono::steady_clock::now() - t0).count();
+    std::cout << "[Towns] Plan built in " << (int)planMs << " ms." << std::endl;
     return plan;
 }
 

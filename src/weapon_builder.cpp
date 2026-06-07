@@ -162,6 +162,33 @@ static VoxelVolume* buildBaseWeaponMesh(WeaponType type, Voxel pri, Voxel acc) {
             }
             return v;
         }
+        case WeaponType::Hoe: {
+            // 5x22x2 — a wooden haft (accent) with a short metal blade jutting
+            // out at the top, perpendicular to the shaft.
+            VoxelVolume* v = new VoxelVolume(5, 22, 2);
+            for (int y = 0; y < 20; y++) for (int z = 0; z < 2; z++)
+                v->setVoxel(1, y, z, acc);              // haft
+            for (int x = 1; x < 5; x++) for (int z = 0; z < 2; z++)
+                v->setVoxel(x, 19, z, pri);             // blade
+            for (int x = 2; x < 5; x++) for (int z = 0; z < 2; z++)
+                v->setVoxel(x, 18, z, pri);             // a little depth
+            return v;
+        }
+        case WeaponType::Scythe: {
+            // 8x24x2 — a long snath (accent) with a curved blade (primary)
+            // sweeping down and out near the top.
+            VoxelVolume* v = new VoxelVolume(8, 24, 2);
+            for (int y = 0; y < 22; y++) for (int z = 0; z < 2; z++)
+                v->setVoxel(1, y, z, acc);              // snath
+            for (int x = 1; x < 8; x++) for (int z = 0; z < 2; z++) {
+                int by = 21 - (x - 1);                  // diagonal sweep
+                if (by >= 13) {
+                    v->setVoxel(x, by, z, pri);
+                    if (by - 1 >= 13) v->setVoxel(x, by - 1, z, pri);
+                }
+            }
+            return v;
+        }
         default: return nullptr;
     }
 }
@@ -210,6 +237,13 @@ static void setWeaponPose(CharacterNode* node, WeaponType type, bool offHand) {
             node->pivot    = glm::vec3(1, 2, 1);
             node->localPos = glm::vec3(0, -6, 0);
             node->localRot = glm::vec3(90, 0, offHand ? -10.0f : 10.0f);
+            break;
+        case WeaponType::Hoe:
+        case WeaponType::Scythe:
+            // Held like a tool, haft in the hand, head angled forward.
+            node->pivot    = glm::vec3(1, 2, 1);
+            node->localPos = glm::vec3(0, -6, 0);
+            node->localRot = glm::vec3(80, 0, 0);
             break;
         default: break;
     }

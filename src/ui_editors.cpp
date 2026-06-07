@@ -190,7 +190,7 @@ void renderCharacterEditorUI(AppContext& ctx, GLFWwindow* window, Renderer& rend
 static std::vector<BlockType> makeHouseBuildBlocks() {
     std::vector<BlockType> v = {
         BlockType::Wood, BlockType::Stone, BlockType::Glass,
-        BlockType::Glowstone, BlockType::Leaves,
+        BlockType::Glowstone, BlockType::Lantern, BlockType::Leaves,
     };
     for (int i = 0; i < PAINT_COUNT; i++)
         v.push_back((BlockType)((int)BlockType::PaintFirst + i));
@@ -198,7 +198,7 @@ static std::vector<BlockType> makeHouseBuildBlocks() {
 }
 static const std::vector<BlockType> kHouseBuildBlocks = makeHouseBuildBlocks();
 static const char* kHouseBuildBlockLabels =
-    "Wood\0Stone\0Glass\0Glowstone\0Leaves\0"
+    "Wood\0Stone\0Glass\0Glowstone\0Lantern\0Leaves\0"
     "White\0Cream\0Light Gray\0Slate Gray\0Charcoal\0Black\0"
     "Terracotta\0Brick Red\0Crimson\0Rust Orange\0Amber\0Mustard\0"
     "Chestnut\0Sand\0Olive\0Sage\0Forest Green\0Mint\0"

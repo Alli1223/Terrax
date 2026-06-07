@@ -356,7 +356,7 @@ public:
     // Spawn server-side loot for an enemy killed by `attackerId` at `pos`.
     // Rolls items using the attacker's level (or fallback 1), records each
     // entry in `activeLoot`, and broadcasts a LootSpawnPacket per drop.
-    void spawnLootForKill(uint32_t attackerId, const glm::vec3& pos);
+    void spawnLootForKill(uint32_t attackerId, const glm::vec3& pos, bool legendary = false);
 
     // Try to honour a client's pickup request. If the drop still exists
     // and the requester is within range, removes it and broadcasts

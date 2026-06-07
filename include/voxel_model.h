@@ -101,7 +101,7 @@ public:
 //
 // Adding a new unique animation = one `case` in `applyClipPose`. No
 // changes needed to `update()` or to call sites that play it.
-enum class ClipKind { Wave, Cheer, Crouch };
+enum class ClipKind { Wave, Cheer, Crouch, Hoe };
 
 struct AnimationClip {
     ClipKind kind     = ClipKind::Wave;

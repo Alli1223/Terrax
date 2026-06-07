@@ -6,6 +6,7 @@
 #include "world.h"
 #include "world_internal.h"
 #include "town.h"
+#include "dungeon.h"
 #include "noise.h"
 #include <cstring>
 #include <cmath>
@@ -759,6 +760,7 @@ void generateChunk(Chunk* c) {
 
     // Pass 5: stamp procedural town / village features that fall in this chunk.
     stampTownChunk(c);
+    stampDungeonChunk(c);
 
     c->computeLight();
     c->state = ChunkState::Generated;

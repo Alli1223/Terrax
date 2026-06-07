@@ -234,6 +234,8 @@ std::unique_ptr<WeaponItem> createWeaponItem(std::string name, WeaponType type,
         case WeaponType::Shield:
         case WeaponType::Bow:
         case WeaponType::Axe:
+        case WeaponType::Hoe:
+        case WeaponType::Scythe:
             w = std::make_unique<WeaponItem>(std::move(name), type);
             break;
         default:
@@ -274,6 +276,8 @@ const char* weaponTypeName(WeaponType t) {
         case WeaponType::Bow:    return "Bow";
         case WeaponType::Staff:  return "Staff";
         case WeaponType::Axe:    return "Axe";
+        case WeaponType::Hoe:    return "Hoe";
+        case WeaponType::Scythe: return "Scythe";
         default:                 return "";
     }
 }

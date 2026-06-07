@@ -2,6 +2,7 @@
 // the specialist buildings (pub, smith, mage tower, stable, chapel, ...). Split
 // out of town.cpp; layoutTown is the entry point. See town_internal.h.
 #include "town_internal.h"
+#include "building_farm.h"
 #include "voxel_model.h"
 #include <algorithm>
 #include <cmath>
@@ -40,8 +41,14 @@ bool tryPlaceHouse(Town& t, std::mt19937& rng, int px, int pz, int faceX, int fa
 }
 
 bool tryPlaceFarm(Town& t, std::mt19937& rng, int px, int pz) {
+    // A large fenced field, oriented so its gate faces the town centre.
+    int q       = doorQuadrant(px, pz, t.center.x, t.center.y);
+    int side    = 20 + (int)(rng() % 9);          // 20..28 — much larger than before
+    uint32_t sd = worldSeed() ^ (uint32_t)(px * 73856093) ^ (uint32_t)(pz * 19349663);
+    FarmBuilding gen(side, side, /*standalone=*/false);
     TownBuilding b;
-    makeFarm(b, rng);
+    bakeBuilding(b, gen, q, sd);
+    if (b.dimX == 0) return false;
     b.wx = px - b.dimX / 2;
     b.wz = pz - b.dimZ / 2;
     for (const TownBuilding& o : t.buildings)
@@ -283,6 +290,119 @@ void layoutTown(Town& t) {
         t.bbMin.y = std::min(t.bbMin.y, b.wz);
         t.bbMax.x = std::max(t.bbMax.x, b.wx + b.dimX);
         t.bbMax.y = std::max(t.bbMax.y, b.wz + b.dimZ);
+    }
+}
+
+// --- Roadside structures -----------------------------------------------------
+// Scatters the occasional standalone structure along the inter-town highways —
+// a watchtower, a lone house, or a big farm — deterministically from the world
+// seed, set back from the lane and clear of any town and of one another. Baked
+// into TownPlan::roadside and stamped through the normal building path so they
+// stream in with their chunks. Pure-from-seed: server and clients agree without
+// any networking.
+static uint32_t roadsideHash(uint32_t a) {
+    a ^= a >> 16; a *= 0x7feb352du; a ^= a >> 15; a *= 0x846ca68bu; a ^= a >> 16;
+    return a;
+}
+
+void placeRoadsideStructures(TownPlan& plan, const std::vector<int16_t>& hgt) {
+    (void)hgt;                       // anchors are validated against the surface oracle directly
+    const int    STRIDE  = 40;       // a candidate roughly every 40 blocks of road
+    const int    SPACING = 120;      // minimum gap between two roadside structures
+    const size_t CAP     = 800;      // hard ceiling on the total
+    std::vector<glm::ivec2> placed;
+
+    auto nearTown = [&](int x, int z, int extra) {
+        for (const Town& t : plan.towns) {
+            long long dx = x - t.center.x, dz = z - t.center.y;
+            long long md = (long long)t.radius + extra;
+            if (dx * dx + dz * dz < md * md) return true;
+        }
+        return false;
+    };
+    auto tooClose = [&](int x, int z) {
+        for (const glm::ivec2& p : placed) {
+            long long dx = x - p.x, dz = z - p.y;
+            if (dx * dx + dz * dz < (long long)SPACING * SPACING) return true;
+        }
+        return false;
+    };
+
+    for (size_t ri = 0; ri < plan.highways.size() && plan.roadside.size() < CAP; ri++) {
+        const std::vector<glm::ivec2>& pts = plan.highways[ri].pts;
+        if (pts.size() < 2) continue;
+        float acc = 0.0f, nextAt = (float)STRIDE * 0.5f;
+        int   bucket = 0;
+        for (size_t i = 1; i < pts.size() && plan.roadside.size() < CAP; i++) {
+            glm::vec2 a((float)pts[i - 1].x, (float)pts[i - 1].y);
+            glm::vec2 b((float)pts[i].x,     (float)pts[i].y);
+            glm::vec2 d = b - a;
+            float seg = std::sqrt(d.x * d.x + d.y * d.y);
+            if (seg < 0.001f) { continue; }
+            glm::vec2 dir = d / seg;
+            while (nextAt <= acc + seg) {
+                glm::vec2 cp = a + dir * (nextAt - acc);
+                uint32_t hsh = roadsideHash(worldSeed()
+                                ^ (uint32_t)(ri * 2654435761u)
+                                ^ (uint32_t)(bucket * 40503u));
+                bucket++;
+                nextAt += (float)STRIDE;
+                if ((hsh % 100u) >= 7u) continue;            // ~7% of candidates
+
+                int cpx = (int)std::lround(cp.x), cpz = (int)std::lround(cp.y);
+                if (sampleSurface(cpx, cpz).height < WORLD_SEA_LEVEL + 3) continue;
+                if (nearTown(cpx, cpz, 50)) continue;
+                if (tooClose(cpx, cpz)) continue;
+
+                glm::vec2 perp(-dir.y, dir.x);
+                if ((hsh >> 7) & 1u) perp = -perp;           // which side of the road
+                int q = doorQuadrant(0, 0, (int)std::lround(-perp.x * 100.0f),
+                                          (int)std::lround(-perp.y * 100.0f));
+                uint32_t bseed = worldSeed()
+                                ^ (uint32_t)(cpx * 73856093)
+                                ^ (uint32_t)(cpz * 19349663);
+                uint32_t kindRoll = (hsh >> 16) % 100u;
+
+                TownBuilding bld;
+                if (kindRoll < 50) {
+                    int side = 26 + (int)((hsh >> 20) % 9u);  // 26..34 big farm
+                    FarmBuilding gen(side, side, /*standalone=*/true);
+                    bakeBuilding(bld, gen, q, bseed);
+                } else if (kindRoll < 80) {
+                    int floors = 4 + (int)((hsh >> 20) % 2u);  // 4..5 storeys
+                    WatchtowerBuilding gen(2, floors);
+                    bakeBuilding(bld, gen, q, bseed);
+                } else {
+                    int templ = (int)((hsh >> 20) % 6u);       // 0..5 basic houses
+                    int mat   = (int)((hsh >> 24) % 9u);
+                    HouseBuilding gen(templ, 1, mat);
+                    bakeBuilding(bld, gen, q, bseed);
+                }
+                if (bld.dimX <= 0 || bld.dimZ <= 0) continue;
+
+                int half = std::max(bld.dimX, bld.dimZ) / 2;
+                int off  = half + 8;                           // sit fully beside the road
+                int ax = (int)std::lround(cp.x + perp.x * off);
+                int az = (int)std::lround(cp.y + perp.y * off);
+
+                if (sampleSurface(ax, az).height < WORLD_SEA_LEVEL + 3) continue;
+                if (nearTown(ax, az, 60)) continue;
+                int h0 = sampleSurfaceSolid(ax, az), hmin = h0, hmax = h0;
+                const int probe[4][2] = { { half, 0 }, { -half, 0 }, { 0, half }, { 0, -half } };
+                for (auto& pr : probe) {
+                    int hh = sampleSurfaceSolid(ax + pr[0], az + pr[1]);
+                    hmin = std::min(hmin, hh); hmax = std::max(hmax, hh);
+                }
+                if (hmax - hmin > 7) continue;                 // too steep/rough
+
+                bld.wx = ax - bld.dimX / 2;
+                bld.wz = az - bld.dimZ / 2;
+                bld.baseY = h0;
+                plan.roadside.push_back(std::move(bld));
+                placed.push_back(glm::ivec2(cpx, cpz));
+            }
+            acc += seg;
+        }
     }
 }
 

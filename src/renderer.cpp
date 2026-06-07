@@ -8,6 +8,7 @@
 #include "prop_placement.h"
 #include "projectile.h"   // for collectProjectileLights / MagicBoltProjectile
 #include "npc.h"          // for NPC + getRig() in collectLanternLights
+#include "dungeon.h"      // dungeon point lights (small, dynamic — no glowing voxels)
 #include <glm/gtc/matrix_transform.hpp>
 #include <cmath>
 #include <vector>
@@ -185,6 +186,26 @@ static void collectLanternLights(const AppContext& ctx, float flicker, LanternLi
                              0.75f * perLightFlicker(t, lp.x, lp.z) * nightFactor,
                              28.0f, d2, LANTERN_DEFAULT_COLOR });
         }
+    // Dungeon lights — SMALL dynamic point lights (dungeons place no glowing
+    // voxels). Always on (it's dark underground). Only the dungeon near the
+    // player matters; cull by distance and let the nearest-first cap trim it.
+    {
+        const float DR = 60.0f, DR2 = DR * DR;
+        for (const auto& dptr : getDungeonPlan().dungeons) {
+            const Dungeon& dg = *dptr;
+            float adx = (float)dg.anchor.x - cam.x, adz = (float)dg.anchor.y - cam.z;
+            float reach = 0.5f * (float)std::max(dg.bbMax.x - dg.bbMin.x, dg.bbMax.y - dg.bbMin.y) + DR;
+            if (adx * adx + adz * adz > reach * reach) continue;
+            for (const DungeonLight& L : dg.lights) {
+                float dx = L.pos.x - cam.x, dy = L.pos.y - cam.y, dz = L.pos.z - cam.z;
+                if (dx*dx + dy*dy + dz*dz > DR2) continue;
+                float fl        = perLightFlicker(t, L.pos.x, L.pos.z);
+                float intensity = (L.kind == 2 ? 0.95f : L.kind == 1 ? 0.60f : 0.52f) * fl;
+                float radius    = (L.kind == 2 ? 22.0f : 11.0f);   // small, soft pools (beacons a bit wider)
+                cand.push_back({ L.pos, intensity, radius, dx*dx + dz*dz, POOL_COLOR });
+            }
+        }
+    }
     std::sort(cand.begin(), cand.end(),
               [](const Cand& a, const Cand& b) { return a.d2 < b.d2; });
     for (const Cand& c : cand) {

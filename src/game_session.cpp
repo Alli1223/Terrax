@@ -2,6 +2,7 @@
 #include "game_types.h"
 #include "network.h"
 #include "world.h"
+#include "town.h"
 #include "vehicle.h"
 #include "ferry_routes.h"
 #include "npc.h"
@@ -30,18 +31,11 @@ static void serverThreadMain(unsigned short port) {
     serverWorld.renderDistance = g_serverRenderDistance.load();
     serverWorld.generate(0, 0);
 
-    // Server-authoritative ferries — one per wide highway water crossing.
+    // Server-authoritative ferries — one per wide highway water crossing. The
+    // route list grows when the world finishes streaming in (spawn region -> full
+    // world), so the ferry fleet is reconciled in the tick loop, not just here.
     std::vector<std::unique_ptr<Ferry>> ferries;
-    {
-        const std::vector<FerryRoute>& routes = getFerryRoutes();
-        uint32_t fid = 1000000u;   // entity id space, disjoint from client ids
-        for (int i = 0; i < (int)routes.size(); i++) {
-            auto f = std::make_unique<Ferry>();
-            f->id         = fid++;
-            f->routeIndex = i;
-            ferries.push_back(std::move(f));
-        }
-    }
+    int ferryPlanVer = -1;
 
     // Server-authoritative NPCs — villagers streamed in and out by proximity.
     NpcDirector npcDirector;
@@ -74,6 +68,21 @@ static void serverThreadMain(unsigned short port) {
                 serverWorld.update(pcx, pcz);
             }
             g_server->update(serverWorld);
+
+            // Reconcile the ferry fleet whenever the plan grows (spawn region ->
+            // full world adds more crossings). Rare — fires at most twice.
+            if (townPlanVersion() != ferryPlanVer) {
+                ferryPlanVer = townPlanVersion();
+                const std::vector<FerryRoute>& routes = getFerryRoutes();
+                ferries.clear();
+                uint32_t fid = 1000000u;   // entity id space, disjoint from client ids
+                for (int i = 0; i < (int)routes.size(); i++) {
+                    auto f = std::make_unique<Ferry>();
+                    f->id         = fid++;
+                    f->routeIndex = i;
+                    ferries.push_back(std::move(f));
+                }
+            }
 
             for (auto& f : ferries) {
                 f->serverStep(SERVER_TICK_DT);

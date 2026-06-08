@@ -367,7 +367,8 @@ static DungeonPlan buildDungeonPlan() {
             int surf = sampleSurfaceSolid(ax, az);
             if (surf < WORLD_SEA_LEVEL + 3) continue;            // dry land only
             bool nearTown = false;
-            for (const Town& t : towns.towns) {
+            for (const auto& tp : towns.towns) {
+                const Town& t = *tp;
                 long long dx = ax - t.center.x, dz = az - t.center.y;
                 long long md = (long long)t.radius + 120;        // well clear of any town
                 if (dx * dx + dz * dz < md * md) { nearTown = true; break; }
@@ -402,11 +403,17 @@ static DungeonPlan buildDungeonPlan() {
     return plan;
 }
 
+// Rebuilt when the town plan grows: dungeons keep clear of towns, so the full
+// world's extra settlements suppress the spurious dungeons the spawn-region plan
+// would otherwise scatter where towns will later stand. (Those far dungeons are
+// never stamped anyway — their chunks are gated until the full plan arrives.)
 const DungeonPlan& getDungeonPlan() {
-    static DungeonPlan plan;
-    static std::once_flag once;
-    std::call_once(once, [] { plan = buildDungeonPlan(); });
-    return plan;
+    static std::atomic<int> builtVer{-1};
+    static std::mutex mtx;
+    static std::vector<std::shared_ptr<DungeonPlan>> kept;
+    static std::atomic<const DungeonPlan*> cur{nullptr};
+    return rebuildOnPlanChange<DungeonPlan>(builtVer, mtx, kept, cur,
+        [](DungeonPlan& out) { out = buildDungeonPlan(); });
 }
 
 // --- Chunk stamping ----------------------------------------------------------

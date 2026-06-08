@@ -68,11 +68,12 @@ int townSlopeOffset(const Town& t, int wx, int wz) {
 //     lines, but each door still meets the path at exactly the door's level
 //     because the immediate building neighbourhood is held flat.
 int townFlatLevelAt(int wx, int wz) {
-    if (!g_townReady.load(std::memory_order_acquire)) return -1;
+    if (g_surveying || !g_townReady.load(std::memory_order_acquire)) return -1;
     const TownPlan& plan = getTownPlan();
     const Town* bestT = nullptr;
     float bestD2 = 1e30f;
-    for (const Town& t : plan.towns) {
+    for (const auto& tp : plan.towns) {
+        const Town& t = *tp;
         float dx = (float)(wx - t.center.x);
         float dz = (float)(wz - t.center.y);
         float d2 = dx * dx + dz * dz;
@@ -104,10 +105,11 @@ int townFlatLevelAt(int wx, int wz) {
 // settlements sit on relatively flat ground. A no-op until the plan is ready,
 // which keeps the survey working on the natural, unflattened terrain.
 float townFlattenedHeight(float wx, float wz, float rawHeight) {
-    if (!g_townReady.load(std::memory_order_acquire)) return rawHeight;
+    if (g_surveying || !g_townReady.load(std::memory_order_acquire)) return rawHeight;
     const TownPlan& plan = getTownPlan();
     float h = rawHeight;
-    for (const Town& t : plan.towns) {
+    for (const auto& tp : plan.towns) {
+        const Town& t = *tp;
         float dx = wx - (float)t.center.x;
         float dz = wz - (float)t.center.y;
         // Match the noisy boundary the chunk generator uses for its hard

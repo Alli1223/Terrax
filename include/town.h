@@ -3,6 +3,8 @@
 #include <vector>
 #include <string>
 #include <atomic>
+#include <memory>
+#include <mutex>
 #include <glm/glm.hpp>
 #include "building.h"
 
@@ -88,17 +90,74 @@ struct Town {
     std::vector<glm::ivec2>   lampPosts;   // street-light positions (world XZ)
 };
 
-struct TownPlan {
-    std::vector<Town>      towns;
-    std::vector<TownRoad>  highways;       // terrain-following roads between settlements
-    std::vector<TownDock>  docks;          // jetties where highways meet the sea
-    std::vector<TownBridge> bridges;       // raised spans over gullies and rivers
-    std::vector<TownFerryLink> ferryLinks; // wide crossings served by a ferry
-    std::vector<TownBuilding>  roadside;   // standalone structures scattered along highways
+// Mutable construction form of the plan. Towns are held by value so the survey,
+// layout and road-routing passes build and mutate them in place. Converted into
+// a TownPlan (towns shared by pointer) once construction finishes — see
+// publishPlan() in town.cpp.
+struct TownPlanBuild {
+    std::vector<Town>          towns;
+    std::vector<TownRoad>      highways;
+    std::vector<TownDock>      docks;
+    std::vector<TownBridge>    bridges;
+    std::vector<TownFerryLink> ferryLinks;
+    std::vector<TownBuilding>  roadside;
 };
 
-// Lazily builds (once, thread-safe) and returns the global settlement plan.
+// Published, immutable settlement plan. `towns` holds shared_ptr<const Town> so a
+// growing plan (built ring-by-ring in a later phase) can publish a new snapshot
+// that shares the existing towns by pointer instead of deep-copying their baked
+// voxel data. The other vectors are light polylines/structs, copied by value.
+struct TownPlan {
+    std::vector<std::shared_ptr<const Town>> towns;
+    std::vector<TownRoad>      highways;       // terrain-following roads between settlements
+    std::vector<TownDock>      docks;          // jetties where highways meet the sea
+    std::vector<TownBridge>    bridges;        // raised spans over gullies and rivers
+    std::vector<TownFerryLink> ferryLinks;     // wide crossings served by a ferry
+    std::vector<TownBuilding>  roadside;       // standalone structures scattered along highways
+};
+
+// Lazily builds (once, thread-safe) the global settlement plan. getTownPlan()
+// returns the current published snapshot by reference; getTownPlanSnapshot()
+// returns a shared_ptr the caller can hold across a future plan swap (the plan
+// grows on a background thread in a later phase, so a held reference could
+// otherwise dangle).
 const TownPlan& getTownPlan();
+std::shared_ptr<const TownPlan> getTownPlanSnapshot();
+
+// Bumped each time a new (larger) plan is published — props/doors/ferries rebuild
+// when it changes. The spawn-region plan is version 1; the full world is version 2.
+int townPlanVersion();
+
+// World streaming coverage. The plan is built spawn-outward in the background;
+// a chunk must not be stamped until the settlements that can reach it exist.
+//   townPlanCoversWorld — non-blocking test (used to defer far chunk generation).
+//   ensureTownCoverage  — blocks the caller until (wx,wz)'s region is planned.
+bool townPlanCoversWorld(int wx, int wz);
+void ensureTownCoverage(int wx, int wz);
+
+// Rebuilds a town-plan-derived dataset (props, doors, ferries, dungeons) whenever
+// the plan grows (townPlanVersion changes). Every version is kept alive forever —
+// cheap, and it means a caller holding the returned reference never dangles when a
+// rebuild happens on another thread. `build(T&)` fills a fresh T from the current
+// getTownPlan(). The four static slots are supplied by the caller (function-local
+// statics) so each dataset gets its own. Thread-safe (double-checked under mtx).
+template <class T, class BuildFn>
+const T& rebuildOnPlanChange(std::atomic<int>& builtVer, std::mutex& mtx,
+                             std::vector<std::shared_ptr<T>>& kept,
+                             std::atomic<const T*>& cur, BuildFn build) {
+    int v = townPlanVersion();
+    if (builtVer.load(std::memory_order_acquire) != v) {
+        std::lock_guard<std::mutex> lk(mtx);
+        if (builtVer.load(std::memory_order_relaxed) != v) {
+            auto p = std::make_shared<T>();
+            build(*p);
+            kept.push_back(p);
+            cur.store(p.get(), std::memory_order_release);
+            builtVer.store(v, std::memory_order_release);
+        }
+    }
+    return *cur.load(std::memory_order_acquire);
+}
 
 // Chunk-generation pass: stamps any town features that fall inside this chunk.
 void stampTownChunk(Chunk* c);

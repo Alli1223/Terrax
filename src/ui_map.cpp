@@ -290,9 +290,11 @@ void renderMapUI(AppContext& ctx) {
         for (const TownRoad& road : plan.highways)
             drawRoad(road.pts, IM_COL32(170, 135, 75, 205), 2.5f);   // tan highways
         if (worldRadius < 500.0f)                                    // town paths only up close
-            for (const Town& t : plan.towns)
+            for (const auto& tp : plan.towns) {
+                const Town& t = *tp;
                 for (const TownRoad& p : t.paths)
                     drawRoad(p.pts, IM_COL32(150, 140, 120, 170), 1.5f);
+            }
         dl->PopClipRect();
     }
 
@@ -300,7 +302,8 @@ void renderMapUI(AppContext& ctx) {
     {
         const TownPlan& plan = getTownPlan();
         bool showNames = worldRadius < 1100.0f;   // hide labels when far zoomed out
-        for (const Town& t : plan.towns) {
+        for (const auto& tp : plan.towns) {
+            const Town& t = *tp;
             ImVec2 sp = worldToMap((float)t.center.x, (float)t.center.y);
             float  d2 = (sp.x - mc.x) * (sp.x - mc.x) + (sp.y - mc.y) * (sp.y - mc.y);
             if (d2 >= h * h) continue;

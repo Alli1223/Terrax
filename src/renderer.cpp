@@ -175,7 +175,8 @@ static void collectLanternLights(const AppContext& ctx, float flicker, LanternLi
     }
     // Town campfires glow after dark too.
     if (night)
-        for (const Town& t2 : getTownPlan().towns) {
+        for (const auto& t2p : getTownPlan().towns) {
+            const Town& t2 = *t2p;
             if (t2.centerpiece != TownCenter::Campfire) continue;
             glm::vec3 lp((float)t2.center.x + 0.5f, (float)t2.baseY + 2.5f,
                          (float)t2.center.y + 0.5f);

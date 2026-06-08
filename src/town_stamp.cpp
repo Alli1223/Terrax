@@ -595,7 +595,8 @@ void stampTownChunk(Chunk* c) {
 
     // Roads & paths first — buildings stamp over them, so a road never shows
     // inside a house and an inter-town highway becomes a town's through-street.
-    for (const Town& t : plan.towns) {
+    for (const auto& tp : plan.towns) {
+        const Town& t = *tp;
         if (t.bbMax.x <= ox - 4 || t.bbMin.x >= ox + CHUNK_SIZE + 4) continue;
         if (t.bbMax.y <= oz - 4 || t.bbMin.y >= oz + CHUNK_SIZE + 4) continue;
         for (const TownRoad& p : t.paths) stampRoad(c, p, 0);
@@ -621,7 +622,8 @@ void stampTownChunk(Chunk* c) {
     // Perimeter walls (large towns only) — stamped before buildings so a house
     // always takes precedence over a stray wall column. The wall ring sits well
     // outside the building bounding box, so it needs its own centre/radius cull.
-    for (const Town& t : plan.towns) {
+    for (const auto& tp : plan.towns) {
+        const Town& t = *tp;
         if (t.wallRadius <= 0) continue;
         int R = t.wallRadius + 2;
         if (t.center.x + R <= ox || t.center.x - R >= ox + CHUNK_SIZE) continue;
@@ -630,7 +632,8 @@ void stampTownChunk(Chunk* c) {
     }
 
     // Buildings.
-    for (const Town& t : plan.towns) {
+    for (const auto& tp : plan.towns) {
+        const Town& t = *tp;
         if (t.bbMax.x <= ox || t.bbMin.x >= ox + CHUNK_SIZE) continue;
         if (t.bbMax.y <= oz || t.bbMin.y >= oz + CHUNK_SIZE) continue;
         for (const TownBuilding& b : t.buildings) {

@@ -54,8 +54,10 @@ void FarmDirector::ensureRegistry() {
             }
         if (!f.tile.empty()) fields.push_back(std::move(f));
     };
-    for (const Town& t : plan.towns)
+    for (const auto& tp : plan.towns) {
+        const Town& t = *tp;
         for (const TownBuilding& b : t.buildings) addFarm(b);
+    }
     for (const TownBuilding& b : plan.roadside) addFarm(b);
 }
 

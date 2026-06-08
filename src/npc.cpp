@@ -324,7 +324,7 @@ void NpcDirector::update(float dt, const std::vector<DirectorPlayer>& players,
     for (auto& w : wantedTimer)
         if (w.second > 0.0f) w.second -= dt;
     for (int ti = 0; ti < (int)plan.towns.size(); ti++) {
-        const Town& t = plan.towns[ti];
+        const Town& t = *plan.towns[ti];
         float best2 = 1e18f;
         for (const DirectorPlayer& p : players) {
             float dx = p.pos.x - (float)t.center.x, dz = p.pos.z - (float)t.center.y;
@@ -560,7 +560,7 @@ void NpcDirector::despawnDungeon(size_t di) {
 }
 
 void NpcDirector::populateTown(int ti) {
-    const Town& t = getTownPlan().towns[ti];
+    const Town& t = *getTownPlan().towns[ti];
     TownNav& nav = navCache[ti];
     if (!nav.ready()) nav.build(t);
 
@@ -690,7 +690,7 @@ const std::vector<SeatSpot>& NpcDirector::townSeats(int ti) {
     if (it != seatCache.end()) return it->second;
 
     std::vector<SeatSpot> seats;
-    const Town& t = getTownPlan().towns[ti];
+    const Town& t = *getTownPlan().towns[ti];
     const float cx = (float)t.center.x, cz = (float)t.center.y;
     const float reach = (float)t.radius + 10.0f;
     const float reach2 = reach * reach;
@@ -813,7 +813,7 @@ void NpcDirector::stepVillager(NPC& n, float dt, World& world, float gameTime) {
                 n.idleTimer = 1.0f + frand01(rng) * 2.0f;
             return;
         }
-        const Town& t = getTownPlan().towns[n.townIndex];
+        const Town& t = *getTownPlan().towns[n.townIndex];
         glm::vec2 centre((float)t.center.x, (float)t.center.y);
 
         // By day, make use of the town: sit on a plaza bench, gather around the
@@ -919,7 +919,8 @@ const Camp& NpcDirector::evalCamp(int gx, int gz, uint64_t key) {
         bool ok = sampleSurface((int)cxw, (int)czw).height >= WORLD_SEA_LEVEL + 3;
         const TownPlan& plan = getTownPlan();
         if (ok)
-            for (const Town& t : plan.towns) {
+            for (const auto& tp : plan.towns) {
+                const Town& t = *tp;
                 float dx = cxw - (float)t.center.x, dz = czw - (float)t.center.y;
                 float clr = (float)t.radius + 90.0f;
                 if (dx * dx + dz * dz < clr * clr) { ok = false; break; }
@@ -1000,7 +1001,8 @@ void NpcDirector::updateCamps(const std::vector<DirectorPlayer>& players) {
 }
 
 bool NpcDirector::inAnyTown(glm::vec2 worldXZ) const {
-    for (const Town& t : getTownPlan().towns) {
+    for (const auto& tp : getTownPlan().towns) {
+        const Town& t = *tp;
         float dx = worldXZ.x - (float)t.center.x;
         float dz = worldXZ.y - (float)t.center.y;
         if (dx * dx + dz * dz < (float)t.radius * (float)t.radius) return true;
@@ -1129,7 +1131,8 @@ void NpcDirector::stepBandit(NPC& n, float dt, World& world,
         if (!n.raiding) {
             const Town* rt = nullptr;
             float rBest = RAID_RANGE * RAID_RANGE;
-            for (const Town& tt : getTownPlan().towns) {
+            for (const auto& ttp : getTownPlan().towns) {
+                const Town& tt = *ttp;
                 float dx = (float)tt.center.x - n.position.x;
                 float dz = (float)tt.center.y - n.position.z;
                 float d2 = dx * dx + dz * dz;
@@ -1340,7 +1343,7 @@ void NpcDirector::stepGuard(NPC& n, float dt, World& world,
         n.velocity = glm::vec3(0.0f);
         n.idleTimer -= dt;
         if (n.idleTimer > 0.0f) return;
-        const Town& t = getTownPlan().towns[n.townIndex];
+        const Town& t = *getTownPlan().towns[n.townIndex];
         glm::vec2 centre((float)t.center.x, (float)t.center.y);
         if (t.wallRadius > 0) {
             // March the next arc of the ring just inside the wall. a0 is the

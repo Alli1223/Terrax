@@ -84,7 +84,7 @@ void routeTownPaths(Town& t) {
 // Places (or reuses) a dock where a highway meets the water. `landW` is a route
 // point on land and `waterW` the next route point out over the water. Returns
 // the world-XZ block the jetty roots at.
-glm::ivec2 placeDock(TownPlan& plan, glm::ivec2 landW, glm::ivec2 waterW) {
+glm::ivec2 placeDock(TownPlanBuild& plan, glm::ivec2 landW, glm::ivec2 waterW) {
     int sx = (waterW.x > landW.x) - (waterW.x < landW.x);
     int sz = (waterW.y > landW.y) - (waterW.y < landW.y);
     if (sx != 0 && sz != 0) {                               // force a single cardinal axis
@@ -198,7 +198,7 @@ std::vector<glm::ivec2> routeTownExit(const Town& t, glm::ivec2 portalW) {
 // Turns a full highway route into stamped features: flat bridges over gullies
 // or rivers up to 200 blocks wide, gravel road on open ground, and a dock on
 // each shore where the route meets water (the water span is left clear).
-void emitHighwayRoute(TownPlan& plan, const std::vector<glm::ivec2>& route) {
+void emitHighwayRoute(TownPlanBuild& plan, const std::vector<glm::ivec2>& route) {
     const int SP = 4;
     std::vector<glm::ivec2> P = densifyPath(route, SP);
     const int n = (int)P.size();
@@ -298,7 +298,7 @@ void emitHighwayRoute(TownPlan& plan, const std::vector<glm::ivec2>& route) {
 // Routes a highway between every settlement and its two nearest neighbours.
 // Each link weaves out of its endpoint towns with a fine A* pass, then takes a
 // direct, terrain-following A* route across the coarse survey grid.
-void routeHighways(TownPlan& plan, const std::vector<int16_t>& hgt) {
+void routeHighways(TownPlanBuild& plan, const std::vector<int16_t>& hgt) {
     const int N = (int)plan.towns.size();
     if (N < 2) return;
 
@@ -421,7 +421,7 @@ void routeHighways(TownPlan& plan, const std::vector<int16_t>& hgt) {
 // Places street lights along the gravel paths between houses and along the
 // first stretch of each highway leaving town. Stored as world-XZ positions;
 // the prop streamer spawns a lantern-post Prop at each (prop_placement.cpp).
-void placeStreetLamps(TownPlan& plan) {
+void placeStreetLamps(TownPlanBuild& plan) {
     for (Town& t : plan.towns) {
         auto tooClose = [&](int wx, int wz) {
             for (const glm::ivec2& L : t.lampPosts)

@@ -57,10 +57,15 @@ struct WallStyleDef {
 constexpr int WALL_STYLE_COUNT = 4;
 extern const WallStyleDef WALL_STYLES[WALL_STYLE_COUNT];
 
-// Set true once buildTownPlan() has finished. While it is false the terrain
+// Set true once the first plan has been published. While it is false the terrain
 // oracle skips town flattening, so the survey itself works on the natural,
 // unflattened land (and there is no recursion back into the plan build).
 extern std::atomic<bool> g_townReady;
+
+// Per-thread: true on a survey worker so the terrain oracle returns natural,
+// un-flattened height while sampling sites — even after the spawn-region plan has
+// been published (see town.cpp). Keeps the background full survey on clean land.
+extern thread_local bool g_surveying;
 
 // --- Shared helpers (defined in town.cpp) ------------------------------------
 void        reportStage(int stage, float frac);
@@ -163,18 +168,18 @@ void layoutRings(Town& t, std::mt19937& rng, int numH, bool scattered,
                  const int* templ, int nT, const int* mats, int nM,
                  const int* roofs, int nR);
 void layoutTown(Town& t);
-void placeRoadsideStructures(TownPlan& plan, const std::vector<int16_t>& hgt);
+void placeRoadsideStructures(TownPlanBuild& plan, const std::vector<int16_t>& hgt);
 
 // --- Roads (town_roads.cpp) --------------------------------------------------
 void routeTownPaths(Town& t);
-void routeHighways(TownPlan& plan, const std::vector<int16_t>& hgt);
-void placeStreetLamps(TownPlan& plan);
+void routeHighways(TownPlanBuild& plan, const std::vector<int16_t>& hgt);
+void placeStreetLamps(TownPlanBuild& plan);
 
 // --- Terrain oracle (town_terrain.cpp) ---------------------------------------
 float townEffectiveFlatR(const Town& t, float dx, float dz);
 int   townSlopeOffset(const Town& t, int wx, int wz);
 
 // --- Plan (town.cpp) ---------------------------------------------------------
-TownPlan buildTownPlan();
+TownPlanBuild buildTownPlan(int maxRing);
 
 }  // namespace townint

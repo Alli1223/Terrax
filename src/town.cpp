@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <iostream>
 #include <mutex>
+#include <condition_variable>
 #include <queue>
 #include <random>
 #include <set>
@@ -42,10 +43,17 @@ int pickWallStyle(int houses, TownType type, uint32_t roll) {
     return (r < 55) ? 0 : 1;                                 // palisade or modest stone
 }
 
-// Set true once buildTownPlan() has finished. While it is false the terrain
+// Set true once the first plan has been published. While it is false the terrain
 // oracle skips town flattening, so the survey itself works on the natural,
 // unflattened land (and there is no recursion back into the plan build).
 std::atomic<bool> g_townReady{false};
+
+// Set on a survey worker thread while it samples where settlements may go, so the
+// terrain oracle returns NATURAL (un-flattened) height even after an earlier
+// (spawn-region) plan has been published and g_townReady is already true. Without
+// it the background full-world survey would sit on the spawn region's flattened
+// land and pick different sites than a clean full build would.
+thread_local bool g_surveying = false;
 
 void reportStage(int stage, float frac) {
     gTownBuildStage.store(stage,    std::memory_order_release);
@@ -92,47 +100,53 @@ std::string makeTownName(int wx, int wz, TownType type) {
 
 // --- Survey & plan -----------------------------------------------------------
 
-TownPlan buildTownPlan() {
+// Builds the settlement plan for the rings 0..maxRing around the spawn bucket
+// (maxRing >= the world's outer ring builds the whole world). A small maxRing is
+// the fast "spawn region only" build; a large one is the full background build.
+TownPlanBuild buildTownPlan(int maxRing) {
     auto t0 = std::chrono::steady_clock::now();
-    std::cout << "[Towns] Surveying region for settlement sites..." << std::endl;
-    TownPlan plan;
-    std::mt19937 rng(worldSeed() ^ 0x70776E21u);
+    TownPlanBuild plan;
 
     reportStage(0, 0.0f);                  // "Surveying terrain"
     const int n = GRID * GRID;
-    std::vector<int16_t> hgt(n);
-    std::vector<uint8_t> bio(n);
-    // Parallel surface sampling — each row is independent and the noise
-    // functions are read-only once seeded, so we can scale across cores. On
-    // typical hardware this drops the longest survey pass from seconds to a
-    // fraction of a second. Workers claim rows from a shared atomic counter
-    // so threads with cheaper rows steal work from the slower ones.
-    {
+    std::vector<int16_t> hgt(n, 0);
+    std::vector<uint8_t> bio(n, 0);
+    std::vector<uint8_t> surveyed(n, 0);   // 1 = this cell has been sampled
+
+    // Parallel surface sampling of any not-yet-sampled cells in a clamped cell
+    // rectangle. The build samples the world ring by ring outward from the spawn,
+    // and the `surveyed` mask means each cell is sampled exactly once across the
+    // whole build — so a regional build pays only for the region it touches, which
+    // is what later phases stream in around the player. Workers claim rows from a
+    // shared atomic counter, so cheaper rows steal work from slower ones.
+    auto surveyCellRange = [&](int cx0, int cz0, int cx1, int cz1) {
+        cx0 = std::max(0, cx0); cz0 = std::max(0, cz0);
+        cx1 = std::min(GRID - 1, cx1); cz1 = std::min(GRID - 1, cz1);
+        if (cx1 < cx0 || cz1 < cz0) return;
         const int nWorkers = std::max(1,
                                 (int)std::thread::hardware_concurrency() - 1);
-        std::atomic<int> nextRow{0};
-        std::atomic<int> doneRows{0};
+        std::atomic<int> nextRow{cz0};
         std::vector<std::thread> workers;
         workers.reserve(nWorkers);
         for (int w = 0; w < nWorkers; w++) {
-            workers.emplace_back([&]() {
+            workers.emplace_back([&, cx0, cx1, cz1]() {
+                g_surveying = true;   // this thread samples NATURAL terrain only
                 while (true) {
                     int gz = nextRow.fetch_add(1, std::memory_order_relaxed);
-                    if (gz >= GRID) break;
-                    for (int gx = 0; gx < GRID; gx++) {
+                    if (gz > cz1) break;
+                    for (int gx = cx0; gx <= cx1; gx++) {
+                        size_t idx = (size_t)gz * GRID + gx;
+                        if (surveyed[idx]) continue;
                         SurfaceSample s = sampleSurface(cellWorld(gx), cellWorld(gz));
-                        hgt[gz * GRID + gx] = (int16_t)s.height;
-                        bio[gz * GRID + gx] = (uint8_t)s.biome;
+                        hgt[idx] = (int16_t)s.height;
+                        bio[idx] = (uint8_t)s.biome;
+                        surveyed[idx] = 1;
                     }
-                    int done = doneRows.fetch_add(1, std::memory_order_relaxed) + 1;
-                    if ((done & 0xF) == 0)
-                        reportStage(0, (float)done / (float)GRID);
                 }
             });
         }
         for (auto& t : workers) t.join();
-    }
-    reportStage(0, 1.0f);
+    };
 
     auto at = [&](int gx, int gz) { return (int)hgt[gz * GRID + gx]; };
 
@@ -178,74 +192,149 @@ TownPlan buildTownPlan() {
 
     const int BCOUNT  = (REGION * 2) / BUCKET;
     const int CELLS_B = GRID / BCOUNT;
-    std::uniform_real_distribution<float> jitter(0.0f, 3.0f);
 
-    reportStage(1, 0.0f);                  // "Selecting town sites"
-    std::vector<Site> sites;
-    for (int bz = 0; bz < BCOUNT; bz++)
-        for (int bx = 0; bx < BCOUNT; bx++) {
-            Site best{}; best.ok = false; best.score = -1.0f;
+    // Per-cell flatness jitter — a deterministic function of the cell's absolute
+    // grid coordinates and the world seed, NOT a shared RNG stream consumed in
+    // survey order. So the winning cell in a bucket depends only on that bucket,
+    // never on how many other buckets were surveyed first — the key to a regional
+    // build reproducing the same settlements as a full-world build.
+    auto cellJitter = [](int gx, int gz) -> float {
+        uint32_t h = worldSeed() * 0x9E3779B1u
+                   ^ (uint32_t)gx  * 0x85EBCA77u
+                   ^ (uint32_t)gz  * 0xC2B2AE3Du;
+        h ^= h >> 15; h *= 0x27D4EB2Fu; h ^= h >> 13;
+        return (float)(h & 0xFFFFFFu) / (float)0x1000000u * 3.0f;   // [0,3)
+    };
+
+    // One candidate settlement per bucket: the highest-scoring (flattest, plus the
+    // per-cell jitter) eligible cell in that bucket, with scale/radius/wall rolled
+    // deterministically from the centre so the spacing pass can reason about it.
+    struct Cand {
+        int      wx, wz, baseY;
+        TownType type;
+        float    prio;                       // score + jitter — the spacing priority
+        int      targetHouses, radius, wallStyle;
+        bool     ok = false;
+    };
+    auto candHash = [](const Cand& c) -> uint32_t {
+        uint32_t h = (uint32_t)c.wx * 0x9E3779B1u ^ (uint32_t)c.wz * 0x85EBCA77u;
+        h ^= h >> 16; h *= 0x7FEB352Du; h ^= h >> 15; return h;
+    };
+    auto beats = [&](const Cand& a, const Cand& b) {
+        if (a.prio != b.prio) return a.prio > b.prio;
+        return candHash(a) > candHash(b);     // deterministic tie-break
+    };
+
+    // Lazy per-bucket candidate cache. ensureCand computes (once) a bucket's
+    // candidate from already-surveyed cells; callers survey the cells first.
+    std::vector<Cand>    bcand((size_t)BCOUNT * BCOUNT);
+    std::vector<uint8_t> bdone((size_t)BCOUNT * BCOUNT, 0);
+    auto ensureCand = [&](int bx, int bz) -> const Cand* {
+        if (bx < 0 || bx >= BCOUNT || bz < 0 || bz >= BCOUNT) return nullptr;
+        size_t bi = (size_t)bz * BCOUNT + bx;
+        if (!bdone[bi]) {
+            bdone[bi] = 1;
+            Site  best{}; best.ok = false;
+            float bestPrio = -1.0f;
             for (int cz = 0; cz < CELLS_B; cz++)
                 for (int cx = 0; cx < CELLS_B; cx++) {
-                    Site s = evalCell(bx * CELLS_B + cx, bz * CELLS_B + cz);
+                    int gx = bx * CELLS_B + cx, gz = bz * CELLS_B + cz;
+                    Site s = evalCell(gx, gz);
                     if (!s.ok) continue;
-                    float sc = s.score + jitter(rng);
-                    if (sc > best.score) { best = s; best.score = sc; }
+                    float p = s.score + cellJitter(gx, gz);
+                    if (p > bestPrio) { best = s; bestPrio = p; }
                 }
-            if (best.ok) sites.push_back(best);
+            Cand& c = bcand[bi];
+            if (best.ok) {
+                c.ok = true;
+                c.wx = cellWorld(best.gx); c.wz = cellWorld(best.gz);
+                c.baseY = best.baseY; c.type = best.type; c.prio = bestPrio;
+                std::mt19937 srng(worldSeed()
+                                  ^ (uint32_t)(c.wx * 374761393)
+                                  ^ (uint32_t)(c.wz * 668265263));
+                float u = (float)(srng() & 0xFFFFFFu) / (float)0x1000000u;   // [0,1)
+                c.targetHouses = 5 + (int)(95.0f * u * u * u + 0.5f);        // 5..100
+                c.radius       = 24 + (int)(14.0f * std::sqrt((float)c.targetHouses));
+                c.wallStyle    = pickWallStyle(c.targetHouses, c.type, srng());
+            }
         }
+        return bcand[bi].ok ? &bcand[bi] : nullptr;
+    };
 
-    std::sort(sites.begin(), sites.end(),
-              [](const Site& a, const Site& b) { return a.score > b.score; });
-    for (const Site& s : sites) {
-        int wx = cellWorld(s.gx), wz = cellWorld(s.gz);
+    // A bucket's candidate is kept iff no higher-priority candidate lies within
+    // their combined footprint (radius-aware, 360-block floor) — checked only
+    // against the 3x3 bucket neighbourhood, the only buckets whose centres can
+    // fall within spacing (BUCKET=2800 >> max spacing ~500). Two kept towns can
+    // never be mutually within spacing, so this is overlap-free AND independent of
+    // which region built the bucket: a regional build accepts exactly the towns a
+    // full build would for any bucket clear of the surveyed region's very edge.
+    auto accepted = [&](int bx, int bz) -> const Cand* {
+        const Cand* c = ensureCand(bx, bz);
+        if (!c) return nullptr;
+        for (int dz = -1; dz <= 1; dz++)
+            for (int dx = -1; dx <= 1; dx++) {
+                if (dx == 0 && dz == 0) continue;
+                const Cand* d = ensureCand(bx + dx, bz + dz);
+                if (!d || !beats(*d, *c)) continue;
+                long long ddx = c->wx - d->wx, ddz = c->wz - d->wz;
+                long long minD  = (long long)(c->radius + d->radius) + 170;
+                long long minSq = std::max(360LL * 360LL, minD * minD);
+                if (ddx * ddx + ddz * ddz < minSq) return nullptr;
+            }
+        return c;
+    };
 
-        // Roll this settlement's scale up front so the spacing check can scale
-        // with it. A cubic bias on a uniform roll yields mostly hamlets and
-        // villages with the occasional large town or sprawling city — a wide
-        // spread from ~5 houses up to ~100. Deterministic per site so the plan
-        // is stable for a given world.
-        std::mt19937 srng(worldSeed()
-                          ^ (uint32_t)(wx * 374761393)
-                          ^ (uint32_t)(wz * 668265263));
-        float u = (float)(srng() & 0xFFFFFFu) / (float)0x1000000u;   // [0,1)
-        int   targetHouses = 5 + (int)(95.0f * u * u * u + 0.5f);    // 5..100
-        // Houses fill concentric rings over a disc, so capacity grows with the
-        // square of the radius — hence radius ~ sqrt(houses), plus a floor so
-        // even the smallest hamlet has elbow room.
-        int   radius = 24 + (int)(14.0f * std::sqrt((float)targetHouses));   // a touch more spread
+    // Spawn bucket: the bucket containing the world origin. Rings expand outward
+    // from here by Chebyshev bucket distance, so spawn-area settlements are laid
+    // out first and a town's index is fixed the moment its ring is appended — which
+    // keeps index-based references (e.g. NPC townIndex) stable as the plan grows.
+    int g0 = worldToCell(0);
+    const int b0x = g0 / CELLS_B, b0z = g0 / CELLS_B;
+    auto morton = [](uint32_t x, uint32_t z) -> uint32_t {
+        uint32_t m = 0;
+        for (int i = 0; i < 11; i++) { m |= ((x >> i) & 1u) << (2 * i);
+                                       m |= ((z >> i) & 1u) << (2 * i + 1); }
+        return m;
+    };
+    int maxR = std::max(std::max(b0x, BCOUNT - 1 - b0x),
+                        std::max(b0z, BCOUNT - 1 - b0z));
+    int hiR  = std::min(maxR, std::max(0, maxRing));   // outermost ring this build covers
 
-        // Radius-aware spacing: keep one town's hard-flattened footprint
-        // (~radius + 80 at its noisy lobes) clear of the next, with the old
-        // 360-block minimum as a floor so clusters of hamlets still breathe.
-        bool ok = true;
-        for (const Town& t : plan.towns) {
-            long long dx = wx - t.center.x, dz = wz - t.center.y;
-            long long minD  = (long long)(radius + t.radius) + 170;
-            long long minSq = std::max(360LL * 360LL, minD * minD);
-            if (dx * dx + dz * dz < minSq) { ok = false; break; }
+    reportStage(1, 0.0f);                  // "Selecting town sites"
+    for (int R = 0; R <= hiR; R++) {
+        // Survey this ring's footprint plus one bucket of apron (so edge buckets
+        // see their true neighbours for the spacing test). Incremental: the mask
+        // skips everything earlier rings already sampled.
+        int K = R + 1;
+        surveyCellRange((b0x - K) * CELLS_B - 2, (b0z - K) * CELLS_B - 2,
+                        (b0x + K + 1) * CELLS_B + 1, (b0z + K + 1) * CELLS_B + 1);
+
+        std::vector<std::pair<uint32_t, Cand>> ring;     // (morton key, candidate)
+        for (int bz = std::max(0, b0z - R); bz <= std::min(BCOUNT - 1, b0z + R); bz++)
+            for (int bx = std::max(0, b0x - R); bx <= std::min(BCOUNT - 1, b0x + R); bx++) {
+                if (std::max(std::abs(bx - b0x), std::abs(bz - b0z)) != R) continue;
+                const Cand* c = accepted(bx, bz);
+                if (c) ring.push_back({ morton((uint32_t)bx, (uint32_t)bz), *c });
+            }
+        std::sort(ring.begin(), ring.end(),
+                  [](const std::pair<uint32_t, Cand>& a,
+                     const std::pair<uint32_t, Cand>& b) { return a.first < b.first; });
+        for (const auto& pr : ring) {
+            const Cand& c = pr.second;
+            Town t;
+            t.center       = { c.wx, c.wz };
+            t.baseY        = c.baseY;
+            t.type         = c.type;
+            t.name         = makeTownName(c.wx, c.wz, c.type);
+            t.targetHouses = c.targetHouses;
+            t.radius       = c.radius;
+            t.wallRadius   = (c.targetHouses >= 20) ? c.radius + 30 : 0;
+            t.wallStyle    = c.wallStyle;
+            t.size         = (c.targetHouses >= 16) ? TownSize::Town : TownSize::Village;
+            t.plazaR       = std::min(40, 11 + c.targetHouses / 3);
+            plan.towns.push_back(std::move(t));
         }
-        if (!ok) continue;
-
-        Town t;
-        t.center       = { wx, wz };
-        t.baseY        = s.baseY;
-        t.type         = s.type;
-        t.name         = makeTownName(wx, wz, t.type);
-        t.targetHouses = targetHouses;
-        t.radius       = radius;
-        // Larger settlements (20+ houses) are ringed by a defensive wall just
-        // outside the outermost houses; villages stay open. The style (wooden
-        // palisade, stone wall, great rampart, sandstone) varies by size/type.
-        t.wallRadius   = (targetHouses >= 20) ? radius + 30 : 0;
-        t.wallStyle    = pickWallStyle(targetHouses, s.type, srng());
-        // The coarse Village/Town flag still drives guard counts and building
-        // template bias elsewhere; anything sizeable counts as a Town.
-        t.size         = (targetHouses >= 16) ? TownSize::Town : TownSize::Village;
-        // A central paved square, much larger for bigger towns. Houses ring it
-        // from just outside, so the centre stays open and the town spreads out.
-        t.plazaR       = std::min(40, 11 + targetHouses / 3);
-        plan.towns.push_back(std::move(t));
+        reportStage(1, (float)(R + 1) / (float)(hiR + 1));
     }
 
     // Lay out every settlement (well + houses + farms) and route its paths.
@@ -274,7 +363,9 @@ TownPlan buildTownPlan() {
     int nc = 0, nm = 0, ng = 0;
     for (const Town& t : plan.towns)
         (t.type == TownType::Coastal ? nc : t.type == TownType::Mountain ? nm : ng)++;
-    std::cout << "[Towns] Placed " << plan.towns.size() << " settlements ("
+    const char* scope = (hiR >= maxR) ? "full world  " : "spawn region";
+    std::cout << "[Towns] " << scope << " (rings 0.." << hiR << "): "
+              << plan.towns.size() << " settlements ("
               << nc << " coastal, " << nm << " mountain, " << ng << " grassland), "
               << totalBuildings << " buildings, "
               << plan.highways.size() << " highways, "
@@ -283,7 +374,7 @@ TownPlan buildTownPlan() {
               << plan.roadside.size() << " roadside." << std::endl;
     double planMs = std::chrono::duration<double, std::milli>(
                         std::chrono::steady_clock::now() - t0).count();
-    std::cout << "[Towns] Plan built in " << (int)planMs << " ms." << std::endl;
+    std::cout << "[Towns] " << scope << " built in " << (int)planMs << " ms." << std::endl;
     return plan;
 }
 
@@ -306,13 +397,124 @@ const char* const  kTownBuildStageNames[] = {
 const int          kTownBuildStageCount =
     (int)(sizeof(kTownBuildStageNames) / sizeof(kTownBuildStageNames[0]));
 
-const TownPlan& getTownPlan() {
-    static TownPlan      plan;
-    static std::once_flag once;
-    std::call_once(once, [] {
-        plan = buildTownPlan();
-        g_townReady.store(true, std::memory_order_release);
-    });
+// Freeze a freshly-built TownPlanBuild into an immutable, shared TownPlan: each
+// Town is moved behind a shared_ptr<const Town> (so a later growing snapshot can
+// re-publish while sharing these towns by pointer), and the lighter vectors are
+// moved across wholesale.
+static std::shared_ptr<const TownPlan> publishPlan(TownPlanBuild&& b) {
+    auto plan = std::make_shared<TownPlan>();
+    plan->towns.reserve(b.towns.size());
+    for (Town& t : b.towns)
+        plan->towns.push_back(std::make_shared<const Town>(std::move(t)));
+    plan->highways   = std::move(b.highways);
+    plan->docks      = std::move(b.docks);
+    plan->bridges    = std::move(b.bridges);
+    plan->ferryLinks = std::move(b.ferryLinks);
+    plan->roadside   = std::move(b.roadside);
     return plan;
+}
+
+// ---- Staged, growing publication --------------------------------------------
+// The plan is published in two stages so the player can enter the world fast:
+//   1. a small spawn region (rings 0..RING0) built synchronously on first access;
+//   2. the rest of the world, built on a background thread, which republishes a
+//      full plan and marks the whole world covered.
+// Town ordering is spawn-outward, so the full plan's spawn-area towns keep the
+// SAME indices as stage 1 (index-stable, e.g. for NPC townIndex references).
+//
+// Every published plan is kept alive forever in g_allPlans. That is cheap — towns
+// are shared by shared_ptr<const Town>, so only the light container vectors are
+// duplicated — and it lets a reader holding a `const TownPlan&` from getTownPlan()
+// keep using it safely even after a newer plan is swapped in.
+static constexpr int RING0         = 3;          // spawn region radius, in buckets
+static constexpr int TOWN_RING_ALL = 1 << 28;    // "the whole world is covered"
+
+static std::once_flag                               g_planOnce;
+static std::mutex                                   g_planMutex;
+static std::vector<std::shared_ptr<const TownPlan>> g_allPlans;     // kept alive forever
+static std::shared_ptr<const TownPlan>              g_planPtr;
+static std::atomic<const TownPlan*>                 g_planRaw{nullptr};
+static std::atomic<int>                             g_planVersion{0};
+
+static std::mutex              g_coverMutex;
+static std::condition_variable g_coverCv;
+static std::atomic<int>        g_coveredRing{-1};   // highest ring published; -1 = none yet
+
+// World XZ -> Chebyshev bucket distance from the spawn bucket (the origin bucket).
+static int townBucketRing(int wx, int wz) {
+    const int BCOUNT  = (REGION * 2) / BUCKET;
+    const int CELLS_B = GRID / BCOUNT;
+    int bx = worldToCell(wx) / CELLS_B, bz = worldToCell(wz) / CELLS_B;
+    int b0 = worldToCell(0) / CELLS_B;
+    return std::max(std::abs(bx - b0), std::abs(bz - b0));
+}
+
+static void publishStaged(TownPlanBuild&& b, int coveredRing) {
+    std::shared_ptr<const TownPlan> p = publishPlan(std::move(b));
+    {
+        std::lock_guard<std::mutex> lk(g_planMutex);
+        g_allPlans.push_back(p);                 // never freed -> raw refs stay valid
+        g_planPtr = p;
+        g_planRaw.store(p.get(), std::memory_order_release);
+    }
+    g_planVersion.fetch_add(1, std::memory_order_acq_rel);
+    // Flip readiness only after the first plan is published, so the terrain oracle
+    // (which short-circuits while this is false) sees natural land during the
+    // survey and never recurses back into the build.
+    g_townReady.store(true, std::memory_order_release);
+    {
+        std::lock_guard<std::mutex> lk(g_coverMutex);
+        if (coveredRing > g_coveredRing.load(std::memory_order_relaxed))
+            g_coveredRing.store(coveredRing, std::memory_order_release);
+    }
+    g_coverCv.notify_all();
+}
+
+static void ensureTownPlan() {
+    std::call_once(g_planOnce, [] {
+        // Stage 1 — the spawn region only: a small survey + a handful of towns, so
+        // the loading screen finishes in well under a second instead of ~12 s.
+        publishStaged(buildTownPlan(RING0), RING0);
+        // Stage 2 — the rest of the world, on a background thread. It republishes a
+        // full, prefix-stable plan and marks the whole world covered. Detached: it
+        // touches only this file's state and finishes long before a normal exit.
+        std::thread([] {
+            TownPlanBuild full = buildTownPlan(TOWN_RING_ALL);
+            publishStaged(std::move(full), TOWN_RING_ALL);
+        }).detach();
+    });
+}
+
+const TownPlan& getTownPlan() {
+    ensureTownPlan();
+    return *g_planRaw.load(std::memory_order_acquire);
+}
+
+std::shared_ptr<const TownPlan> getTownPlanSnapshot() {
+    ensureTownPlan();
+    std::lock_guard<std::mutex> lk(g_planMutex);
+    return g_planPtr;
+}
+
+int townPlanVersion() {
+    ensureTownPlan();   // so callers never observe version 0 (then rebuild needlessly)
+    return g_planVersion.load(std::memory_order_acquire);
+}
+
+bool townPlanCoversWorld(int wx, int wz) {
+    return townBucketRing(wx, wz) <= g_coveredRing.load(std::memory_order_acquire);
+}
+
+// Blocks the calling (chunk-worker) thread until the published plan covers the
+// settlement region around (wx,wz). The spawn region is covered synchronously, so
+// this only ever waits for far chunks reached before the background fill arrives.
+void ensureTownCoverage(int wx, int wz) {
+    ensureTownPlan();
+    int need = townBucketRing(wx, wz);
+    if (g_coveredRing.load(std::memory_order_acquire) >= need) return;
+    std::unique_lock<std::mutex> lk(g_coverMutex);
+    g_coverCv.wait(lk, [need] {
+        return g_coveredRing.load(std::memory_order_acquire) >= need;
+    });
 }
 

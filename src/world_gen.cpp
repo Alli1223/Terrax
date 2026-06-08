@@ -512,9 +512,12 @@ void generateChunk(Chunk* c) {
     const int ox = c->pos.x * CHUNK_SIZE;
     const int oz = c->pos.z * CHUNK_SIZE;
 
-    // Build the town plan before Pass 0 so the terrain oracle flattens the land
-    // under settlements while the chunk's heightmap is computed.
-    getTownPlan();
+    // The plan is built spawn-outward in the background. Before stamping this
+    // chunk, make sure every settlement that could reach it already exists in the
+    // plan — otherwise this chunk (stamped exactly once, never again) would miss a
+    // town or road that is added later. The spawn region is covered synchronously,
+    // so this only ever waits for chunks reached before the background fill does.
+    ensureTownCoverage(ox + CHUNK_SIZE / 2, oz + CHUNK_SIZE / 2);
 
     // Pass 0: per-column biome weights → blended surface height + dominant biome
     float surfH_f[CHUNK_SIZE][CHUNK_SIZE];

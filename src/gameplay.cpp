@@ -89,7 +89,8 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
             const TownPlan& plan = getTownPlan();
             const Town* best = nullptr;
             long long bestD = -1;
-            for (const Town& t : plan.towns) {
+            for (const auto& tp : plan.towns) {
+                const Town& t = *tp;
                 long long d = (long long)t.center.x * t.center.x
                             + (long long)t.center.y * t.center.y;
                 if (bestD < 0 || d < bestD) { bestD = d; best = &t; }

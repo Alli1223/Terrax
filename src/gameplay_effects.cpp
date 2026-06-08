@@ -303,7 +303,8 @@ void updateAmbientParticles(AppContext& ctx) {
         }
         // Embers from any nearby campfire-centerpiece town.
         const TownPlan& plan = getTownPlan();
-        for (const Town& t : plan.towns) {
+        for (const auto& tp : plan.towns) {
+            const Town& t = *tp;
             if (t.centerpiece != TownCenter::Campfire) continue;
             float dx = (float)t.center.x - cam.x;
             float dz = (float)t.center.y - cam.z;
@@ -353,7 +354,8 @@ void updateAmbientParticles(AppContext& ctx) {
     }
 
     // Smoke drifting up off nearby town campfires (vents to the sky, day or night).
-    for (const Town& t : getTownPlan().towns) {
+    for (const auto& tp : getTownPlan().towns) {
+        const Town& t = *tp;
         if (t.centerpiece != TownCenter::Campfire) continue;
         float cdx = (float)t.center.x - cam.x, cdz = (float)t.center.y - cam.z;
         if (cdx * cdx + cdz * cdz > 40.0f * 40.0f) continue;
@@ -375,7 +377,8 @@ void updateAmbientParticles(AppContext& ctx) {
     // grid) and cached; kept within the 28-block particle horizon and capped per
     // frame so a dense town reads as a scatter of plumes, not a smokescreen.
     int chimneys = 0;
-    for (const Town& t : getTownPlan().towns) {
+    for (const auto& tp : getTownPlan().towns) {
+        const Town& t = *tp;
         if (chimneys >= 6) break;
         float tdx = (float)t.center.x - cam.x, tdz = (float)t.center.y - cam.z;
         float reach = (float)t.radius + 28.0f;
@@ -433,7 +436,8 @@ void updateAudio(AppContext& ctx) {
         float dx = pr->position.x - cam.x, dz = pr->position.z - cam.z;
         nearestFire = std::min(nearestFire, std::sqrt(dx * dx + dz * dz));
     }
-    for (const Town& t : getTownPlan().towns) {
+    for (const auto& tp : getTownPlan().towns) {
+        const Town& t = *tp;
         if (t.centerpiece != TownCenter::Campfire) continue;
         float dx = (float)t.center.x - cam.x, dz = (float)t.center.y - cam.z;
         nearestFire = std::min(nearestFire, std::sqrt(dx * dx + dz * dz));

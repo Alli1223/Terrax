@@ -305,7 +305,7 @@ static uint32_t roadsideHash(uint32_t a) {
     return a;
 }
 
-void placeRoadsideStructures(TownPlan& plan, const std::vector<int16_t>& hgt) {
+void placeRoadsideStructures(TownPlanBuild& plan, const std::vector<int16_t>& hgt) {
     (void)hgt;                       // anchors are validated against the surface oracle directly
     const int    STRIDE  = 40;       // a candidate roughly every 40 blocks of road
     const int    SPACING = 120;      // minimum gap between two roadside structures

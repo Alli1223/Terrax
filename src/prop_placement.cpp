@@ -10,8 +10,7 @@
 
 namespace {
 
-std::vector<PropPlacement> g_placements;
-std::once_flag            g_once;
+std::vector<PropPlacement> g_placements;   // scratch buffer for build() (see getPropPlacements)
 
 // Height of a table's top surface above its base, in world units (the table
 // model is 13 voxels tall — see buildTable). Crockery rests here.
@@ -480,17 +479,20 @@ void placeDecorations(const Town& t) {
 constexpr float FENCE_SECTION_LEN = 36.0f * PROP_SCALE;
 
 bool insideAnyBuilding(const TownPlan& plan, int wx, int wz) {
-    for (const Town& t : plan.towns)
+    for (const auto& tp : plan.towns) {
+        const Town& t = *tp;
         for (const TownBuilding& b : t.buildings)
             if (wx >= b.wx - 1 && wx < b.wx + b.dimX + 1 &&
                 wz >= b.wz - 1 && wz < b.wz + b.dimZ + 1)
                 return true;
+    }
     return false;
 }
 
 bool nearAnyTown(const TownPlan& plan, float wx, float wz, float dist) {
     float d2 = dist * dist;
-    for (const Town& t : plan.towns) {
+    for (const auto& tp : plan.towns) {
+        const Town& t = *tp;
         float dx = (float)t.center.x - wx, dz = (float)t.center.y - wz;
         if (dx * dx + dz * dz < d2) return true;
     }
@@ -939,7 +941,8 @@ void placePlazaDetail(const Town& t) {
 
 void build() {
     const TownPlan& plan = getTownPlan();
-    for (const Town& t : plan.towns) {
+    for (const auto& tp : plan.towns) {
+        const Town& t = *tp;
         for (const TownBuilding& b : t.buildings) {
             if (!b.rooms.empty()) placeFurniture(b);
             placeTradeSign(b);
@@ -965,13 +968,13 @@ void build() {
             furnishDungeonRoom(*dptr, rm);
 }
 
-std::vector<DoorPlacement> g_doors;
-std::once_flag             g_doorsOnce;
+std::vector<DoorPlacement> g_doors;        // scratch buffer for buildDoors()
 
 // One door per house, in the gap of its front wall.
 void buildDoors() {
     const TownPlan& plan = getTownPlan();
-    for (const Town& t : plan.towns)
+    for (const auto& tp : plan.towns) {
+        const Town& t = *tp;
         for (const TownBuilding& b : t.buildings) {
             // Every residential or special building has a door direction set
             // by its generator. Centrepieces (well/market/etc) and farms leave
@@ -998,18 +1001,39 @@ void buildDoors() {
                                 glm::ivec2(wallX, wallZ),
                                 glm::ivec2(-b.doorDZ, b.doorDX), variant });
         }
+    }
 }
 
 } // namespace
 
+// Both rebuild when the town plan grows (spawn region -> full world), so furniture
+// and doors appear in the settlements the background fill streams in. The old
+// versions are kept alive, so a reference handed to the per-frame prop streamer
+// stays valid even if a rebuild lands on another thread mid-frame.
 const std::vector<PropPlacement>& getPropPlacements() {
-    std::call_once(g_once, [] { build(); });
-    return g_placements;
+    static std::atomic<int> builtVer{-1};
+    static std::mutex mtx;
+    static std::vector<std::shared_ptr<std::vector<PropPlacement>>> kept;
+    static std::atomic<const std::vector<PropPlacement>*> cur{nullptr};
+    return rebuildOnPlanChange(builtVer, mtx, kept, cur,
+        [](std::vector<PropPlacement>& out) {
+            g_placements.clear();
+            build();                       // fills the file-scope scratch buffer
+            out = std::move(g_placements);
+        });
 }
 
 const std::vector<DoorPlacement>& getDoorPlacements() {
-    std::call_once(g_doorsOnce, [] { buildDoors(); });
-    return g_doors;
+    static std::atomic<int> builtVer{-1};
+    static std::mutex mtx;
+    static std::vector<std::shared_ptr<std::vector<DoorPlacement>>> kept;
+    static std::atomic<const std::vector<DoorPlacement>*> cur{nullptr};
+    return rebuildOnPlanChange(builtVer, mtx, kept, cur,
+        [](std::vector<DoorPlacement>& out) {
+            g_doors.clear();
+            buildDoors();
+            out = std::move(g_doors);
+        });
 }
 
 // --- Wild bush scatter ------------------------------------------------------

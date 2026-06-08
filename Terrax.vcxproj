@@ -116,6 +116,9 @@
     <ClCompile Include="src\building.cpp" />
     <ClCompile Include="src\building_house.cpp" />
     <ClCompile Include="src\building_special.cpp" />
+    <ClCompile Include="src\building_farm.cpp" />
+    <ClCompile Include="src\dungeon.cpp" />
+    <ClCompile Include="src\castle.cpp" />
     <ClCompile Include="src\items.cpp" />
     <ClCompile Include="src\inventory.cpp" />
     <ClCompile Include="src\clothing_painter.cpp" />
@@ -125,6 +128,7 @@
     <ClCompile Include="src\loot_drop.cpp" />
     <ClCompile Include="src\projectile.cpp" />
     <ClCompile Include="src\npc_appearance.cpp" />
+    <ClCompile Include="src\farm_director.cpp" />
     <ClCompile Include="src\network.cpp" />
     <ClCompile Include="src\ui.cpp" />
     <ClCompile Include="src\ui_menus.cpp" />
@@ -198,8 +202,12 @@
     <ClInclude Include="include\loot_drop.h" />
     <ClInclude Include="include\projectile.h" />
     <ClInclude Include="include\npc_appearance.h" />
+    <ClInclude Include="include\farm_director.h" />
     <ClInclude Include="include\voxel_model.h" />
     <ClInclude Include="include\building.h" />
+    <ClInclude Include="include\building_farm.h" />
+    <ClInclude Include="include\dungeon.h" />
+    <ClInclude Include="include\castle.h" />
     <ClInclude Include="include\interactable.h" />
     <ClInclude Include="include\world.h" />
     <ClInclude Include="src\noise.h" />

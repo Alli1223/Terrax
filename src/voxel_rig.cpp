@@ -343,6 +343,19 @@ void applyClipPose(BipedalRig& r, const AnimationClip& clip) {
             if (r.rLeg)  r.rLeg->localRot.x  = -drop * 1.4f;
             break;
         }
+        case ClipKind::Hoe: {
+            // A stooped tool stroke: torso bends forward, both arms drive the
+            // tool down and up a couple of times. Reads as hoeing soil or
+            // scything wheat — the held tool (hoe/scythe) tells which.
+            float chop = std::sin(t * 6.2831853f * 2.0f);   // two strokes
+            if (r.torso) r.torso->localRot.x = 20.0f;
+            if (r.rArm)  { r.rArm->localRot.x = -35.0f + chop * 55.0f;
+                           r.rArm->localRot.y =  12.0f; }
+            if (r.lArm)  { r.lArm->localRot.x = -25.0f + chop * 40.0f;
+                           r.lArm->localRot.y = -12.0f; }
+            if (r.head)  r.head->localRot.x = 14.0f;
+            break;
+        }
     }
 }
 

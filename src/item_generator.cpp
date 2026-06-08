@@ -657,3 +657,12 @@ std::unique_ptr<Item> generateRandomItem(uint32_t seed, int targetLevel) {
     if (roll < 18 + 52)  return generateRandomClothing(outer(), targetLevel);
     return generateRandomWeapon(outer(), targetLevel);
 }
+
+std::unique_ptr<Item> generateLegendaryItem(uint32_t seed, int targetLevel) {
+    std::mt19937 s(seed ? seed : 1u);
+    for (int i = 0; i < 250; i++) {
+        auto it = generateRandomItem(s(), targetLevel);
+        if (it && it->rarity == ItemRarity::Legendary) return it;   // rare ~7%, so this lands fast
+    }
+    return generateRandomItem(s(), targetLevel);
+}

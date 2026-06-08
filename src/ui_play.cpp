@@ -332,8 +332,11 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
     for (auto& o : ctx.objectManager.objects()) {
         if (o->dead || o->kind != ObjectKind::NPC) continue;
         NPC* n = static_cast<NPC*>(o.get());
-        if (n->dyingFlag || n->health >= 99.5f) continue;
-        drawHealthBar(n->position + glm::vec3(0.0f, 2.3f, 0.0f), n->health / 100.0f,
+        if (n->dyingFlag) continue;
+        float maxHp = defaultNpcHealth(n->type);          // per-type max (Skeleton 60, Brute 220, ...)
+        float frac  = (maxHp > 0.0f) ? (n->health / maxHp) : 1.0f;
+        if (frac >= 0.995f) continue;                     // hide the bar at full health
+        drawHealthBar(n->position + glm::vec3(0.0f, 2.3f, 0.0f), frac,
                       renderer.frameView, renderer.frameProj,
                       renderer.frameFbW, renderer.frameFbH);
     }

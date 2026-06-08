@@ -11,11 +11,31 @@
 
 class BipedalRig;
 class World;
+class FarmDirector;
 struct Town;
 
-// What an NPC is and how it behaves. Only Villager is used in phase 2; Enemy
-// and Guard arrive in later phases.
-enum class NPCType : uint8_t { Villager = 0, Enemy = 1, Guard = 2 };
+// What an NPC is and how it behaves. Villagers and guards populate towns,
+// enemies (bandits + dungeon foes) are hostile, farmers work the fields.
+// Append new values only — npcType is serialised by value in NPCState.
+enum class NPCType : uint8_t { Villager = 0, Enemy = 1, Guard = 2, Farmer = 3,
+                              Skeleton = 4, Brute = 5, Cultist = 6 };
+
+// True for hostile NPC types — the town watch fights them and the player can
+// kill them for loot/XP. Extended as new enemy types are added.
+inline bool isHostileNpc(NPCType t) {
+    return t == NPCType::Enemy || t == NPCType::Skeleton ||
+           t == NPCType::Brute || t == NPCType::Cultist;
+}
+
+// Spawn health by type — brutes are tanky, skeletons brittle.
+inline float defaultNpcHealth(NPCType t) {
+    switch (t) {
+        case NPCType::Brute:    return 220.0f;
+        case NPCType::Skeleton: return 60.0f;
+        case NPCType::Cultist:  return 90.0f;
+        default:                return 100.0f;   // bandits and the rest
+    }
+}
 
 // A non-player character. Server-authoritative, exactly like Ferry: the server
 // owns motion / AI and broadcasts NPCState packets; each client creates one NPC
@@ -85,6 +105,7 @@ public:
     // Server-only: set to true the first time loot was rolled for this
     // NPC's death so we don't spawn loot on every overkill swing.
     bool      lootDropped = false;
+    bool      boss        = false;  // dungeon boss — drops legendary loot on death
 
     // Read-only access for systems that need to inspect a dying NPC's
     // voxels (e.g. the death-explosion particle spawner).
@@ -165,6 +186,9 @@ public:
     // Damage NPCs dealt to players this tick; the server loop drains it.
     std::vector<PlayerDamage> pendingDamage;
 
+    // Set by the server thread: lets farmer NPCs query/edit crop state.
+    FarmDirector* farmDir = nullptr;
+
 private:
     void populateTown(int townIndex);
     void depopulateTown(int townIndex);
@@ -173,6 +197,7 @@ private:
     // Frees a villager's claimed bench seat (if any) so someone else may use it.
     void releaseSeat(NPC& n);
     void stepVillager(NPC& n, float dt, World& world, float gameTime);
+    void stepFarmer(NPC& n, float dt, World& world, float gameTime);
     void stepGuard(NPC& n, float dt, World& world,
                    const std::vector<DirectorPlayer>& players);
 
@@ -182,6 +207,20 @@ private:
     void despawnCamp(uint64_t key);
     void stepBandit(NPC& n, float dt, World& world,
                     const std::vector<DirectorPlayer>& players);
+    void stepRangedEnemy(NPC& n, float dt, World& world,
+                         const std::vector<DirectorPlayer>& players);
+
+    // Farms: stream farmer NPCs in/out by player proximity (crop state itself
+    // lives in the FarmDirector). A farmer's n.townIndex is its farm index.
+    void updateFarms(const std::vector<DirectorPlayer>& players);
+    void spawnFarmers(int farmIdx);
+    void despawnFarmers(int farmIdx);
+
+    // Dungeons: stream enemy packs in/out by player proximity. Spawned foes
+    // carry the dungeon index in n.townIndex and ids in the 0xA0000000 range.
+    void updateDungeons(const std::vector<DirectorPlayer>& players);
+    void spawnDungeon(size_t dungeonIdx);
+    void despawnDungeon(size_t dungeonIdx);
 
     bool inAnyTown(glm::vec2 worldXZ) const;
 
@@ -190,10 +229,14 @@ private:
     std::unordered_map<int, std::vector<SeatSpot>> seatCache;
     std::unordered_map<int, std::vector<uint8_t>>  seatTaken;   // 1 = a villager holds this seat
     std::unordered_set<int>           populated;
+    std::unordered_set<int>           populatedFarms;
     std::unordered_map<uint64_t, Camp> campCache;
     std::unordered_set<uint64_t>       activeCamps;
+    std::unordered_set<size_t>         activeDungeons;
     std::unordered_map<uint32_t, float> wantedTimer;   // player id -> guard-aggro time left
+    uint32_t     nextFarmerId = 0x70000000u;   // farmers: id range below the bandits
     uint32_t     nextBanditId = 0x80000000u;   // id range disjoint from villagers
+    uint32_t     nextDungeonEnemyId = 0xA0000000u;  // dungeon foes; below animals (0xC0000000)
     std::mt19937 rng{0x4E504332u};
 };
 

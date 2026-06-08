@@ -5,6 +5,7 @@
 #include "vehicle.h"
 #include "ferry_routes.h"
 #include "npc.h"
+#include "farm_director.h"
 #include "animal.h"
 #include <chrono>
 #include <cmath>
@@ -48,6 +49,11 @@ static void serverThreadMain(unsigned short port) {
     // Server-authoritative wildlife — animals roaming around the players.
     AnimalDirector animalDirector;
 
+    // Server-authoritative crop growth. Farmer NPCs (owned by npcDirector) work
+    // its fields, so wire the two together.
+    FarmDirector farmDirector;
+    npcDirector.farmDir = &farmDirector;
+
     auto lastWall = std::chrono::high_resolution_clock::now();
     float accumulator = 0.0f;
     g_serverStats.running.store(true);
@@ -85,6 +91,9 @@ static void serverThreadMain(unsigned short port) {
                 std::vector<DirectorPlayer> dirPlayers;
                 dirPlayers.reserve(players.size());
                 for (auto& p : players) dirPlayers.push_back({ p.id, p.pos });
+
+                // Grow crops first so farmers act on fresh field state.
+                farmDirector.update(SERVER_TICK_DT, dirPlayers, serverWorld);
 
                 // Resolve melee hits clients landed on NPCs this tick.
                 for (const NpcHitEvent& hit : g_server->npcHits)

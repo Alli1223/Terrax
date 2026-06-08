@@ -8,6 +8,7 @@
 #include "game_session.h"
 #include "gameplay.h"
 #include "town.h"
+#include "dungeon.h"
 #include "npc.h"
 #include "prop_placement.h"
 #include "graphics_settings.h"
@@ -28,6 +29,75 @@
 // ---------------------------------------------------------------------------
 // World map
 // ---------------------------------------------------------------------------
+
+// Marker colour for each settlement type (shared by the map and its legend).
+static ImU32 townTypeColor(TownType t) {
+    switch (t) {
+        case TownType::Coastal:  return IM_COL32( 90, 170, 230, 235);
+        case TownType::Mountain: return IM_COL32(205, 205, 210, 235);
+        default:                 return IM_COL32(120, 200, 110, 235);
+    }
+}
+
+// Draw a settlement marker whose SHAPE encodes the town type (square =
+// Grassland, upward triangle = Mountain, diamond = Coastal) and whose radius
+// `r` encodes its importance (Village small, Town large). Shared by the live
+// markers and the legend swatches so the two always agree.
+static void drawTownMarker(ImDrawList* dl, ImVec2 p, TownType type, float r, ImU32 col) {
+    const ImU32 edge = IM_COL32(0, 0, 0, 200);
+    switch (type) {
+        case TownType::Mountain: {                 // a peak
+            ImVec2 a{ p.x,     p.y - r          };
+            ImVec2 b{ p.x - r, p.y + r * 0.85f  };
+            ImVec2 c{ p.x + r, p.y + r * 0.85f  };
+            dl->AddTriangleFilled(a, b, c, col);
+            dl->AddTriangle(a, b, c, edge, 1.5f);
+            break;
+        }
+        case TownType::Coastal: {                  // a harbour buoy
+            ImVec2 a{ p.x,     p.y - r };
+            ImVec2 b{ p.x + r, p.y     };
+            ImVec2 c{ p.x,     p.y + r };
+            ImVec2 d{ p.x - r, p.y     };
+            dl->AddQuadFilled(a, b, c, d, col);
+            dl->AddQuad(a, b, c, d, edge, 1.5f);
+            break;
+        }
+        default: {                                 // Grassland: a square
+            dl->AddRectFilled({ p.x - r, p.y - r }, { p.x + r, p.y + r }, col, 1.0f);
+            dl->AddRect({ p.x - r, p.y - r }, { p.x + r, p.y + r }, edge, 1.0f, 0, 1.5f);
+            break;
+        }
+    }
+}
+
+// A dungeon marker — a crimson X on a dark disc, distinct from town markers.
+static void drawDungeonMarker(ImDrawList* dl, ImVec2 p, float r) {
+    dl->AddCircleFilled(p, r + 1.0f, IM_COL32(20, 8, 8, 220), 12);
+    const ImU32 crim = IM_COL32(200, 45, 45, 245);
+    float a = r * 0.7f;
+    dl->AddLine({ p.x - a, p.y - a }, { p.x + a, p.y + a }, crim, 2.2f);
+    dl->AddLine({ p.x - a, p.y + a }, { p.x + a, p.y - a }, crim, 2.2f);
+    dl->AddCircle(p, r + 1.0f, IM_COL32(0, 0, 0, 200), 12, 1.2f);
+}
+
+// A castle (overground dungeon) marker — a steel-blue battlemented keep, so it
+// reads differently from the crimson underground-dungeon X.
+static void drawCastleMarker(ImDrawList* dl, ImVec2 p, float r) {
+    dl->AddCircleFilled(p, r + 1.5f, IM_COL32(10, 14, 22, 220), 12);
+    const ImU32 steel = IM_COL32(120, 165, 215, 250);
+    const ImU32 edge  = IM_COL32(18, 28, 44, 230);
+    float w = r * 0.9f;
+    ImVec2 a = { p.x - w, p.y - r * 0.15f };   // keep body
+    ImVec2 b = { p.x + w, p.y + r * 0.95f };
+    dl->AddRectFilled(a, b, steel);
+    dl->AddRect(a, b, edge, 0.0f, 0, 1.0f);
+    float mw = (b.x - a.x) / 5.0f;             // three merlons (battlements) on top
+    for (int i = 0; i < 3; i++) {
+        float mx = a.x + (2 * i) * mw;
+        dl->AddRectFilled({ mx, a.y - mw }, { mx + mw, a.y }, steel);
+    }
+}
 
 void renderMapUI(AppContext& ctx) {
     if (!ctx.showMap) return;
@@ -51,6 +121,10 @@ void renderMapUI(AppContext& ctx) {
         glBindTexture(GL_TEXTURE_2D, ctx.mapTex);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, TEX, TEX, 0, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
         glBindTexture(GL_TEXTURE_2D, 0);
+        // The uploaded texture now covers the area the build was launched for.
+        ctx.mapTexCX = ctx.mapPendingCX;
+        ctx.mapTexCZ = ctx.mapPendingCZ;
+        ctx.mapTexR  = ctx.mapPendingR;
     }
 
     // ── Trigger a new build when needed ─────────────────────────────────────
@@ -64,6 +138,7 @@ void renderMapUI(AppContext& ctx) {
         float bcx = ctx.mapBuiltCX + ctx.mapPanX;
         float bcz = ctx.mapBuiltCZ + ctx.mapPanZ;
         float wr  = worldRadius;
+        ctx.mapPendingCX = bcx; ctx.mapPendingCZ = bcz; ctx.mapPendingR = wr;
         ctx.mapBuilding = true;
         ctx.mapFuture = std::async(std::launch::async,
             [&world = (const World&)ctx.world, bcx, bcz, wr]() -> std::vector<uint8_t> {
@@ -120,22 +195,35 @@ void renderMapUI(AppContext& ctx) {
     float ang = glm::radians(ctx.mapRotDeg);
     float cr  = cosf(ang), sr = sinf(ang);
 
-    auto rotPt = [&](float dx, float dy) -> ImVec2 {
-        return { mc.x + dx * cr - dy * sr,
-                 mc.y + dx * sr + dy * cr };
+    // Live view centre (player + pan) and the shared world->screen transform.
+    // The map texture, roads, towns and players ALL use this, so they pan and
+    // zoom together — even while a freshly panned texture is still building (the
+    // stale texture just slides to its true world position via worldToMap).
+    float texCX = ctx.mapBuiltCX + ctx.mapPanX;
+    float texCZ = ctx.mapBuiltCZ + ctx.mapPanZ;
+    auto worldToMap = [&](float wx, float wz) -> ImVec2 {
+        float dx = (wx - texCX) / worldRadius * h;
+        float dz = (wz - texCZ) / worldRadius * h;
+        return { mc.x + dx * cr - dz * sr,
+                 mc.y + dx * sr + dz * cr };
     };
 
     // Background circle
     dl->AddCircleFilled(mc, h + 6.0f, IM_COL32(15, 10, 5, 230), 64);
 
-    // Map image (rotated quad)
+    // Map image — drawn at the texture's OWN built world-area through the live
+    // transform, so it tracks the overlays exactly while panning/zooming.
     if (ctx.mapTex) {
+        float tr = ctx.mapTexR;
+        ImVec2 q00 = worldToMap(ctx.mapTexCX - tr, ctx.mapTexCZ - tr);
+        ImVec2 q10 = worldToMap(ctx.mapTexCX + tr, ctx.mapTexCZ - tr);
+        ImVec2 q11 = worldToMap(ctx.mapTexCX + tr, ctx.mapTexCZ + tr);
+        ImVec2 q01 = worldToMap(ctx.mapTexCX - tr, ctx.mapTexCZ + tr);
         dl->PushClipRect(ImVec2(mc.x - h - 2, mc.y - h - 2),
                          ImVec2(mc.x + h + 2, mc.y + h + 2), true);
-        dl->AddImageQuad(
-            (ImTextureID)(intptr_t)ctx.mapTex,
-            rotPt(-h, -h), rotPt(h, -h), rotPt(h, h), rotPt(-h, h),
-            ImVec2(0, 0), ImVec2(1, 0), ImVec2(1, 1), ImVec2(0, 1));
+        dl->AddImageQuad((ImTextureID)(intptr_t)ctx.mapTex,
+                         q00, q10, q11, q01,
+                         ImVec2(0, 0), ImVec2(1, 0), ImVec2(1, 1), ImVec2(0, 1));
         dl->PopClipRect();
     } else {
         // Still building — show loading indicator
@@ -160,9 +248,6 @@ void renderMapUI(AppContext& ctx) {
     dl->AddText(ImVec2(wPt.x - 4, wPt.y - 8),  IM_COL32(200, 200, 200, 180), "W");
 
     // ── Player markers ────────────────────────────────────────────────────────
-    float texCX = ctx.mapBuiltCX + ctx.mapPanX;
-    float texCZ = ctx.mapBuiltCZ + ctx.mapPanZ;
-
     // Right-click (a click, not a rotate-drag) teleports the player there.
     if (hovered && ImGui::IsMouseReleased(ImGuiMouseButton_Right)) {
         ImVec2 dd = ImGui::GetMouseDragDelta(ImGuiMouseButton_Right);
@@ -188,12 +273,28 @@ void renderMapUI(AppContext& ctx) {
         }
     }
 
-    auto worldToMap = [&](float wx, float wz) -> ImVec2 {
-        float dx = (wx - texCX) / worldRadius * h;
-        float dz = (wz - texCZ) / worldRadius * h;
-        return { mc.x + dx * cr - dz * sr,
-                 mc.y + dx * sr + dz * cr };
-    };
+    // ── Roads: highways between towns (+ town paths when zoomed in) ──────────
+    {
+        const TownPlan& plan = getTownPlan();
+        auto drawRoad = [&](const std::vector<glm::ivec2>& pts, ImU32 col, float thick) {
+            for (size_t i = 1; i < pts.size(); i++) {
+                ImVec2 a = worldToMap((float)pts[i - 1].x, (float)pts[i - 1].y);
+                ImVec2 b = worldToMap((float)pts[i].x,     (float)pts[i].y);
+                float da = (a.x - mc.x) * (a.x - mc.x) + (a.y - mc.y) * (a.y - mc.y);
+                float db = (b.x - mc.x) * (b.x - mc.x) + (b.y - mc.y) * (b.y - mc.y);
+                if (da > h * h && db > h * h) continue;   // segment wholly outside the disc
+                dl->AddLine(a, b, col, thick);
+            }
+        };
+        dl->PushClipRect(ImVec2(mc.x - h, mc.y - h), ImVec2(mc.x + h, mc.y + h), true);
+        for (const TownRoad& road : plan.highways)
+            drawRoad(road.pts, IM_COL32(170, 135, 75, 205), 2.5f);   // tan highways
+        if (worldRadius < 500.0f)                                    // town paths only up close
+            for (const Town& t : plan.towns)
+                for (const TownRoad& p : t.paths)
+                    drawRoad(p.pts, IM_COL32(150, 140, 120, 170), 1.5f);
+        dl->PopClipRect();
+    }
 
     // ── Towns: settlement markers + names ────────────────────────────────────
     {
@@ -204,15 +305,8 @@ void renderMapUI(AppContext& ctx) {
             float  d2 = (sp.x - mc.x) * (sp.x - mc.x) + (sp.y - mc.y) * (sp.y - mc.y);
             if (d2 >= h * h) continue;
 
-            ImU32 col;
-            switch (t.type) {
-                case TownType::Coastal:  col = IM_COL32( 90, 170, 230, 235); break;
-                case TownType::Mountain: col = IM_COL32(205, 205, 210, 235); break;
-                default:                 col = IM_COL32(120, 200, 110, 235); break;
-            }
-            dl->AddRectFilled({ sp.x - 4, sp.y - 4 }, { sp.x + 4, sp.y + 4 }, col, 1.0f);
-            dl->AddRect({ sp.x - 4, sp.y - 4 }, { sp.x + 4, sp.y + 4 },
-                        IM_COL32(0, 0, 0, 190), 1.0f, 0, 1.5f);
+            float r = (t.size == TownSize::Town) ? 6.5f : 4.0f;
+            drawTownMarker(dl, sp, t.type, r, townTypeColor(t.type));
 
             if (showNames && !t.name.empty()) {
                 ImVec2 ts = ImGui::CalcTextSize(t.name.c_str());
@@ -221,6 +315,58 @@ void renderMapUI(AppContext& ctx) {
                 dl->AddText(tp, IM_COL32(245, 235, 200, 245), t.name.c_str());
             }
         }
+    }
+
+    // ── Dungeons: crimson markers + names ────────────────────────────────────
+    {
+        const DungeonPlan& dp = getDungeonPlan();
+        bool showNames = worldRadius < 700.0f;   // names only when fairly zoomed in
+        for (const auto& dptr : dp.dungeons) {
+            const Dungeon& dg = *dptr;
+            ImVec2 sp = worldToMap((float)dg.entrance.x, (float)dg.entrance.z);
+            float  d2 = (sp.x - mc.x) * (sp.x - mc.x) + (sp.y - mc.y) * (sp.y - mc.y);
+            if (d2 >= h * h) continue;
+            if (dg.overground) drawCastleMarker(dl, sp, 5.5f);
+            else               drawDungeonMarker(dl, sp, 5.0f);
+            if (showNames && !dg.name.empty()) {
+                ImU32 nameCol = dg.overground ? IM_COL32(185, 210, 245, 245)
+                                              : IM_COL32(240, 175, 175, 245);
+                ImVec2 ts = ImGui::CalcTextSize(dg.name.c_str());
+                ImVec2 tp = { sp.x - ts.x * 0.5f, sp.y + 6.0f };
+                dl->AddText({ tp.x + 1, tp.y + 1 }, IM_COL32(0, 0, 0, 210), dg.name.c_str());
+                dl->AddText(tp, nameCol, dg.name.c_str());
+            }
+        }
+    }
+
+    // ── Legend (top-left corner; shapes match the markers above) ─────────────
+    {
+        float lx = canvasTL.x + 6.0f, ly = canvasTL.y + 6.0f;
+        const float lineH = 18.0f;
+        dl->AddRectFilled({ lx - 4, ly - 4 }, { lx + 124, ly + lineH * 7 + 4 },
+                          IM_COL32(15, 10, 5, 180), 4.0f);
+        dl->AddRect({ lx - 4, ly - 4 }, { lx + 124, ly + lineH * 7 + 4 },
+                    IM_COL32(180, 140, 60, 160), 4.0f, 0, 1.0f);
+        const TownType types[3]   = { TownType::Grassland, TownType::Mountain, TownType::Coastal };
+        const char*    labels[3]  = { "Grassland", "Mountain", "Coastal" };
+        for (int i = 0; i < 3; i++) {
+            float cy = ly + lineH * i + lineH * 0.5f;
+            drawTownMarker(dl, { lx + 9, cy }, types[i], 5.0f, townTypeColor(types[i]));
+            dl->AddText({ lx + 24, cy - 7 }, IM_COL32(235, 225, 200, 235), labels[i]);
+        }
+        float cy = ly + lineH * 3 + lineH * 0.5f;   // size key: small = Village, large = Town
+        drawTownMarker(dl, { lx + 6,  cy }, TownType::Grassland, 3.0f, IM_COL32(190, 190, 190, 235));
+        drawTownMarker(dl, { lx + 16, cy }, TownType::Grassland, 6.0f, IM_COL32(190, 190, 190, 235));
+        dl->AddText({ lx + 28, cy - 7 }, IM_COL32(235, 225, 200, 235), "Village / Town");
+        float ry = ly + lineH * 4 + lineH * 0.5f;   // road swatch
+        dl->AddLine({ lx + 2, ry }, { lx + 20, ry }, IM_COL32(170, 135, 75, 235), 2.5f);
+        dl->AddText({ lx + 28, ry - 7 }, IM_COL32(235, 225, 200, 235), "Road");
+        float dyv = ly + lineH * 5 + lineH * 0.5f;   // dungeon swatch
+        drawDungeonMarker(dl, { lx + 9, dyv }, 5.0f);
+        dl->AddText({ lx + 24, dyv - 7 }, IM_COL32(235, 225, 200, 235), "Dungeon");
+        float cyv = ly + lineH * 6 + lineH * 0.5f;   // castle swatch
+        drawCastleMarker(dl, { lx + 9, cyv }, 5.0f);
+        dl->AddText({ lx + 24, cyv - 7 }, IM_COL32(235, 225, 200, 235), "Castle");
     }
 
     // Local player: white triangle pointing in facing direction

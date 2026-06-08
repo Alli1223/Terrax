@@ -217,11 +217,12 @@ static void itemToLootPacket(const Item* item, LootSpawnPacket& pkt) {
     }
 }
 
-void NetworkServer::spawnLootForKill(uint32_t attackerId, const glm::vec3& pos) {
+void NetworkServer::spawnLootForKill(uint32_t attackerId, const glm::vec3& pos, bool legendary) {
     int level = getPlayerLevel(attackerId);
     static std::mt19937 rng((uint32_t)std::chrono::steady_clock::now()
                               .time_since_epoch().count());
-    int dropCount = std::uniform_int_distribution<int>(1, 3)(rng);
+    int dropCount = legendary ? std::uniform_int_distribution<int>(2, 4)(rng)
+                              : std::uniform_int_distribution<int>(1, 3)(rng);
     auto frand = [&](float lo, float hi) {
         return std::uniform_real_distribution<float>(lo, hi)(rng);
     };
@@ -231,7 +232,8 @@ void NetworkServer::spawnLootForKill(uint32_t attackerId, const glm::vec3& pos) 
     {
         std::lock_guard<std::mutex> lock(lootMutex);
         for (int i = 0; i < dropCount; i++) {
-            auto item = generateRandomItem(rng(), level);
+            auto item = legendary ? generateLegendaryItem(rng(), level + 2)
+                                  : generateRandomItem(rng(), level);
             if (!item) continue;
             LootSpawnPacket pkt {};
             pkt.dropId = nextLootId++;

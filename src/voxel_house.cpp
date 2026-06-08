@@ -23,6 +23,7 @@ Voxel houseBlockColor(BlockType t) {
         case BlockType::Snow:      return {243, 246, 252, 255};
         case BlockType::Ice:       return {165, 208, 232, 255};
         case BlockType::Glowstone: return {255, 224, 138, 255};
+        case BlockType::Lantern:   return {255, 206, 120, 255};
         case BlockType::Leaves:    return { 66, 122,  52, 255};
         case BlockType::Cactus:    return { 84, 134,  62, 255};
         case BlockType::Glass:     return {200, 225, 238, 255};

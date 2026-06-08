@@ -1,5 +1,6 @@
 #include "terrax_test.h"
 #include "building.h"
+#include "building_farm.h"
 #include <vector>
 #include <cstdlib>
 
@@ -274,6 +275,39 @@ TEST_CASE(Watchtower_MaxFloorsDoNotOverflow) {
     CHECK_EQ((int)w.kind(), (int)BuildingKind::Watchtower);
     CHECK(dy > dx && dy > dz);
     CHECK(rooms.size() > 0);
+}
+
+TEST_CASE(Farm_HasCropRowsSeparatedByAirFurrows) {
+    // The farmer AI walks furrows to reach crops; FarmBuilding MUST leave an Air
+    // gap between crop rows, or NPC ground-snap parks the farmer on the wheat.
+    // Assert crop rows exist and are separated by crop-free furrows.
+    FarmBuilding f(24, 24, /*standalone=*/false);
+    std::vector<uint8_t> blocks; std::vector<Room> rooms;
+    int dx, dy, dz;
+    genAndCheck(f, 77u, blocks, rooms, dx, dy, dz);
+    CHECK_EQ((int)f.kind(), (int)BuildingKind::Farm);
+    CHECK(rooms.empty());                 // town farms have no interior (no villagers)
+
+    auto at = [&](int x, int y, int z) {
+        return (BlockType)blocks[((size_t)y * dz + z) * dx + x];
+    };
+    std::vector<int> cropsInRow(dz, 0);
+    int totalCrops = 0;
+    for (int z = 0; z < dz; z++)
+        for (int x = 0; x < dx; x++)
+            if (isWheatBlock(at(x, FARM_CROP_Y, z))) { cropsInRow[z]++; totalCrops++; }
+    CHECK(totalCrops > 0);                 // the field is planted with wheat
+
+    // The plot floor is tilled Farmland (so no wild grass grows on it).
+    CHECK(at(0, 0, 0) == BlockType::Farmland);
+
+    int firstCrop = -1, lastCrop = -1;
+    for (int z = 0; z < dz; z++)
+        if (cropsInRow[z] > 0) { if (firstCrop < 0) firstCrop = z; lastCrop = z; }
+    bool furrowBetween = false;
+    for (int z = firstCrop + 1; z < lastCrop; z++)
+        if (cropsInRow[z] == 0) furrowBetween = true;
+    CHECK(furrowBetween);                  // a walkable Air furrow separates crop rows
 }
 
 // --- rotateBuilding ---

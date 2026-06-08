@@ -77,6 +77,38 @@ static void genFlower(std::vector<uint8_t>& d, int col, int row, int hr, int hg,
     }
 }
 
+// A caged warm lantern: a radial amber glow behind a dark iron frame, vertical
+// cage bars and a small top loop. Reads as a hanging/standing lantern fixture.
+static void genLantern(std::vector<uint8_t>& d, int col, int row) {
+    const int IR = 54, IG = 46, IB = 36;   // dark iron frame
+    for (int ty = 0; ty < TILE_PX; ty++) for (int tx = 0; tx < TILE_PX; tx++) {
+        int ax = col*TILE_PX+tx, ay = row*TILE_PX+ty;
+        float dx = tx - 31.5f, dy = ty - 31.5f;
+        float dist = sqrtf(dx*dx + dy*dy);
+        float t = 1.0f - dist / 34.0f; if (t < 0.0f) t = 0.0f; if (t > 1.0f) t = 1.0f;
+        int r = (int)(190 + 65 * t);       // warm glow, brighter toward the centre
+        int g = (int)(146 + 84 * t);
+        int b = (int)( 66 + 78 * t);
+        bool frame = tx < 5 || tx >= TILE_PX-5 || ty < 9 || ty >= TILE_PX-9;     // border + caps
+        bool bar   = (abs(tx-16) < 2 || abs(tx-32) < 2 || abs(tx-48) < 2)        // cage bars
+                     && ty >= 9 && ty < TILE_PX-9;
+        bool loop  = ty < 5 && abs(tx-32) < 6;                                   // top hanging loop
+        if (frame || bar || loop) { r = IR; g = IG; b = IB; }
+        setPixel(d, ax, ay, r, g, b);
+    }
+}
+
+// Tilled crop soil — dark brown earth with horizontal furrow ridges and grain.
+static void genFarmland(std::vector<uint8_t>& d, int col, int row) {
+    for (int ty = 0; ty < TILE_PX; ty++) for (int tx = 0; tx < TILE_PX; tx++) {
+        int ax = col*TILE_PX+tx, ay = row*TILE_PX+ty;
+        int band = (((ty / 8) & 1) ? 16 : -8);                 // raised / sunken furrow rows
+        uint32_t h = (uint32_t)((ax * 73856093) ^ (ay * 19349663));
+        int n = (int)(h % 13u) - 6;                            // soil grain
+        setPixel(d, ax, ay, 96 + band + n, 64 + band / 2 + n, 40 + band / 3 + n / 2);
+    }
+}
+
 // ---- Public API ----
 
 void tileUV(TileID tile, float& u0, float& v0, float& u1, float& v1) {
@@ -126,12 +158,15 @@ GLuint generateAtlas() {
     fillSolid(data, 2, 5, 255, 165, 200);  // LeavesPink   — spring blossom pink
     // Glass (row 5, col 3) — tint only; the glass shader applies transparency
     fillSolid(data, 3, 5, GLASS_TINT.r, GLASS_TINT.g, GLASS_TINT.b);
-    // Painted-colour blocks (ids 24..39, rows 6..9)
+    // Painted-colour blocks (ids 24..51, rows 6..12)
     for (int i = 0; i < PAINT_COUNT; i++) {
         int id = (int)TileID::PaintFirst + i;
         fillSolid(data, id % ATLAS_COLS, id / ATLAS_COLS,
                   PAINT_PALETTE[i].r, PAINT_PALETTE[i].g, PAINT_PALETTE[i].b);
     }
+    // Lantern (row 13) — a light-emitting fixture block
+    genLantern(data, (int)TileID::Lantern % ATLAS_COLS, (int)TileID::Lantern / ATLAS_COLS);
+    genFarmland(data, (int)TileID::Farmland % ATLAS_COLS, (int)TileID::Farmland / ATLAS_COLS);
 
     GLuint tex;
     glGenTextures(1, &tex);

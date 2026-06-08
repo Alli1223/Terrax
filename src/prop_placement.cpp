@@ -1,6 +1,7 @@
 #include "prop_placement.h"
 #include "town.h"
 #include "world.h"
+#include "dungeon.h"     // furnish dungeon/castle rooms with the same Prop furniture
 #include <mutex>
 #include <random>
 #include <cmath>
@@ -300,6 +301,127 @@ void placeFurniture(const TownBuilding& b) {
     }
 }
 
+// --- Dungeon room furnishing ------------------------------------------------
+// Dungeon rooms are furnished with the SAME detailed Prop furniture as houses
+// (not crude terrain blocks). Each DungeonRoom's `purpose` picks a furniture
+// pool; the placer scans the carved silhouette for wall / open spots and fills
+// them, exactly like placeFurniture() does for town rooms.
+FurnitureRule dungeonFurnitureRule(uint8_t purpose) {
+    FurnitureRule r;
+    r.wallLanternEvery = 0;   // dungeon lighting is dynamic point lights — no lantern props
+    switch (purpose) {
+    case 4: // Library
+        r.wallPicks = { PropType::Bookshelf, PropType::Bookshelf, PropType::Bookshelf,
+                        PropType::Bookshelf, PropType::Desk, PropType::WallPainting };
+        r.openPicks = { PropType::Chair, PropType::Table };
+        r.capMin = 8; r.capMax = 14; break;
+    case 6: // Vault / treasure
+        r.wallPicks = { PropType::Crate, PropType::Barrel, PropType::Bookshelf };
+        r.openPicks = { PropType::Crate, PropType::Barrel, PropType::ProducePile };
+        r.capMin = 8; r.capMax = 14; r.allowTableTopper = false; break;
+    case 7: // Prison / cells
+        r.wallPicks = { PropType::Bed, PropType::Barrel };
+        r.openPicks = { PropType::Crate };
+        r.capMin = 3; r.capMax = 6; r.allowTableTopper = false; break;
+    case 3: // Throne room
+        r.wallPicks = { PropType::Couch, PropType::SideTable, PropType::WallPainting, PropType::Bookshelf };
+        r.openPicks = { PropType::FlowerVase, PropType::PottedPlant, PropType::Chair };
+        r.capMin = 4; r.capMax = 8; break;
+    case 2: // Boss hall
+        r.wallPicks = { PropType::AlchemyTable, PropType::Bookshelf, PropType::Barrel };
+        r.openPicks = { PropType::Cauldron, PropType::Crate, PropType::FlowerVase };
+        r.capMin = 4; r.capMax = 7; break;
+    case 5: // Ornament (central monument is block-built)
+        r.wallPicks = { PropType::WallPainting, PropType::Bookshelf, PropType::Bench };
+        r.openPicks = { PropType::PottedPlant, PropType::FlowerVase };
+        r.capMin = 3; r.capMax = 6; break;
+    case 1: // Entrance
+        r.wallPicks = { PropType::SideTable, PropType::Bookshelf, PropType::Bench };
+        r.openPicks = { PropType::PottedPlant, PropType::Barrel };
+        r.capMin = 3; r.capMax = 5; break;
+    default: // Hall — a fully furnished living space (lots of small items, like a house)
+        r.wallPicks = { PropType::Couch, PropType::Bookshelf, PropType::SideTable, PropType::Wardrobe,
+                        PropType::Desk, PropType::Cooker, PropType::KitchenCounter,
+                        PropType::WallPainting, PropType::BarCounter };
+        r.openPicks = { PropType::Table, PropType::Chair, PropType::Chair, PropType::FlowerVase,
+                        PropType::PottedPlant, PropType::Cauldron, PropType::Crate,
+                        PropType::Barrel, PropType::BarStool };
+        r.capMin = 9; r.capMax = 16; break;
+    }
+    return r;
+}
+
+void furnishDungeonRoom(const Dungeon& d, const DungeonRoom& rm) {
+    const int rw = rm.mx.x - rm.mn.x, rd = rm.mx.z - rm.mn.z;
+    if (rw < 4 || rd < 4) return;
+    FurnitureRule rule = dungeonFurnitureRule(rm.purpose);
+
+    std::mt19937 rng(worldSeed() ^ (uint32_t)(rm.mn.x * 73856093)
+                                 ^ (uint32_t)(rm.mn.z * 19349663) ^ 0xD0F0u);
+    const int fY = rm.mn.y;                                   // walkable floor (solid slab at fY-1)
+    const int cx = (rm.mn.x + rm.mx.x) / 2, cz = (rm.mn.z + rm.mx.z) / 2;
+
+    // Keep furniture clear of the block-built architecture (matches the stamp).
+    auto blocked = [&](int x, int z) -> bool {
+        if (d.overground) {   // the castle straight-staircase slot along the -Z wall
+            int lx0 = d.bbMin.x + 4, lx1 = d.bbMin.x + 4 + (d.levels - 1) * d.floorH + 1;
+            int lz0 = d.bbMin.y + 2, lz1 = d.bbMin.y + 4;
+            if (x >= lx0 && x <= lx1 && z >= lz0 && z <= lz1) return true;
+        }
+        if (rm.purpose == 5 && std::abs(x - cx) <= 3 && std::abs(z - cz) <= 3) return true; // monument
+        if ((rm.purpose == 2 || rm.purpose == 3) && x <= rm.mn.x + 3) return true;          // throne
+        if (rm.purpose == 7 && x <= rm.mn.x + 3) return true;                               // cages
+        return false;
+    };
+
+    struct Spot { int x, z; bool wall; float yaw; };
+    std::vector<Spot> spots;
+    for (int x = rm.mn.x + 1; x <= rm.mx.x - 1; x++)
+        for (int z = rm.mn.z + 1; z <= rm.mx.z - 1; z++) {
+            if (!dungeonRoomContains(rm, x, z) || blocked(x, z)) continue;
+            Spot s{ x, z, false, (float)((rng() % 4) * 90) };
+            if      (!dungeonRoomContains(rm, x - 1, z)) { s.wall = true; s.yaw = 90.0f; }
+            else if (!dungeonRoomContains(rm, x + 1, z)) { s.wall = true; s.yaw = 270.0f; }
+            else if (!dungeonRoomContains(rm, x, z - 1)) { s.wall = true; s.yaw = 0.0f; }
+            else if (!dungeonRoomContains(rm, x, z + 1)) { s.wall = true; s.yaw = 180.0f; }
+            spots.push_back(s);
+        }
+    if (spots.empty()) return;
+    for (size_t i = spots.size(); i > 1; i--) std::swap(spots[i - 1], spots[rng() % i]);
+
+    // A rug near the centre of most rooms (flat — furniture can sit on it).
+    if (rule.capMax >= 4 && !blocked(cx, cz) && dungeonRoomContains(rm, cx, cz))
+        g_placements.push_back({ PropType::Rug, glm::vec3((float)cx + 0.5f, (float)fY, (float)cz + 0.5f),
+                                 (float)((rng() % 2) * 90), (uint32_t)rng() });
+
+    int cap = rule.capMin + (int)(rng() % std::max(1, rule.capMax - rule.capMin + 1));
+    int placed = 0;
+    std::vector<glm::ivec3> used;
+    for (const Spot& s : spots) {
+        if (placed >= cap) break;
+        bool tooClose = false;
+        for (const glm::ivec3& u : used)
+            if (std::abs(u.x - s.x) < 3 && std::abs(u.z - s.z) < 3) { tooClose = true; break; }
+        if (tooClose) continue;
+
+        PropType t;
+        if (s.wall) { if (rule.wallPicks.empty()) continue; t = rule.wallPicks[rng() % rule.wallPicks.size()]; }
+        else        { if (rule.openPicks.empty()) continue; t = rule.openPicks[rng() % rule.openPicks.size()]; }
+        if (!s.wall && prefersWall(t)) continue;
+
+        float mountY = (t == PropType::WallPainting) ? 2.4f : 0.0f;
+        glm::vec3 pos((float)s.x + 0.5f, (float)fY + mountY, (float)s.z + 0.5f);
+        g_placements.push_back({ t, pos, s.yaw, (uint32_t)rng() });
+        if (rule.allowTableTopper && t == PropType::Table) {
+            glm::vec3 cp = pos; cp.y += TABLE_TOP_H;
+            g_placements.push_back({ (rng() % 2) ? PropType::Crockery : PropType::FlowerVase,
+                                     cp, s.yaw, (uint32_t)rng() });
+        }
+        used.push_back(glm::ivec3(s.x, fY, s.z));
+        placed++;
+    }
+}
+
 // Ground rest-height for a prop. Inside a town's hard-flat zone we use the
 // leveled baseY so the prop sits exactly on the flattened/paved surface; outside
 // it (e.g. a fence run along an open highway) we fall back to the raw terrain
@@ -563,6 +685,27 @@ void placeStablePaddock(const TownPlan& plan, const TownBuilding& b) {
     }
 }
 
+// A modelled fence around a crop field's perimeter (replacing the old wall of
+// wood blocks), with a gate gap on the front (door) side. Sections every 2
+// blocks read as a continuous run. The field is flattened to baseY, so fences
+// rest on baseY+1.
+void placeFarmFence(const TownBuilding& b) {
+    if (b.kind != (int)BuildingKind::Farm || b.dimX <= 0) return;
+    std::mt19937 rng(worldSeed() ^ (uint32_t)(b.wx * 2654435761u)
+                                 ^ (uint32_t)(b.wz * 40503u) ^ 0xFA2Eu);
+    int x0 = b.wx, x1 = b.wx + b.dimX - 1;
+    int z0 = b.wz, z1 = b.wz + b.dimZ - 1;
+    int gx = b.wx + b.doorX, gz = b.wz + b.doorZ;        // world gate cell
+    float fy = (float)(b.baseY + 1);
+    auto post = [&](int x, int z, float yaw) {
+        if (std::abs(x - gx) <= 1 && std::abs(z - gz) <= 1) return;   // leave the gate open
+        g_placements.push_back({ PropType::Fence,
+            glm::vec3((float)x + 0.5f, fy, (float)z + 0.5f), yaw, (uint32_t)rng() });
+    };
+    for (int x = x0; x <= x1; x += 2) { post(x, z0, 90.0f); post(x, z1, 90.0f); }   // front / back runs
+    for (int z = z0 + 2; z <= z1 - 2; z += 2) { post(x0, z, 0.0f); post(x1, z, 0.0f); }  // side runs
+}
+
 // Flower pots flanking every building's front door, plus a cluster of barrels
 // beside pubs, blacksmiths, and bakeries.
 void placeEntranceDecorations(const TownBuilding& b) {
@@ -803,13 +946,23 @@ void build() {
             placeDoorLantern(b);
             placeEntranceDecorations(b);
             if (b.kind == (int)BuildingKind::Stable) placeStablePaddock(plan, b);
+            if (b.kind == (int)BuildingKind::Farm)   placeFarmFence(b);
         }
         placeStreetLampProps(t);
         placeDecorations(t);
         placeBuntingSpans(t);
         placePlazaDetail(t);
     }
+    for (const TownBuilding& b : plan.roadside)        // roadside farms get fences too
+        if (b.kind == (int)BuildingKind::Farm) placeFarmFence(b);
     placeFences(plan);
+
+    // Dungeons & castles: furnish every room with the same detailed Prop
+    // furniture houses use (tables, chairs, shelves, cookers, barrels, rugs…).
+    const DungeonPlan& dp = getDungeonPlan();
+    for (const auto& dptr : dp.dungeons)
+        for (const DungeonRoom& rm : dptr->rooms)
+            furnishDungeonRoom(*dptr, rm);
 }
 
 std::vector<DoorPlacement> g_doors;
@@ -887,6 +1040,22 @@ PropType wildBushVariant(int biome, uint32_t h) {
                        : (v < 76) ? PropType::BushFlowering : PropType::BushBerry;
     }
 }
+
+// World-XZ footprints of roadside crop fields, built once. Town farms already
+// sit in the town flat zone (skipped by the townFlatLevelAt check); this keeps
+// wild bushes out of the stand-alone roadside fields too.
+bool insideRoadsideFarm(int wx, int wz) {
+    static std::vector<glm::ivec4> rects;          // (x0, z0, x1, z1) with a 1-block margin
+    static std::once_flag once;
+    std::call_once(once, [] {
+        for (const TownBuilding& b : getTownPlan().roadside)
+            if (b.kind == (int)BuildingKind::Farm && b.dimX > 0)
+                rects.push_back(glm::ivec4(b.wx - 1, b.wz - 1, b.wx + b.dimX, b.wz + b.dimZ));
+    });
+    for (const glm::ivec4& r : rects)
+        if (wx >= r.x && wx <= r.z && wz >= r.y && wz <= r.w) return true;
+    return false;
+}
 }  // namespace
 
 void gatherWildProps(const glm::vec3& center, float radius,
@@ -919,6 +1088,7 @@ void gatherWildProps(const glm::vec3& center, float radius,
                 if (live.count(key)) continue;            // already spawned — skip the sampling
                 int wx = (int)std::floor(px), wz = (int)std::floor(pz);
                 if (townFlatLevelAt(wx, wz) >= 1) continue;       // leave town ground to town props
+                if (insideRoadsideFarm(wx, wz)) continue;          // keep bushes out of crop fields
                 // Rest on the ACTUAL top solid block (the 3D-density surface the
                 // chunk really generates) — not sampleSurface()'s smooth blended
                 // target, which sits a block off and leaves bushes hovering.

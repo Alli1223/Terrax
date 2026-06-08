@@ -207,6 +207,12 @@ struct AppContext {
     float  mapPanZ         = 0.0f;
     float  mapBuiltCX      = 0.0f;   // player position when texture was last built
     float  mapBuiltCZ      = 0.0f;
+    // World area the uploaded texture covers, and the in-flight build's area.
+    // The overlays + texture share one transform so they pan/zoom together; the
+    // texture is drawn at THIS area, so a stale texture slides to the right spot
+    // while a freshly panned/zoomed one is still building.
+    float  mapTexCX = 0.0f, mapTexCZ = 0.0f, mapTexR = 256.0f;
+    float  mapPendingCX = 0.0f, mapPendingCZ = 0.0f, mapPendingR = 256.0f;
     bool   mapNeedsRebuild = true;
     bool   mapBuilding     = false;
     std::future<std::vector<uint8_t>> mapFuture;

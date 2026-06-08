@@ -638,4 +638,12 @@ void stampTownChunk(Chunk* c) {
             stampHouseSteps(c, b);
         }
     }
+
+    // Standalone roadside structures (towers, houses, big farms between towns).
+    for (const TownBuilding& b : plan.roadside) {
+        if (b.wx + b.dimX <= ox || b.wx >= ox + CHUNK_SIZE) continue;
+        if (b.wz + b.dimZ <= oz || b.wz >= oz + CHUNK_SIZE) continue;
+        stampBuilding(c, b);
+        stampHouseSteps(c, b);
+    }
 }

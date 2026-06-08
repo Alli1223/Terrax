@@ -47,6 +47,8 @@ enum class WeaponType {
     Bow,
     Staff,
     Axe,
+    Hoe,      // farm tool — a working "weapon" carried by farmer NPCs
+    Scythe,   // farm tool — used to harvest ripe wheat
 };
 
 // Elemental school carried by staves (and any future spell-casting

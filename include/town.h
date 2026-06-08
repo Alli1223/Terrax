@@ -94,6 +94,7 @@ struct TownPlan {
     std::vector<TownDock>  docks;          // jetties where highways meet the sea
     std::vector<TownBridge> bridges;       // raised spans over gullies and rivers
     std::vector<TownFerryLink> ferryLinks; // wide crossings served by a ferry
+    std::vector<TownBuilding>  roadside;   // standalone structures scattered along highways
 };
 
 // Lazily builds (once, thread-safe) and returns the global settlement plan.

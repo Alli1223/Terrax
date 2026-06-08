@@ -57,20 +57,23 @@ void Chunk::computeLight() {
             for (int y = CHUNK_HEIGHT - 1; y >= 0; y--) {
                 BlockType bt = get(x, y, z);
                 if (bt != BlockType::Air && bt != BlockType::Water &&
-                    bt != BlockType::Glass) break;
+                    bt != BlockType::Glass && !isWheatBlock(bt)) break;   // wheat is transparent
                 setSkyLight(x, y, z, 15);
                 q.push({(uint8_t)x, (uint8_t)y, (uint8_t)z, 15u});
             }
         }
     }
 
-    // ── Block light: seed Glowstone emitters ─────────────────────────────
+    // ── Block light: seed emitters (Glowstone full, Lantern slightly softer) ──
     for (int x = 0; x < CHUNK_SIZE; x++)
     for (int y = 0; y < CHUNK_HEIGHT; y++)
     for (int z = 0; z < CHUNK_SIZE; z++) {
-        if (get(x, y, z) == BlockType::Glowstone) {
-            setBlockLight(x, y, z, 15);
-            q.push({(uint8_t)x, (uint8_t)y, (uint8_t)z, (uint8_t)(0x80 | 15u)}); // block channel
+        BlockType b = get(x, y, z);
+        uint8_t emit = (b == BlockType::Glowstone) ? 15u
+                     : (b == BlockType::Lantern)   ? 14u : 0u;
+        if (emit) {
+            setBlockLight(x, y, z, emit);
+            q.push({(uint8_t)x, (uint8_t)y, (uint8_t)z, (uint8_t)(0x80 | emit)}); // block channel
         }
     }
 
@@ -89,7 +92,7 @@ void Chunk::computeLight() {
             if (bx < 0 || bx >= CHUNK_SIZE || by < 0 || by >= CHUNK_HEIGHT || bz < 0 || bz >= CHUNK_SIZE) continue;
             BlockType nb = get(bx, by, bz);
             if (nb != BlockType::Air && nb != BlockType::Water &&
-                nb != BlockType::Glass) continue;
+                nb != BlockType::Glass && !isWheatBlock(nb)) continue;   // light passes through wheat
             uint8_t cur = isBlock ? getBlockLight(bx,by,bz) : getSkyLight(bx,by,bz);
             if (next > cur) {
                 isBlock ? setBlockLight(bx,by,bz,next) : setSkyLight(bx,by,bz,next);
@@ -120,7 +123,8 @@ void Chunk::set(int x, int y, int z, BlockType t) {
 }
 
 static bool isOpaque(BlockType b) {
-    return b != BlockType::Air && b != BlockType::Water && b != BlockType::Glass;
+    return b != BlockType::Air && b != BlockType::Water && b != BlockType::Glass &&
+           !isWheatBlock(b);   // wheat is foliage, not a solid face
 }
 
 static TileID getTile(BlockType bt, int face) {
@@ -145,6 +149,8 @@ static TileID getTile(BlockType bt, int face) {
         case BlockType::Sandstone: return TileID::Sandstone;
         case BlockType::Ice:       return TileID::Ice;
         case BlockType::Glowstone: return TileID::Glowstone;
+        case BlockType::Lantern:   return TileID::Lantern;
+        case BlockType::Farmland:  return TileID::Farmland;
         case BlockType::Water:     return TileID::Water;
         case BlockType::Glass:     return TileID::Glass;
         default: {
@@ -277,7 +283,7 @@ void Chunk::buildMesh(World* world) {
         for (int z = 0; z < CHUNK_SIZE; z++) {
             for (int x = 0; x < CHUNK_SIZE; x++) {
                 BlockType bt = get(x, y, z);
-                if (bt == BlockType::Air) continue;
+                if (bt == BlockType::Air || isWheatBlock(bt)) continue;   // wheat → foliage mesh, no cube
 
                 int wx = pos.x * CHUNK_SIZE + x;
                 int wz = pos.z * CHUNK_SIZE + z;
@@ -304,7 +310,7 @@ void Chunk::buildMesh(World* world) {
                     float shade = SHADE[face];
                     float skyL   = ((rawLight >> 4) & 0xF) / 15.0f * shade;
                     float blockL = (rawLight & 0xF)        / 15.0f * shade;
-                    if (bt == BlockType::Glowstone) blockL = shade;
+                    if (bt == BlockType::Glowstone || bt == BlockType::Lantern) blockL = shade;
 
                     TileID tile = getTile(bt, face);
                     float u0, v0, u1, v1;
@@ -364,14 +370,29 @@ void Chunk::buildMesh(World* world) {
                 if (b != BlockType::Air) { topY = y; topBlock = b; break; }
             }
             if (topY < 0) continue;
-            // Vegetation only roots in natural ground cover — never on snow.
+
+            int wx = pos.x * CHUNK_SIZE + x;
+            int wz = pos.z * CHUNK_SIZE + z;
+
+            // Crop wheat renders as swaying voxel stalks rooted in its own cell
+            // (on the tilled Farmland below), by growth stage.
+            if (isWheatBlock(topBlock)) {
+                int stage = (topBlock == BlockType::WheatYoung) ? 0
+                          : (topBlock == BlockType::WheatTall)  ? 1 : 2;
+                float skyW = getSkyLight (x, topY, z) / 15.0f;
+                float blkW = getBlockLight(x, topY, z) / 15.0f;
+                uint32_t ws = (uint32_t)wx * 73856093u ^ (uint32_t)wz * 19349663u;
+                Vegetation::emitWheat(fverts, stage, (float)wx, (float)topY, (float)wz, skyW, blkW, ws);
+                continue;
+            }
+
+            // Wild vegetation only roots in natural ground cover — never on snow,
+            // and never on tilled Farmland (so crop fields stay clear).
             if (topBlock != BlockType::Grass && topBlock != BlockType::Dirt &&
                 topBlock != BlockType::Sand) continue;
             int fy = topY + 1;
             if (fy >= CHUNK_HEIGHT || get(x, fy, z) != BlockType::Air) continue;
 
-            int wx = pos.x * CHUNK_SIZE + x;
-            int wz = pos.z * CHUNK_SIZE + z;
             VegetationType vt =
                 Vegetation::pick(sampleSurface(wx, wz).biome, wx, wz);
             if (vt == VegetationType::None) continue;
@@ -481,29 +502,35 @@ void Chunk::uploadMesh() {
     state = ChunkState::Ready;
 }
 
+// Draw whatever mesh has been uploaded. We gate on the GL buffers existing
+// (vao != 0, vertexCount > 0) rather than state == Ready: uploadMesh reuses the
+// same vao/vbo and only swaps the contents at the end, so the previously-built
+// mesh stays valid while a chunk is being RE-meshed (e.g. after a block change /
+// relight). Skipping it during the rebuild made edited chunks blink out for a
+// frame — the flicker seen when farmers change crop blocks.
 void Chunk::draw() const {
-    if (isServer || state != ChunkState::Ready || vertexCount == 0) return;
+    if (isServer || vao == 0 || vertexCount == 0) return;
     glBindVertexArray(vao);
     glDrawArrays(GL_TRIANGLES, 0, vertexCount);
     glBindVertexArray(0);
 }
 
 void Chunk::drawWater() const {
-    if (isServer || state != ChunkState::Ready || waterVertexCount == 0) return;
+    if (isServer || waterVao == 0 || waterVertexCount == 0) return;
     glBindVertexArray(waterVao);
     glDrawArrays(GL_TRIANGLES, 0, waterVertexCount);
     glBindVertexArray(0);
 }
 
 void Chunk::drawFoliage() const {
-    if (isServer || state != ChunkState::Ready || foliageVertexCount == 0) return;
+    if (isServer || foliageVao == 0 || foliageVertexCount == 0) return;
     glBindVertexArray(foliageVao);
     glDrawArrays(GL_TRIANGLES, 0, foliageVertexCount);
     glBindVertexArray(0);
 }
 
 void Chunk::drawGlass() const {
-    if (isServer || state != ChunkState::Ready || glassVertexCount == 0) return;
+    if (isServer || glassVao == 0 || glassVertexCount == 0) return;
     glBindVertexArray(glassVao);
     glDrawArrays(GL_TRIANGLES, 0, glassVertexCount);
     glBindVertexArray(0);
@@ -521,6 +548,10 @@ static void blockToMapRGB(BlockType bt, int y, uint8_t& r, uint8_t& g, uint8_t& 
         case BlockType::Sand:      ri=220; gi=198; bi=115; break;
         case BlockType::Gravel:    ri=138; gi=136; bi=130; break;
         case BlockType::Snow:      ri=238; gi=242; bi=255; break;
+        case BlockType::Farmland:  ri=104; gi=70;  bi=42;  break;
+        case BlockType::WheatYoung:ri=120; gi=150; bi=58;  break;
+        case BlockType::WheatTall: ri=170; gi=160; bi=70;  break;
+        case BlockType::WheatRipe: ri=214; gi=180; bi=82;  break;
         case BlockType::Stone:     ri=118; gi=118; bi=125; break;
         case BlockType::Sandstone: ri=198; gi=168; bi=88;  break;
         case BlockType::Leaves:       ri=38;  gi=128; bi=22;  break;
@@ -530,6 +561,7 @@ static void blockToMapRGB(BlockType bt, int y, uint8_t& r, uint8_t& g, uint8_t& 
         case BlockType::Wood:      ri=165; gi=110; bi=52;  break;
         case BlockType::Cactus:    ri=30;  gi=108; bi=22;  break;
         case BlockType::Glowstone: ri=255; gi=200; bi=50;  break;
+        case BlockType::Lantern:   ri=255; gi=190; bi=90;  break;
         default:                   ri=100; gi=100; bi=100; break;
     }
     if (bt != BlockType::Water) {
@@ -583,7 +615,7 @@ void World::fillOpacityVolume(uint8_t* out, int size, int ox, int oy, int oz) co
                     if (wy < 0 || wy >= CHUNK_HEIGHT) continue;
                     BlockType b = c->get(lx, wy, lz);
                     if (b != BlockType::Air && b != BlockType::Water &&
-                        b != BlockType::Glass)
+                        b != BlockType::Glass && !isWheatBlock(b))   // wheat doesn't occlude point lights
                         out[((size_t)tz * size + ty) * size + tx] = 255;
                 }
             }

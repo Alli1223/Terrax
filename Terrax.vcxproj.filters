@@ -86,6 +86,9 @@
     <ClCompile Include="src\building.cpp"><Filter>Buildings</Filter></ClCompile>
     <ClCompile Include="src\building_house.cpp"><Filter>Buildings</Filter></ClCompile>
     <ClCompile Include="src\building_special.cpp"><Filter>Buildings</Filter></ClCompile>
+    <ClCompile Include="src\building_farm.cpp"><Filter>Buildings</Filter></ClCompile>
+    <ClCompile Include="src\dungeon.cpp"><Filter>Towns</Filter></ClCompile>
+    <ClCompile Include="src\castle.cpp"><Filter>Towns</Filter></ClCompile>
     <!-- Voxel Models -->
     <ClCompile Include="src\voxel_model.cpp"><Filter>Voxel Models</Filter></ClCompile>
     <ClCompile Include="src\voxel_rig.cpp"><Filter>Voxel Models</Filter></ClCompile>
@@ -98,6 +101,7 @@
     <ClCompile Include="src\npc.cpp"><Filter>NPCs &amp; Wildlife</Filter></ClCompile>
     <ClCompile Include="src\animal.cpp"><Filter>NPCs &amp; Wildlife</Filter></ClCompile>
     <ClCompile Include="src\npc_appearance.cpp"><Filter>NPCs &amp; Wildlife</Filter></ClCompile>
+    <ClCompile Include="src\farm_director.cpp"><Filter>NPCs &amp; Wildlife</Filter></ClCompile>
     <!-- Props & Vehicles -->
     <ClCompile Include="src\prop.cpp"><Filter>Props &amp; Vehicles</Filter></ClCompile>
     <ClCompile Include="src\furniture.cpp"><Filter>Props &amp; Vehicles</Filter></ClCompile>
@@ -164,6 +168,9 @@
     <ClInclude Include="src\town_internal.h"><Filter>Towns</Filter></ClInclude>
     <!-- Buildings -->
     <ClInclude Include="include\building.h"><Filter>Buildings</Filter></ClInclude>
+    <ClInclude Include="include\building_farm.h"><Filter>Buildings</Filter></ClInclude>
+    <ClInclude Include="include\dungeon.h"><Filter>Towns</Filter></ClInclude>
+    <ClInclude Include="include\castle.h"><Filter>Towns</Filter></ClInclude>
     <ClInclude Include="src\building_internal.h"><Filter>Buildings</Filter></ClInclude>
     <!-- Voxel Models -->
     <ClInclude Include="include\voxel_model.h"><Filter>Voxel Models</Filter></ClInclude>
@@ -177,6 +184,7 @@
     <ClInclude Include="include\npc.h"><Filter>NPCs &amp; Wildlife</Filter></ClInclude>
     <ClInclude Include="include\animal.h"><Filter>NPCs &amp; Wildlife</Filter></ClInclude>
     <ClInclude Include="include\npc_appearance.h"><Filter>NPCs &amp; Wildlife</Filter></ClInclude>
+    <ClInclude Include="include\farm_director.h"><Filter>NPCs &amp; Wildlife</Filter></ClInclude>
     <!-- Props & Vehicles -->
     <ClInclude Include="include\prop.h"><Filter>Props &amp; Vehicles</Filter></ClInclude>
     <ClInclude Include="include\prop_builders.h"><Filter>Props &amp; Vehicles</Filter></ClInclude>

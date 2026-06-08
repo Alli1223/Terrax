@@ -295,8 +295,11 @@ TEST_CASE(Farm_HasCropRowsSeparatedByAirFurrows) {
     int totalCrops = 0;
     for (int z = 0; z < dz; z++)
         for (int x = 0; x < dx; x++)
-            if (at(x, FARM_CROP_Y, z) == BlockType::Leaves) { cropsInRow[z]++; totalCrops++; }
-    CHECK(totalCrops > 0);                 // the field is planted
+            if (isWheatBlock(at(x, FARM_CROP_Y, z))) { cropsInRow[z]++; totalCrops++; }
+    CHECK(totalCrops > 0);                 // the field is planted with wheat
+
+    // The plot floor is tilled Farmland (so no wild grass grows on it).
+    CHECK(at(0, 0, 0) == BlockType::Farmland);
 
     int firstCrop = -1, lastCrop = -1;
     for (int z = 0; z < dz; z++)

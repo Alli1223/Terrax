@@ -6,15 +6,15 @@
 #include "network.h"         // g_server, PacketType, BlockUpdatePacket
 #include <algorithm>
 
-// Block shown for each crop growth stage. Existing block ids only (no atlas
-// work): bare soil is Air (the tilled Dirt below shows), young wheat is green
-// Leaves, maturing wheat the orange leaf, ripe grain the golden Amber paint.
+// Block shown for each crop growth stage. Wheat blocks render as swaying voxel
+// foliage (see Vegetation::emitWheat); stage 0 is bare (the tilled Farmland
+// below shows through).
 static BlockType stageBlock(uint8_t stage) {
     switch (stage) {
-        case 0:  return BlockType::Air;
-        case 1:  return BlockType::Leaves;
-        case 2:  return BlockType::LeavesOrange;
-        default: return (BlockType)((int)BlockType::PaintFirst + 10);   // 10 = Amber
+        case 0:  return BlockType::Air;          // bare tilled soil
+        case 1:  return BlockType::WheatYoung;   // fresh green sprouts
+        case 2:  return BlockType::WheatTall;    // tall, yellowing
+        default: return BlockType::WheatRipe;    // ripe golden grain
     }
 }
 
@@ -44,7 +44,7 @@ void FarmDirector::ensureRegistry() {
             for (int x = 0; x < b.dimX; x++) {
                 size_t idx = ((size_t)FARM_CROP_Y * b.dimZ + z) * b.dimX + x;
                 if (idx >= b.blocks.size()) continue;
-                if (b.blocks[idx] != (uint8_t)BlockType::Leaves) continue;
+                if (!isWheatBlock((BlockType)b.blocks[idx])) continue;
                 int wx = b.wx + x, wz = b.wz + z;
                 f.tile.push_back(glm::ivec2(wx, wz));
                 // Start each tile at a varied stage (1..3) so fields look

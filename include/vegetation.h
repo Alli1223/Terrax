@@ -58,4 +58,11 @@ public:
     static void emit(std::vector<VegVertex>& out, VegetationType type,
                      float wx, float baseY, float wz,
                      float skyLight, float blockLight, uint32_t seed);
+
+    // Crop wheat, rooted at (wx, baseY, wz). `stage` 0 = young/green, 1 = tall,
+    // 2 = ripe/golden (with grain heads). Swaying voxel stalks; used by the
+    // chunk mesh to render WheatYoung/Tall/Ripe blocks as foliage.
+    static void emitWheat(std::vector<VegVertex>& out, int stage,
+                          float wx, float baseY, float wz,
+                          float skyLight, float blockLight, uint32_t seed);
 };

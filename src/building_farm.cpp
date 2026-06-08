@@ -20,9 +20,8 @@ void FarmBuilding::generate(uint32_t seed,
         blocks[((size_t)y * d + z) * w + x] = (uint8_t)t;
     };
 
-    const BlockType soil  = BlockType::Dirt;
-    const BlockType fence = BlockType::Wood;
-    const BlockType crop  = BlockType::Leaves;
+    const BlockType soil = BlockType::Farmland;
+    const BlockType crop = BlockType::WheatTall;   // mid stage; FarmDirector varies it live
 
     // A deterministic ~6% of crop cells are left fallow so fields don't look
     // perfectly uniform. Keyed on the bake seed + cell so it's stable per farm.
@@ -43,34 +42,23 @@ void FarmBuilding::generate(uint32_t seed,
         for (int x = FARM_BORDER; x <= w - 1 - FARM_BORDER; x++)
             if (!fallow(x, z)) set(x, FARM_CROP_Y, z, crop);
 
-    // 2-tall wood fence around the perimeter with a 2-wide gate on the front
-    // (-Z) side, plus taller corner posts.
-    int gx = w / 2;
-    for (int y = 1; y <= 2; y++) {
-        for (int x = 0; x < w; x++) {
-            if (!(x == gx || x == gx - 1)) set(x, y, 0, fence);  // front wall (gate gap)
-            set(x, y, d - 1, fence);                             // back wall
-        }
-        for (int z = 0; z < d; z++) {
-            set(0,     y, z, fence);
-            set(w - 1, y, z, fence);
-        }
-    }
-    set(0, 3, 0, fence);      set(w - 1, 3, 0, fence);
-    set(0, 3, d - 1, fence);  set(w - 1, 3, d - 1, fence);
+    // The perimeter fence is placed as modelled Fence props (placeFarmFence in
+    // prop_placement.cpp), with a gate gap on the front (-Z) side — no longer a
+    // stamped wall of wood blocks.
 
     // Standalone farms get a scarecrow at the field centre. Its straw head is
-    // LeavesOrange (not Leaves) so the FarmDirector's crop scan ignores it; the
-    // post cell is cleared of crop so the scan skips it too.
+    // LeavesOrange so the FarmDirector's crop scan ignores it; the post cell is
+    // cleared of crop so the scan skips it too.
     if (standalone) {
+        const BlockType post = BlockType::Wood;
         int cx = w / 2, cz = d / 2;
         set(cx, FARM_CROP_Y, cz, BlockType::Air);
-        set(cx, 1, cz, fence); set(cx, 2, cz, fence); set(cx, 3, cz, fence);  // post
-        set(cx - 1, 3, cz, fence); set(cx + 1, 3, cz, fence);                 // arms
-        set(cx, 4, cz, BlockType::LeavesOrange);                              // straw head
+        set(cx, 1, cz, post); set(cx, 2, cz, post); set(cx, 3, cz, post);  // post
+        set(cx - 1, 3, cz, post); set(cx + 1, 3, cz, post);                // arms
+        set(cx, 4, cz, BlockType::LeavesOrange);                           // straw head
     }
 
     rooms.clear();                 // no interior → populateTown leaves farms alone
     doorDX = 0; doorDZ = -1;       // gate faces -Z (front); bakeBuilding rotates it
-    doorCellX = gx; doorCellZ = 0;
+    doorCellX = w / 2; doorCellZ = 0;
 }

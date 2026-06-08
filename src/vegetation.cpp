@@ -200,6 +200,34 @@ void genReeds(std::vector<VegVertex>& o, glm::vec3 base, VRng& r, float sky, flo
     }
 }
 
+// Crop wheat — a tuft of upright stalks. `stage` drives height + colour:
+// 0 young (short, green), 1 tall (yellow-green), 2 ripe (golden, with grain
+// heads). Sway ramps up each stalk so the field ripples in the wind.
+void genWheat(std::vector<VegVertex>& o, glm::vec3 base, VRng& r, float sky, float blk, int stage) {
+    glm::vec3 rootC, tipC;
+    int baseLen;
+    if (stage <= 0)      { rootC = glm::vec3(0.32f,0.46f,0.16f); tipC = glm::vec3(0.56f,0.74f,0.28f); baseLen = 2; }
+    else if (stage == 1) { rootC = glm::vec3(0.46f,0.52f,0.18f); tipC = glm::vec3(0.80f,0.78f,0.34f); baseLen = 4; }
+    else                 { rootC = glm::vec3(0.60f,0.50f,0.20f); tipC = glm::vec3(0.93f,0.82f,0.38f); baseLen = 6; }
+    int   stalks = r.irange(4, 7);
+    float ch = 0.13f;
+    for (int i = 0; i < stalks; i++) {
+        float a = r.range(0.0f, TAU), rad = r.range(0.0f, 0.17f);
+        glm::vec3 b = base + glm::vec3(cosf(a) * rad, 0.0f, sinf(a) * rad);
+        int cubes = baseLen + r.irange(-1, 1);
+        if (cubes < 1) cubes = 1;
+        addVoxelStack(o, b, r.range(0.035f, 0.055f), ch, cubes,
+                      jitterCol(rootC, r, 0.04f), jitterCol(tipC, r, 0.05f), sky, blk);
+        if (stage >= 2) {                                          // a fat golden grain head
+            float hy = b.y + (float)cubes * ch;
+            glm::vec3 grain = jitterCol(glm::vec3(0.95f, 0.80f, 0.34f), r, 0.04f);
+            for (int k = 0; k < 2; k++)
+                addCube(o, glm::vec3(b.x, hy + (float)k * 0.08f, b.z),
+                        glm::vec3(0.058f, 0.05f, 0.058f), grain, 0.9f, 1.0f, sky, blk);
+        }
+    }
+}
+
 // A flower — a slim stem, a leaf, and a blocky petalled head.
 void genFlower(std::vector<VegVertex>& o, glm::vec3 base, VRng& r, float sky, float blk,
                float heightScale) {
@@ -533,4 +561,12 @@ void Vegetation::emit(std::vector<VegVertex>& o, VegetationType type,
     case V::Pebbles:    genPebbles(o, base, r, sky, blk); break;
     default: break;
     }
+}
+
+void Vegetation::emitWheat(std::vector<VegVertex>& o, int stage,
+                           float wx, float baseY, float wz,
+                           float sky, float blk, uint32_t seed) {
+    VRng r(seed);
+    glm::vec3 base(wx + r.range(0.35f, 0.65f), baseY, wz + r.range(0.35f, 0.65f));
+    genWheat(o, base, r, sky, blk, stage);
 }

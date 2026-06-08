@@ -35,7 +35,17 @@ enum class BlockType : uint8_t {
     Glass        = 17,
     PaintFirst   = 18,   // 28 painted-colour blocks: ids 18..45 (see PAINT_PALETTE)
     Lantern      = 46,   // a wood/iron caged lantern — emits warm block light (see computeLight)
+    Farmland     = 47,   // tilled crop soil — a solid cube; never grows wild vegetation
+    WheatYoung   = 48,   // crop growth stages — rendered as swaying voxel wheat (not cubes),
+    WheatTall    = 49,   // non-solid + transparent. See Vegetation::emitWheat / FarmDirector.
+    WheatRipe    = 50,
 };
+
+// Wheat crop blocks render as swaying foliage (voxel stalks), not solid cubes,
+// and are walk-through + transparent to light.
+inline bool isWheatBlock(BlockType b) {
+    return b == BlockType::WheatYoung || b == BlockType::WheatTall || b == BlockType::WheatRipe;
+}
 
 enum class ChunkState {
     Empty,

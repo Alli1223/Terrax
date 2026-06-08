@@ -43,7 +43,7 @@ static bool hasLineOfSight(World& world, glm::vec3 fromFeet, glm::vec3 to) {
     return !world.raycast(eye, d / dist, std::max(0.5f, dist - 1.0f), hb, hn);
 }
 
-static bool isSolidBlk(BlockType b) { return b != BlockType::Air && b != BlockType::Water; }
+static bool isSolidBlk(BlockType b) { return b != BlockType::Air && b != BlockType::Water && !isWheatBlock(b); }
 
 // Move an NPC by (dx,dz) only if no wall blocks the destination at body height,
 // so dungeon enemies stay in their rooms/corridors instead of ghosting through

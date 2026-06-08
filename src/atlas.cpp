@@ -98,6 +98,17 @@ static void genLantern(std::vector<uint8_t>& d, int col, int row) {
     }
 }
 
+// Tilled crop soil — dark brown earth with horizontal furrow ridges and grain.
+static void genFarmland(std::vector<uint8_t>& d, int col, int row) {
+    for (int ty = 0; ty < TILE_PX; ty++) for (int tx = 0; tx < TILE_PX; tx++) {
+        int ax = col*TILE_PX+tx, ay = row*TILE_PX+ty;
+        int band = (((ty / 8) & 1) ? 16 : -8);                 // raised / sunken furrow rows
+        uint32_t h = (uint32_t)((ax * 73856093) ^ (ay * 19349663));
+        int n = (int)(h % 13u) - 6;                            // soil grain
+        setPixel(d, ax, ay, 96 + band + n, 64 + band / 2 + n, 40 + band / 3 + n / 2);
+    }
+}
+
 // ---- Public API ----
 
 void tileUV(TileID tile, float& u0, float& v0, float& u1, float& v1) {
@@ -155,6 +166,7 @@ GLuint generateAtlas() {
     }
     // Lantern (row 13) — a light-emitting fixture block
     genLantern(data, (int)TileID::Lantern % ATLAS_COLS, (int)TileID::Lantern / ATLAS_COLS);
+    genFarmland(data, (int)TileID::Farmland % ATLAS_COLS, (int)TileID::Farmland / ATLAS_COLS);
 
     GLuint tex;
     glGenTextures(1, &tex);

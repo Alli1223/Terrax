@@ -72,6 +72,7 @@ enum class TileID : int {
     Glass        = 23, // col 3, row 5 — window glass
     PaintFirst   = 24, // 28 solid painted-colour tiles, ids 24..51 (rows 6..12)
     Lantern      = 52, // col 0, row 13 — caged warm lantern (BlockType::Lantern)
+    Farmland     = 53, // col 1, row 13 — tilled crop soil (BlockType::Farmland)
 };
 
 // Returns atlas UV corners for a tile (with half-texel inset to prevent bleeding).

@@ -685,6 +685,27 @@ void placeStablePaddock(const TownPlan& plan, const TownBuilding& b) {
     }
 }
 
+// A modelled fence around a crop field's perimeter (replacing the old wall of
+// wood blocks), with a gate gap on the front (door) side. Sections every 2
+// blocks read as a continuous run. The field is flattened to baseY, so fences
+// rest on baseY+1.
+void placeFarmFence(const TownBuilding& b) {
+    if (b.kind != (int)BuildingKind::Farm || b.dimX <= 0) return;
+    std::mt19937 rng(worldSeed() ^ (uint32_t)(b.wx * 2654435761u)
+                                 ^ (uint32_t)(b.wz * 40503u) ^ 0xFA2Eu);
+    int x0 = b.wx, x1 = b.wx + b.dimX - 1;
+    int z0 = b.wz, z1 = b.wz + b.dimZ - 1;
+    int gx = b.wx + b.doorX, gz = b.wz + b.doorZ;        // world gate cell
+    float fy = (float)(b.baseY + 1);
+    auto post = [&](int x, int z, float yaw) {
+        if (std::abs(x - gx) <= 1 && std::abs(z - gz) <= 1) return;   // leave the gate open
+        g_placements.push_back({ PropType::Fence,
+            glm::vec3((float)x + 0.5f, fy, (float)z + 0.5f), yaw, (uint32_t)rng() });
+    };
+    for (int x = x0; x <= x1; x += 2) { post(x, z0, 90.0f); post(x, z1, 90.0f); }   // front / back runs
+    for (int z = z0 + 2; z <= z1 - 2; z += 2) { post(x0, z, 0.0f); post(x1, z, 0.0f); }  // side runs
+}
+
 // Flower pots flanking every building's front door, plus a cluster of barrels
 // beside pubs, blacksmiths, and bakeries.
 void placeEntranceDecorations(const TownBuilding& b) {
@@ -925,12 +946,15 @@ void build() {
             placeDoorLantern(b);
             placeEntranceDecorations(b);
             if (b.kind == (int)BuildingKind::Stable) placeStablePaddock(plan, b);
+            if (b.kind == (int)BuildingKind::Farm)   placeFarmFence(b);
         }
         placeStreetLampProps(t);
         placeDecorations(t);
         placeBuntingSpans(t);
         placePlazaDetail(t);
     }
+    for (const TownBuilding& b : plan.roadside)        // roadside farms get fences too
+        if (b.kind == (int)BuildingKind::Farm) placeFarmFence(b);
     placeFences(plan);
 
     // Dungeons & castles: furnish every room with the same detailed Prop
@@ -1016,6 +1040,22 @@ PropType wildBushVariant(int biome, uint32_t h) {
                        : (v < 76) ? PropType::BushFlowering : PropType::BushBerry;
     }
 }
+
+// World-XZ footprints of roadside crop fields, built once. Town farms already
+// sit in the town flat zone (skipped by the townFlatLevelAt check); this keeps
+// wild bushes out of the stand-alone roadside fields too.
+bool insideRoadsideFarm(int wx, int wz) {
+    static std::vector<glm::ivec4> rects;          // (x0, z0, x1, z1) with a 1-block margin
+    static std::once_flag once;
+    std::call_once(once, [] {
+        for (const TownBuilding& b : getTownPlan().roadside)
+            if (b.kind == (int)BuildingKind::Farm && b.dimX > 0)
+                rects.push_back(glm::ivec4(b.wx - 1, b.wz - 1, b.wx + b.dimX, b.wz + b.dimZ));
+    });
+    for (const glm::ivec4& r : rects)
+        if (wx >= r.x && wx <= r.z && wz >= r.y && wz <= r.w) return true;
+    return false;
+}
 }  // namespace
 
 void gatherWildProps(const glm::vec3& center, float radius,
@@ -1048,6 +1088,7 @@ void gatherWildProps(const glm::vec3& center, float radius,
                 if (live.count(key)) continue;            // already spawned — skip the sampling
                 int wx = (int)std::floor(px), wz = (int)std::floor(pz);
                 if (townFlatLevelAt(wx, wz) >= 1) continue;       // leave town ground to town props
+                if (insideRoadsideFarm(wx, wz)) continue;          // keep bushes out of crop fields
                 // Rest on the ACTUAL top solid block (the 3D-density surface the
                 // chunk really generates) — not sampleSurface()'s smooth blended
                 // target, which sits a block off and leaves bushes hovering.

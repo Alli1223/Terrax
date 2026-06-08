@@ -7,7 +7,7 @@
 static constexpr float SKIN = 0.001f;
 
 static bool isSolid(BlockType bt) {
-    return bt != BlockType::Air && bt != BlockType::Water;
+    return bt != BlockType::Air && bt != BlockType::Water && !isWheatBlock(bt);
 }
 
 // True if any solid block sits under the player's footprint at world layer `by`.

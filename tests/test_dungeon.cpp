@@ -5,7 +5,9 @@
 // the room-shape system is actually exercised.
 #include "terrax_test.h"
 #include "dungeon.h"
+#include "castle.h"    // CastleDungeon layout check
 #include "world.h"     // setWorldSeed, sampleSurfaceSolid
+#include "npc.h"       // NPCType (spawn-table check)
 
 #include <memory>
 #include <vector>
@@ -99,4 +101,67 @@ TEST_CASE(Dungeon_HasDynamicLightsAndTwoTowerBeacons) {
     int beacons = 0;
     for (const DungeonLight& L : d->lights) if (L.kind == 2) beacons++;
     CHECK(beacons >= 2);                             // the two grand landmark towers
+}
+
+TEST_CASE(Castle_HasPerFloorRoomsBossAndProjectingEntrance) {
+    setWorldSeed(1234u);
+    auto d = makeDungeon(DungeonKind::Castle);
+    d->sizeTier = 1;                                   // levels = clamp(3+1,3,6) = 4
+    d->generateLayout(0xC0FFu, glm::ivec2(7000, 3000), 80);
+    CHECK(d->overground);
+    CHECK(d->rooms.size() >= 5);                       // 2 wings per lower floor + a boss hall
+    int boss = 0;
+    for (const DungeonRoom& r : d->rooms) if (r.purpose == 2) boss++;
+    CHECK_EQ(boss, 1);
+    CHECK(!d->lights.empty());
+    CHECK(d->entrance.x > d->entranceInner.x);         // the gatehouse projects past the keep wall
+    CHECK(d->bbMax.x > d->entrance.x);                 // bbox covers the descending entrance stair
+}
+
+TEST_CASE(Castle_StampHasStairHoleAndSolidFloors) {
+    setWorldSeed(99u);
+    auto d = makeDungeon(DungeonKind::Castle);
+    d->sizeTier = 0;                                   // levels = 3, keep half = 12
+    glm::ivec2 a(2000, 2000);
+    int surf = sampleSurfaceSolid(a.x, a.y);
+    d->generateLayout(0x1u, a, surf);
+
+    // Read a world cell by stamping the castle into the chunk that owns it.
+    auto fdiv = [](int v, int s) { return v >= 0 ? v / s : -((-v + s - 1) / s); };
+    auto blockAt = [&](int wx, int wy, int wz) {
+        int cx = fdiv(wx, CHUNK_SIZE), cz = fdiv(wz, CHUNK_SIZE);
+        Chunk c(ChunkPos{cx, cz}, /*isServer=*/true);
+        stampCastleChunk(&c, *d);
+        return c.get(wx - cx * CHUNK_SIZE, wy, wz - cz * CHUNK_SIZE);
+    };
+
+    const int half = 12, KX0 = a.x - half, KX1 = a.x + half, KZ0 = a.y - half;
+    const int baseY = surf, fh = d->floorH;
+    const int stX0 = KX0 + 3;
+    const int fs1  = baseY - 1 + fh;                   // the first upper floor's level
+    // Over the stair lane, the upper floor is OPEN (you can climb up).
+    CHECK(blockAt(stX0 + 1, fs1, KZ0 + 2) == BlockType::Air);
+    // The room area of that floor is a solid floor you can stand on.
+    CHECK(blockAt(KX0 + 6, fs1, KZ0 + 7) != BlockType::Air);
+
+    // The entrance approach is a carved graded path (solid tread + clear above),
+    // so the gate is reachable rather than buried in the ground. (GATE_DEPTH = 5.)
+    const int ez = a.y, gX1 = KX1 + 5;
+    int terrC1 = sampleSurfaceSolid(gX1 + 1, ez);
+    int pf = baseY - 1; if (pf < terrC1) pf++; else if (pf > terrC1) pf--;
+    CHECK(blockAt(gX1 + 1, pf,     ez) != BlockType::Air);   // a solid tread to walk on
+    CHECK(blockAt(gX1 + 1, pf + 1, ez) == BlockType::Air);   // and headroom cut above it
+}
+
+TEST_CASE(Dungeon_SpawnTableHasOneBossAndChampions) {
+    auto d = makeLayout(DungeonKind::Crypt, 2, 0x3030u);
+    std::vector<DungeonSpawn> spawns;
+    d->fillSpawnTable(spawns, 0x3030u);
+    int bosses = 0, brutes = 0;
+    for (const DungeonSpawn& s : spawns) {
+        if (s.boss) bosses++;
+        if (s.npcType == (uint8_t)NPCType::Brute) brutes++;
+    }
+    CHECK_EQ(bosses, 1);     // exactly one true boss (legendary loot)
+    CHECK(brutes >= 2);      // the boss plus at least one elite "champion"
 }

@@ -118,6 +118,7 @@
     <ClCompile Include="src\building_special.cpp" />
     <ClCompile Include="src\building_farm.cpp" />
     <ClCompile Include="src\dungeon.cpp" />
+    <ClCompile Include="src\castle.cpp" />
     <ClCompile Include="src\items.cpp" />
     <ClCompile Include="src\inventory.cpp" />
     <ClCompile Include="src\clothing_painter.cpp" />
@@ -206,6 +207,7 @@
     <ClInclude Include="include\building.h" />
     <ClInclude Include="include\building_farm.h" />
     <ClInclude Include="include\dungeon.h" />
+    <ClInclude Include="include\castle.h" />
     <ClInclude Include="include\interactable.h" />
     <ClInclude Include="include\world.h" />
     <ClInclude Include="src\noise.h" />

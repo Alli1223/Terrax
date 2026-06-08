@@ -1,4 +1,5 @@
 #include "dungeon.h"
+#include "castle.h"    // CastleDungeon + stampCastleChunk (overground castles)
 #include "world.h"     // Chunk, CHUNK_SIZE/HEIGHT, sampleSurfaceSolid, worldSeed, WORLD_SEA_LEVEL
 #include "town.h"      // getTownPlan — dungeons must stay clear of towns
 #include "npc.h"       // NPCType — enemy rosters
@@ -18,6 +19,17 @@ static int footprintMinSurface(glm::ivec2 a, int half) {
         for (int dx = -half; dx <= half; dx += step)
             mn = std::min(mn, sampleSurfaceSolid(a.x + dx, a.y + dz));
     return mn;
+}
+
+// Highest solid surface across a footprint — used to reject castle sites where
+// the ground rises so far above the anchor that the keep (and its entrance)
+// would be buried in a hillside.
+static int footprintMaxSurface(glm::ivec2 a, int half) {
+    int mx = -(1 << 30), step = std::max(1, half / 3);
+    for (int dz = -half; dz <= half; dz += step)
+        for (int dx = -half; dx <= half; dx += step)
+            mx = std::max(mx, sampleSurfaceSolid(a.x + dx, a.y + dz));
+    return mx;
 }
 
 // Per-dungeon size tier → footprint half-extent and room-count multiplier.
@@ -242,6 +254,11 @@ void Dungeon::rosterFill(std::vector<DungeonSpawn>& out, uint32_t seed,
             n = std::max(1, perRoom - 1);
         }
         for (int k = 0; k < n; k++) spawnIn(minionType);
+        // A tougher "champion" (boss=false → a hard elite, not THE boss) stalks
+        // some chambers: throne rooms always, other non-entrance rooms ~25%.
+        if (rm.purpose != 1 && rm.purpose != 2 &&
+            (rm.purpose == 3 || (r() % 100u) < 25u))
+            spawnIn(bossType);
     }
 }
 
@@ -289,50 +306,8 @@ public:
     }
 };
 
-// Overground castle: a multi-storey keep built ABOVE ground (not carved). The
-// boss rules the throne hall on the top floor; a spiral staircase in a corner
-// connects every level, and corner towers + battlements crown it.
-class CastleDungeon : public Dungeon {
-public:
-    DungeonKind kind() const override { return DungeonKind::Castle; }
-    void generateLayout(uint32_t seed, glm::ivec2 a, int surf) override {
-        (void)seed;
-        overground = true;
-        floorH = 6;
-        levels = std::clamp(3 + sizeTier, 3, 6);
-        int half = 12 + sizeTier * 6;                  // 12 / 18 / 24 / 30  → up to 61 wide
-        anchor = a; surfaceY = surf; floorY = surf;
-        for (int lv = 0; lv < levels; lv++) {          // one hall per storey (spawns + dressing)
-            int wy = surf + lv * floorH;
-            DungeonRoom rm;
-            rm.mn = glm::ivec3(a.x - half + 2, wy,              a.y - half + 2);
-            rm.mx = glm::ivec3(a.x + half - 2, wy + floorH - 2, a.y + half - 2);
-            rm.purpose = (lv == levels - 1) ? 2 : 0;   // boss on the top floor
-            rooms.push_back(rm);
-        }
-        entrance      = glm::ivec3(a.x + half,     surf, a.y);
-        entranceInner = glm::ivec3(a.x + half - 1, surf, a.y);
-        bbMin = glm::ivec2(a.x - half - 1, a.y - half - 1);
-        bbMax = glm::ivec2(a.x + half + 1, a.y + half + 1);
-        // dynamic lights (no glowing voxels): a hall beacon + wall brackets per
-        // storey, and a beacon atop each of the four corner towers.
-        for (int lv = 0; lv < levels; lv++) {
-            int wy = surf + lv * floorH;
-            lights.push_back({ glm::vec3((float)a.x + 0.5f, (float)(wy + floorH - 3) + 0.5f, (float)a.y + 0.5f), 2 });
-            lights.push_back({ glm::vec3((float)(a.x - half + 3) + 0.5f, (float)(wy + 2) + 0.5f, (float)a.y + 0.5f), 0 });
-            lights.push_back({ glm::vec3((float)(a.x + half - 3) + 0.5f, (float)(wy + 2) + 0.5f, (float)a.y + 0.5f), 0 });
-        }
-        int roofY = surf - 1 + levels * floorH;
-        int cpx[2] = { a.x - half + 1, a.x + half - 1 }, cpz[2] = { a.y - half + 1, a.y + half - 1 };
-        for (int i = 0; i < 2; i++) for (int j = 0; j < 2; j++)
-            lights.push_back({ glm::vec3((float)cpx[i] + 0.5f, (float)(roofY + 6) + 0.5f, (float)cpz[j] + 0.5f), 2 });
-    }
-    BlockType wallBlock()  const override { return BlockType::Stone; }
-    BlockType floorBlock() const override { return BlockType::Stone; }
-    void fillSpawnTable(std::vector<DungeonSpawn>& out, uint32_t seed) const override {
-        rosterFill(out, seed, (uint8_t)NPCType::Skeleton, (uint8_t)NPCType::Brute, 3);
-    }
-};
+// The overground CastleDungeon now lives in castle.cpp (it is large enough to
+// warrant its own translation unit) — see include/castle.h.
 
 std::unique_ptr<Dungeon> makeDungeon(DungeonKind kind) {
     switch (kind) {
@@ -409,6 +384,12 @@ static DungeonPlan buildDungeonPlan() {
             // footprint (capped) so even big dungeons can find flat-enough land.
             int checkHalf = (kind == DungeonKind::Castle) ? (16 + tier * 6) : dungeonHalf(tier);
             if (surf - footprintMinSurface(glm::ivec2(ax, az), std::min(checkHalf, 80)) > 40) continue;
+            // A castle sits ON the ground, so also reject sites where the land
+            // rises far above the anchor — its keep would be deeply buried. (The
+            // entrance itself is always cut accessible, so this is only to avoid
+            // the worst cases, not the primary fix.)
+            if (kind == DungeonKind::Castle &&
+                footprintMaxSurface(glm::ivec2(ax, az), checkHalf) - surf > 16) continue;
             auto d = makeDungeon(kind);
             d->sizeTier = tier;
             d->generateLayout(h ^ 0x6E756Eu, glm::ivec2(ax, az), surf);
@@ -460,6 +441,10 @@ void stampDungeonChunk(Chunk* c) {
         const BlockType bone     = (BlockType)((int)BlockType::PaintFirst + 1);    //  1 Cream — skulls/bones
         const int y = d.floorY;
 
+        // Overground castles are far more elaborate (graded foundations, a
+        // gatehouse + arch, partitioned interiors, towers) — built in castle.cpp.
+        if (d.overground) { stampCastleChunk(c, d); continue; }
+
         // --- lights & props. Dungeons place NO glowing voxels: each light in
         // d.lights becomes a tiny non-glowing WOOD fixture here, and the renderer
         // streams the nearby ones into the dynamic point-light system (small,
@@ -500,6 +485,12 @@ void stampDungeonChunk(Chunk* c) {
             setW(x, yTop, z, wood);
             for (int k = 1; k <= 3; k++) setW(x, yTop - k, z, paintB(colorIdx));
         };
+        auto spike = [&](int x, int z, int baseY, int h, int dir) { // stalagmite (+1) / stalactite (-1)
+            for (int k = 0; k < h; k++) setW(x, baseY + dir * k, z, wall);
+        };
+        auto niche = [&](int wx, int wy, int wz) {                  // a bone alcove recessed into a wall
+            setW(wx, wy, wz, bone); setW(wx, wy + 1, wz, BlockType::Air);
+        };
 
         // Room shape silhouette test (shared with the layout via dungeonRoomContains).
         auto inRoom = [](const DungeonRoom& rm, int x, int z) { return dungeonRoomContains(rm, x, z); };
@@ -508,82 +499,13 @@ void stampDungeonChunk(Chunk* c) {
         // dungeon (clipped to the chunk). Runs for castles and carved dungeons.
         for (const DungeonLight& L : d.lights) placeLightFixture(L);
 
-        // Overground castle: build storeys, towers, battlements and a corner
-        // spiral stair (above ground) instead of carving rooms underground.
-        if (d.overground) {
-            int x0 = d.bbMin.x + 1, x1 = d.bbMax.x - 1;
-            int z0 = d.bbMin.y + 1, z1 = d.bbMax.y - 1;
-            int baseY = d.surfaceY, fh = d.floorH, L = d.levels;
-            int cxr = (x0 + x1) / 2, czr = (z0 + z1) / 2, ez = czr;
-            int roofY = baseY - 1 + L * fh;
-
-            // A 3-wide SWITCHBACK staircase along the -Z wall connects every floor
-            // (and the roof). Each storey floor is left open over this lane so the
-            // player can climb straight up and down — the old floating spiral is
-            // gone.
-            const int laneX0 = x0 + 4, laneX1 = x0 + 4 + fh, laneZ0 = z0 + 1, laneZ1 = z0 + 3;
-            auto inStair = [&](int x, int z) { return x >= laneX0 && x <= laneX1 && z >= laneZ0 && z <= laneZ1; };
-
-            fillBox(x0, x1, baseY - 12, baseY - 1, z0, z1, floor);        // foundation plinth
-            fillBox(x0, x1, baseY, roofY + 6, z0, z1, BlockType::Air);    // clear hillside/trees
-
-            for (int lv = 0; lv < L; lv++) {
-                int fs = baseY - 1 + lv * fh, wy = baseY + lv * fh, wt = wy + fh - 2;
-                for (int x = x0; x <= x1; x++) for (int z = z0; z <= z1; z++)
-                    if (!inStair(x, z)) setW(x, fs, z, floor);              // storey floor (open over the stair)
-                for (int yy = wy; yy <= wt; yy++)
-                    for (int x = x0; x <= x1; x++) for (int z = z0; z <= z1; z++) {
-                        if (x != x0 && x != x1 && z != z0 && z != z1) continue;   // perimeter only
-                        bool window = (((x + z) & 3) == 0) && yy == wy + 2;
-                        bool gate   = lv == 0 && x == x1 && z >= ez - 1 && z <= ez + 1 && yy <= wy + 3;
-                        if (!window && !gate) setW(x, yy, z, wall);
-                    }
-                // Switchback flight from this floor up to the next (top flight
-                // reaches the roof). Solid steps + riser, with carved headroom.
-                bool even = (lv % 2 == 0);
-                for (int k = 1; k <= fh; k++) {
-                    int sx = even ? (laneX0 + (k - 1)) : (laneX1 - (k - 1));
-                    for (int z = laneZ0; z <= laneZ1; z++) {
-                        fillBox(sx, sx, fs + 1, fs + k,     z, z, floor);
-                        fillBox(sx, sx, fs + k + 1, fs + k + 3, z, z, BlockType::Air);
-                    }
-                }
-                if (lv == L - 1) {                                          // throne on the boss floor
-                    setW(x0 + 2, wy, czr, wall); setW(x0 + 2, wy + 1, czr, wall);
-                    setW(x0 + 2, wy + 1, czr - 1, wall); setW(x0 + 2, wy + 1, czr + 1, wall);
-                }                                                           // furniture: see furnishDungeonRoom
-            }
-            for (int x = x0; x <= x1; x++) for (int z = z0; z <= z1; z++)
-                if (!inStair(x, z)) setW(x, roofY, z, floor);              // roof deck (open over the stair)
-            for (int x = x0; x <= x1; x += 2) { setW(x, roofY + 1, z0, wall); setW(x, roofY + 1, z1, wall); }
-            for (int z = z0; z <= z1; z += 2) { setW(x0, roofY + 1, z, wall); setW(x1, roofY + 1, z, wall); }
-
-            // Four ROUND corner towers — taller than the keep, hollow, crenellated,
-            // bulging past the square corners so the castle reads as round-towered.
-            int cpx[2] = { x0, x1 }, cpz[2] = { z0, z1 }, towerH = roofY + 6;
-            for (int A = 0; A < 2; A++) for (int B = 0; B < 2; B++) {
-                int tcx = cpx[A], tcz = cpz[B], R = 3;
-                for (int yy = baseY; yy <= towerH; yy++)
-                    for (int dx = -R; dx <= R; dx++) for (int dz = -R; dz <= R; dz++) {
-                        int r2 = dx * dx + dz * dz;
-                        if (r2 <= R * R && r2 > (R - 2) * (R - 2)) setW(tcx + dx, yy, tcz + dz, wall);   // ring wall
-                    }
-                for (int dx = -R; dx <= R; dx++) for (int dz = -R; dz <= R; dz++) {     // crenellations
-                    int r2 = dx * dx + dz * dz;
-                    if (r2 <= R * R && r2 > (R - 2) * (R - 2) && (((dx + dz) & 1) == 0))
-                        setW(tcx + dx, towerH + 1, tcz + dz, wall);
-                }
-                setW(tcx, towerH, tcz, BlockType::Wood);   // beacon mount (dynamic light)
-            }
-            continue;                                                      // castle done — skip carving
-        }
-
         // Rooms: carve the shape silhouette (floor slab + hollow), light it with
         // a coverage grid of hung lanterns (some plain halls left deliberately
         // dark), then dress it by purpose.
         for (const DungeonRoom& rm : d.rooms) {
             int fY = rm.mn.y, ceilY = rm.mx.y, rhgt = ceilY - fY;
             int cx = (rm.mn.x + rm.mx.x) / 2, cz = (rm.mn.z + rm.mx.z) / 2;
+            int rw = rm.mx.x - rm.mn.x, rd = rm.mx.z - rm.mn.z;
 
             // carve only the part of the silhouette in this chunk
             int lxx = std::max(rm.mn.x, ox), hxx = std::min(rm.mx.x, ox + CHUNK_SIZE - 1);
@@ -594,6 +516,64 @@ void stampDungeonChunk(Chunk* c) {
                         setW(x, fY - 1, z, floor);
                         for (int yy = fY; yy <= ceilY; yy++) setW(x, yy, z, BlockType::Air);
                     }
+
+            // --- Environmental detail (deterministic per room): grand colonnades,
+            // per-kind flavour, and the occasional water pool / chasm. ----------
+            uint32_t rh = (uint32_t)(rm.mn.x * 73856093) ^ (uint32_t)(rm.mn.z * 19349663);
+            DungeonKind kind = d.kind();
+
+            // Rows of full-height columns frame big rooms and the boss hall (the
+            // centre / boss aisle is kept open).
+            if ((rw >= 12 && rd >= 12) || rm.purpose == 2) {
+                for (int x = rm.mn.x + 3; x <= rm.mx.x - 3; x += 6)
+                    for (int z = rm.mn.z + 3; z <= rm.mx.z - 3; z += 6) {
+                        if (std::abs(x - cx) <= 1 && std::abs(z - cz) <= 1) continue;          // open centre
+                        if (rm.purpose == 2 && std::abs(z - cz) <= 1) continue;                 // boss aisle
+                        if (dungeonRoomContains(rm, x, z)) column(x, z, fY, rhgt + 1, wall);
+                    }
+            }
+
+            if (kind == DungeonKind::Cave) {                       // stalagmites, stalactites, moss
+                for (int x = rm.mn.x + 1; x <= rm.mx.x - 1; x += 3)
+                    for (int z = rm.mn.z + 1; z <= rm.mx.z - 1; z += 3) {
+                        if (!dungeonRoomContains(rm, x, z)) continue;
+                        uint32_t h = (uint32_t)(x * 374761393) ^ (uint32_t)(z * 668265263);
+                        if      ((h & 7u) == 0u) spike(x, z, fY,    1 + (int)(h % 3u), +1);
+                        else if ((h & 7u) == 1u) spike(x, z, ceilY, 1 + (int)((h >> 4) % 3u), -1);
+                        else if ((h & 15u) == 4u) setW(x, fY - 1, z, BlockType::Leaves);        // moss
+                    }
+            } else if (kind == DungeonKind::Crypt) {              // catacomb bone niches in the walls
+                for (int z = rm.mn.z + 2; z <= rm.mx.z - 2; z += 3) {
+                    if (dungeonRoomContains(rm, rm.mn.x, z) && !dungeonRoomContains(rm, rm.mn.x - 1, z))
+                        niche(rm.mn.x - 1, fY + 1, z);
+                    if (dungeonRoomContains(rm, rm.mx.x, z) && !dungeonRoomContains(rm, rm.mx.x + 1, z))
+                        niche(rm.mx.x + 1, fY + 1, z);
+                }
+            } else if (kind == DungeonKind::Ruins) {             // toppled columns + rubble
+                for (int x = rm.mn.x + 2; x <= rm.mx.x - 2; x += 4)
+                    for (int z = rm.mn.z + 2; z <= rm.mx.z - 2; z += 4) {
+                        if (!dungeonRoomContains(rm, x, z)) continue;
+                        uint32_t h = (uint32_t)(x * 9176 + z * 4129);
+                        if      ((h & 3u) == 0u) column(x, z, fY, 1 + (int)(h % (uint32_t)std::max(2, rhgt - 1)), wall);
+                        else if ((h & 7u) == 1u) setW(x, fY, z, BlockType::Gravel);
+                    }
+            }
+
+            // Water: a chasm + bridge in a few large halls; a shallow pool in some.
+            if (rm.purpose == 0 && rw >= 10 && rd >= 10 && (rh % 100u) < 16u) {
+                for (int x = rm.mn.x + 2; x <= rm.mx.x - 2; x++)            // 2-deep pit, bridge along z=cz
+                    for (int z = rm.mn.z + 2; z <= rm.mx.z - 2; z++) {
+                        if (!dungeonRoomContains(rm, x, z) || std::abs(z - cz) <= 1) continue;
+                        setW(x, fY - 1, z, BlockType::Water);
+                        setW(x, fY - 2, z, BlockType::Water);
+                    }
+            } else if ((rm.purpose == 0 || rm.purpose == 1 || rm.purpose == 4) && (rh % 100u) >= 82u) {
+                int pr = std::min(3, std::min(rw, rd) / 3);                  // shallow ornamental pool (wade)
+                for (int dx = -pr; dx <= pr; dx++) for (int dz = -pr; dz <= pr; dz++) {
+                    if (dx * dx + dz * dz > pr * pr || !dungeonRoomContains(rm, cx + dx, cz + dz)) continue;
+                    setW(cx + dx, fY - 1, cz + dz, BlockType::Water);
+                }
+            }
 
             // ARCHITECTURE only. All furniture (tables, chairs, shelves, barrels,
             // cookers, cauldrons, rugs, …) is placed as detailed Prop objects by

@@ -363,8 +363,9 @@ void furnishDungeonRoom(const Dungeon& d, const DungeonRoom& rm) {
 
     // Keep furniture clear of the block-built architecture (matches the stamp).
     auto blocked = [&](int x, int z) -> bool {
-        if (d.overground) {   // the castle switchback stair lane along the -Z wall
-            int lx0 = d.bbMin.x + 5, lx1 = d.bbMin.x + 5 + d.floorH, lz0 = d.bbMin.y + 2, lz1 = d.bbMin.y + 4;
+        if (d.overground) {   // the castle straight-staircase slot along the -Z wall
+            int lx0 = d.bbMin.x + 4, lx1 = d.bbMin.x + 4 + (d.levels - 1) * d.floorH + 1;
+            int lz0 = d.bbMin.y + 2, lz1 = d.bbMin.y + 4;
             if (x >= lx0 && x <= lx1 && z >= lz0 && z <= lz1) return true;
         }
         if (rm.purpose == 5 && std::abs(x - cx) <= 3 && std::abs(z - cz) <= 3) return true; // monument

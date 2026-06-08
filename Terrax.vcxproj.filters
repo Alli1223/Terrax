@@ -88,6 +88,7 @@
     <ClCompile Include="src\building_special.cpp"><Filter>Buildings</Filter></ClCompile>
     <ClCompile Include="src\building_farm.cpp"><Filter>Buildings</Filter></ClCompile>
     <ClCompile Include="src\dungeon.cpp"><Filter>Towns</Filter></ClCompile>
+    <ClCompile Include="src\castle.cpp"><Filter>Towns</Filter></ClCompile>
     <!-- Voxel Models -->
     <ClCompile Include="src\voxel_model.cpp"><Filter>Voxel Models</Filter></ClCompile>
     <ClCompile Include="src\voxel_rig.cpp"><Filter>Voxel Models</Filter></ClCompile>
@@ -169,6 +170,7 @@
     <ClInclude Include="include\building.h"><Filter>Buildings</Filter></ClInclude>
     <ClInclude Include="include\building_farm.h"><Filter>Buildings</Filter></ClInclude>
     <ClInclude Include="include\dungeon.h"><Filter>Towns</Filter></ClInclude>
+    <ClInclude Include="include\castle.h"><Filter>Towns</Filter></ClInclude>
     <ClInclude Include="src\building_internal.h"><Filter>Buildings</Filter></ClInclude>
     <!-- Voxel Models -->
     <ClInclude Include="include\voxel_model.h"><Filter>Voxel Models</Filter></ClInclude>

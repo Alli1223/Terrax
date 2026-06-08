@@ -51,7 +51,16 @@ static bool isSolidBlk(BlockType b) { return b != BlockType::Air && b != BlockTy
 static void moveNpcXZ(NPC& n, World& world, float dx, float dz) {
     int   gy = (int)n.groundY;
     float nx = n.position.x + dx, nz = n.position.z + dz;
-    if (isSolidBlk(world.getBlock((int)floorf(nx), gy + 1, (int)floorf(nz)))) return;
+    int   ix = (int)floorf(nx), iz = (int)floorf(nz);
+    // A wall at head height blocks the move (keeps enemies in rooms/corridors).
+    if (isSolidBlk(world.getBlock(ix, gy + 1, iz))) return;
+    // Don't step off a ledge into a hole — a pit, a water channel, or a stairwell
+    // shaft. Require standable ground within one step of the destination so
+    // enemies stop at the edge instead of falling through to the floor below.
+    if (!isSolidBlk(world.getBlock(ix, gy,     iz)) &&   // a 1-block step up
+        !isSolidBlk(world.getBlock(ix, gy - 1, iz)) &&   // the same level
+        !isSolidBlk(world.getBlock(ix, gy - 2, iz)))     // a 1-block step down
+        return;
     n.position.x = nx;
     n.position.z = nz;
 }
@@ -521,7 +530,7 @@ void NpcDirector::spawnDungeon(size_t di) {
     d.fillSpawnTable(spawns, dseed);
     // Cap minions per dungeon for performance (big complexes have many rooms);
     // the boss always spawns regardless of the cap.
-    const int DUNGEON_MINION_CAP = 42;
+    const int DUNGEON_MINION_CAP = 55;
     int minions = 0;
     for (size_t k = 0; k < spawns.size(); k++) {
         if ((int)active.size() >= 220) break;
@@ -1053,7 +1062,7 @@ void NpcDirector::stepBandit(NPC& n, float dt, World& world,
     float pBest = 22.0f * 22.0f;
     for (const DirectorPlayer& p : players) {
         if (inAnyTown(glm::vec2(p.pos.x, p.pos.z))) continue;
-        if (std::fabs(p.pos.y - n.position.y) > 6.0f) continue;  // no hitting through floors/ceilings
+        if (std::fabs(p.pos.y - n.position.y) > 4.0f) continue;  // no hitting through floors/ceilings
         float dx = p.pos.x - n.position.x, dz = p.pos.z - n.position.z;
         float d2 = dx * dx + dz * dz;
         if (d2 < pBest) { pBest = d2; pTarget = &p; }
@@ -1062,7 +1071,7 @@ void NpcDirector::stepBandit(NPC& n, float dt, World& world,
     float gBest = 14.0f * 14.0f;
     for (auto& o : active) {
         if (o->type != NPCType::Guard || o->dyingTimer > 0.0f) continue;
-        if (std::fabs(o->position.y - n.position.y) > 6.0f) continue;
+        if (std::fabs(o->position.y - n.position.y) > 4.0f) continue;
         float dx = o->position.x - n.position.x, dz = o->position.z - n.position.z;
         float d2 = dx * dx + dz * dz;
         if (d2 < gBest) { gBest = d2; gTarget = o.get(); }
@@ -1191,7 +1200,7 @@ void NpcDirector::stepRangedEnemy(NPC& n, float dt, World& world,
     float best = AGGRO * AGGRO;
     for (const DirectorPlayer& p : players) {
         if (inAnyTown(glm::vec2(p.pos.x, p.pos.z))) continue;
-        if (std::fabs(p.pos.y - n.position.y) > 6.0f) continue;  // no casting through floors/ceilings
+        if (std::fabs(p.pos.y - n.position.y) > 4.0f) continue;  // no casting through floors/ceilings
         float dx = p.pos.x - n.position.x, dz = p.pos.z - n.position.z;
         float d2 = dx * dx + dz * dz;
         if (d2 < best) { best = d2; tgt = &p; }

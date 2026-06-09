@@ -45,6 +45,8 @@ enum class PacketType : uint8_t {
     DropItemRequest = 19,       // client -> server: drop one of my items at pos P
     PlayerHeal = 20,            // client -> server -> all: a heal applied to a player
     SpellEffect = 21,           // client -> server -> all: cosmetic spell effect to spawn
+    AbilityCast = 22,           // client -> server: area/aggro ability for the server to resolve
+    EnemyProjectileSpawn = 23,  // server -> all: a hostile NPC fired a bolt; clients render it
 };
 
 #pragma pack(push, 1)
@@ -112,6 +114,10 @@ struct BlockUpdatePacket {
 
 struct HandshakePacket {
     uint32_t clientID;
+    uint32_t worldSeed;   // server's world seed. The client adopts it so every
+                          // seed-derived thing it builds locally (terrain oracle,
+                          // town plan, props, vegetation, NPC placement, the map)
+                          // matches the server's authoritative world.
 };
 
 struct PlayerDisconnectPacket {
@@ -252,10 +258,39 @@ struct PlayerHealPacket {
 // PlayerHealPacket.
 struct SpellEffectPacket {
     uint32_t casterID;
-    uint8_t  kind;        // 0 = healing zone, 1 = chain-heal burst
+    uint8_t  kind;        // 0=healing zone, 1=chain-heal burst, 2=aoe slash,
+                          // 3=taunt ring, 4=cast flash, 5=buff aura
     float    x, y, z;
     float    radius;      // zone radius in world units (0 for point effects)
     float    ttl;         // seconds the effect should live
+};
+
+// Client -> server: a player activated an area/aggro ability the server must
+// resolve authoritatively. Single-target abilities don't use this — they ride
+// PlayerAttack. `effect` selects the resolution: 0 = AoE damage (scale = damage
+// multiplier), 1 = taunt (scale = duration in seconds). Not rebroadcast; the
+// spectator visuals ride SpellEffect instead.
+struct AbilityCastPacket {
+    uint32_t casterID;
+    uint16_t abilityId;   // AbilityId, for server-side logic / logging
+    uint8_t  effect;      // 0 = aoe damage, 1 = taunt
+    uint8_t  _pad;
+    float    x, y, z;     // cast centre
+    float    radius;
+    float    scale;       // aoe: damage multiplier; taunt: duration seconds
+};
+
+// Server -> all: a hostile NPC fired a projectile. Clients spawn a visible bolt
+// that flies the given straight path (no gravity) for `ttl` seconds. The server
+// simulates the same flight authoritatively and applies damage on a player hit,
+// so dodging by moving works. Fire-and-forget — no per-tick state sync; the
+// client dead-reckons the straight line and self-expires on terrain / ttl.
+struct EnemyProjectileSpawnPacket {
+    uint32_t id;
+    float    x, y, z;        // origin
+    float    vx, vy, vz;     // velocity (units/sec)
+    float    ttl;            // seconds to live
+    uint8_t  type;           // 0 = cultist bolt (room for more visuals later)
 };
 #pragma pack(pop)
 
@@ -266,6 +301,17 @@ struct NpcHitEvent {
     uint32_t attackerId;
     uint32_t npcId;
     float    damageScale;
+};
+
+// A parsed AbilityCast a client sent this frame; the server game loop resolves
+// it in NpcDirector (AoE damage to NPCs in radius, or a taunt that fixes their
+// aggro on the caster). `effect`: 0 = aoe damage, 1 = taunt.
+struct AbilityCastEvent {
+    uint32_t  attackerId;
+    uint8_t   effect;
+    glm::vec3 center;
+    float     radius;
+    float     scale;        // aoe: damage multiplier; taunt: duration seconds
 };
 
 struct ChatMessage {
@@ -337,6 +383,9 @@ public:
 
     // Melee hits clients landed on NPCs this frame; drained by the game loop.
     std::vector<NpcHitEvent> npcHits;
+
+    // Area/aggro ability casts clients sent this frame; drained by the game loop.
+    std::vector<AbilityCastEvent> abilityCasts;
 
     // Server-owned list of active world loot drops. Each entry mirrors the
     // LootSpawnPacket payload plus a spawn timestamp for expiry. Adding /
@@ -431,6 +480,8 @@ public:
     
     uint32_t clientID = 0;
     bool connected = false;
+    uint32_t serverWorldSeed = 0;     // world seed from the Handshake (server-authoritative)
+    bool     hasWorldSeed    = false; // set once the Handshake delivered the seed
     float serverGameTime = 0.3f;
     bool hasServerGameTime = false;
     bool dayTimeUpdated = false;
@@ -443,6 +494,7 @@ public:
     std::vector<LootRemovedPacket>  lootRemovals;    // drained by gameplay each frame
     std::vector<PlayerHealPacket>   healEvents;      // heals to apply/show, drained by gameplay
     std::vector<SpellEffectPacket>  spellEffects;    // cosmetic spell fx, drained by gameplay
+    std::vector<EnemyProjectileSpawnPacket> enemyProjectiles;  // enemy bolts to render, drained by gameplay
     float pendingSelfDamage = 0.0f;                  // damage dealt to us, drained by gameplay
     float pendingSelfHeal   = 0.0f;                  // heal dealt to us, drained by gameplay
 

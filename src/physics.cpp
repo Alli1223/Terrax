@@ -44,9 +44,34 @@ static bool aabbClear(float px, float py, float pz, float hw, float ph, const Wo
     return true;
 }
 
+// Try to climb a low ledge in the direction of travel instead of stopping at
+// it. Called when the body is blocked along an axis while standing on the
+// ground. Raises `p` onto the obstacle — keeping the (already advanced)
+// horizontal position and the tangential velocity — when a single step of
+// rise clears the obstacle in the travel direction and the whole body fits
+// there. A one-block kerb becomes walkable; a two-block (or taller) wall still
+// blocks, because the face is still solid one step up.
+static bool tryStepUp(glm::vec3& p, float hw, float ph, const World& w,
+                      bool axisX, bool posDir) {
+    const float STEP = 1.05f;                       // at most one block of rise
+    int maxTop = (int)floorf(p.y + STEP);
+    for (int top = (int)floorf(p.y) + 1; top <= maxTop; top++) {
+        float standY = (float)top;
+        if (standY - p.y > STEP + SKIN)              break;     // taller than a step
+        if (!aabbClear(p.x, standY, p.z, hw, ph, w)) continue;  // body wouldn't fit up there
+        bool blocked = axisX ? hitFaceX(p.x, standY, p.z, hw, ph, w, posDir)
+                             : hitFaceZ(p.x, standY, p.z, hw, ph, w, posDir);
+        if (blocked) continue;                                  // obstacle still in the way
+        p.y = standY;
+        return true;
+    }
+    return false;
+}
+
 glm::vec3 resolveCollision(const glm::vec3& pos, Camera& camera,
                             float hw, float ph, const World& w, float dt) {
     glm::vec3 p = pos;
+    float startY = pos.y;
     camera.onGround = false;
 
     // --- Vertical ---
@@ -80,10 +105,14 @@ glm::vec3 resolveCollision(const glm::vec3& pos, Camera& camera,
         }
     }
 
-    // --- Horizontal: stop at walls along each axis ---
+    // --- Horizontal: stop at walls along each axis, but step up over low
+    // ledges so the player walks up a one-block kerb instead of jamming. The
+    // step is only attempted while grounded (so you can't climb walls in
+    // mid-air) and tryStepUp's own checks reject anything taller than a step. ---
     if (camera.velocity.x != 0.0f) {
         bool posX = camera.velocity.x > 0.0f;
-        if (hitFaceX(p.x, p.y, p.z, hw, ph, w, posX)) {
+        if (hitFaceX(p.x, p.y, p.z, hw, ph, w, posX) &&
+            !(camera.onGround && tryStepUp(p, hw, ph, w, true, posX))) {
             p.x = posX ? floorf(p.x + hw) - hw - SKIN
                        : floorf(p.x - hw - SKIN) + 1.0f + hw + SKIN;
             camera.velocity.x = 0.0f;
@@ -91,7 +120,8 @@ glm::vec3 resolveCollision(const glm::vec3& pos, Camera& camera,
     }
     if (camera.velocity.z != 0.0f) {
         bool posZ = camera.velocity.z > 0.0f;
-        if (hitFaceZ(p.x, p.y, p.z, hw, ph, w, posZ)) {
+        if (hitFaceZ(p.x, p.y, p.z, hw, ph, w, posZ) &&
+            !(camera.onGround && tryStepUp(p, hw, ph, w, false, posZ))) {
             p.z = posZ ? floorf(p.z + hw) - hw - SKIN
                        : floorf(p.z - hw - SKIN) + 1.0f + hw + SKIN;
             camera.velocity.z = 0.0f;
@@ -108,5 +138,14 @@ glm::vec3 resolveCollision(const glm::vec3& pos, Camera& camera,
     }
 
     if (p.y < 0.0f) { p.y = 0.0f; camera.velocity.y = 0.0f; camera.onGround = true; }
+
+    // Visual-only: when the body climbed a low ledge this frame, record the rise
+    // so the renderer can ease the camera/body up rather than snapping a whole
+    // block. Restricted to a grounded, single-step rise so big drops (landing
+    // from a fall) and jumps are never smoothed.
+    float rise = p.y - startY;
+    if (camera.onGround && rise > SKIN && rise <= 1.25f)
+        camera.stepSmoothOffset = std::max(-1.6f, camera.stepSmoothOffset - rise);
+
     return p;
 }

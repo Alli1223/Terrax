@@ -1,5 +1,6 @@
 #include "prop.h"
 #include "prop_builders.h"
+#include "prop_registry.h"
 #include "voxel_model.h"
 #include "object_manager.h"
 #include "game_object.h"
@@ -35,51 +36,11 @@ void PropLibrary::destroy() {
 
 void PropLibrary::buildAll() {
     if (isBuilt) return;
-    volumes[(int)PropType::Bookshelf]      = buildBookshelf();
-    volumes[(int)PropType::Bed]            = buildBed();
-    volumes[(int)PropType::Lantern]        = buildLanternProp();
-    volumes[(int)PropType::Cooker]         = buildCooker();
-    volumes[(int)PropType::Table]          = buildTable();
-    volumes[(int)PropType::Chair]          = buildChair();
-    volumes[(int)PropType::Crockery]       = buildCrockery();
-    volumes[(int)PropType::StreetLamp]     = buildStreetLamp();
-    volumes[(int)PropType::PottedPlant]    = buildPottedPlant();
-    volumes[(int)PropType::Bush]           = buildBush();
-    volumes[(int)PropType::Bench]          = buildBench();
-    volumes[(int)PropType::Fence]          = buildFenceSection();
-    volumes[(int)PropType::Sink]           = buildSink();
-    volumes[(int)PropType::KitchenCounter] = buildKitchenCounter();
-    volumes[(int)PropType::Wardrobe]       = buildWardrobe();
-    volumes[(int)PropType::Desk]           = buildDesk();
-    volumes[(int)PropType::Couch]          = buildCouch();
-    volumes[(int)PropType::SideTable]      = buildSideTable();
-    volumes[(int)PropType::Anvil]          = buildAnvil();
-    volumes[(int)PropType::Forge]          = buildForge();
-    volumes[(int)PropType::BarCounter]     = buildBarCounter();
-    volumes[(int)PropType::BarStool]       = buildBarStool();
-    volumes[(int)PropType::Cauldron]       = buildCauldron();
-    volumes[(int)PropType::AlchemyTable]   = buildAlchemyTable();
-    volumes[(int)PropType::SignAnvil]      = buildTradeSignAnvil();
-    volumes[(int)PropType::SignMug]        = buildTradeSignMug();
-    volumes[(int)PropType::SignStar]       = buildTradeSignStar();
-    volumes[(int)PropType::SignWheat]      = buildTradeSignWheat();
-    volumes[(int)PropType::Fireplace]      = buildFireplace();
-    volumes[(int)PropType::Rug]            = buildRug();
-    volumes[(int)PropType::WallPainting]   = buildWallPainting();
-    volumes[(int)PropType::FlowerVase]     = buildFlowerVase();
-    volumes[(int)PropType::FlowerPot]     = buildFlowerPot();
-    volumes[(int)PropType::FlowerBed]     = buildFlowerBed();
-    volumes[(int)PropType::Barrel]        = buildBarrel();
-    volumes[(int)PropType::BuntingSpan]   = buildBuntingSpan();
-    volumes[(int)PropType::Crate]         = buildCrate();
-    volumes[(int)PropType::ProducePile]   = buildProducePile();
-    volumes[(int)PropType::Fountain]      = buildFountain();
-    volumes[(int)PropType::MarketStall]   = buildMarketStall();
-    volumes[(int)PropType::NoticeBoard]   = buildNoticeBoard();
-    volumes[(int)PropType::BushFlowering] = buildBushFlowering();
-    volumes[(int)PropType::BushBerry]     = buildBushBerry();
-    volumes[(int)PropType::BushConifer]   = buildBushConifer();
-    volumes[(int)PropType::BushDry]       = buildBushDry();
+    // Build every registered prop's mesh from the single registry table. Adding
+    // a prop never touches this function — just add a row in prop_registry.cpp.
+    for (const PropDef& d : propRegistry())
+        if (d.build && (int)d.type >= 0 && (int)d.type < (int)PropType::Count)
+            volumes[(int)d.type] = d.build();
     for (int i = 0; i < DOOR_VARIANTS; i++) doorVolumes[i] = buildDoor(i);
     for (auto* v : volumes)
         if (v) v->updateMesh();
@@ -122,29 +83,16 @@ void Prop::draw(GLuint modelLoc) const {
 }
 
 bool Prop::getInteraction(Interaction& out) const {
-    // The interaction's anchor is the prop's centre plus a small Y offset so
-    // the player rig sits "on top of" the furniture rather than inside it.
-    // The yaw is the prop's own yaw — a chair facing south seats the player
-    // facing south.
-    const float SEAT_Y_OFFSET = 0.66f;   // ~ chair seat height in world units (enlarged chair)
-    const float BED_Y_OFFSET  = 0.45f;   // mattress height
-    switch (type) {
-        case PropType::Chair:
-        case PropType::BarStool:
-            out.action    = InteractAction::SitChair;
-            out.anchorPos = position + glm::vec3(0.0f, SEAT_Y_OFFSET, 0.0f);
-            out.anchorYaw = yaw;
-            out.hint      = "Press E to sit";
-            return true;
-        case PropType::Bed:
-            out.action    = InteractAction::LieBed;
-            out.anchorPos = position + glm::vec3(0.0f, BED_Y_OFFSET, 0.0f);
-            out.anchorYaw = yaw;
-            out.hint      = "Press E to lie down";
-            return true;
-        default:
-            return false;
-    }
+    // Data-driven from the registry: the anchor is the prop centre plus the
+    // def's Y offset (so the player sits "on top of" the furniture), at the
+    // prop's own yaw — a chair facing south seats the player facing south.
+    const PropDef* d = propDef(type);
+    if (!d || d->interact.action == InteractAction::None) return false;
+    out.action    = d->interact.action;
+    out.anchorPos = position + glm::vec3(0.0f, d->interact.yOffset, 0.0f);
+    out.anchorYaw = yaw;
+    out.hint      = d->interact.hint;
+    return true;
 }
 
 void Prop::getAABB(glm::vec3& mn, glm::vec3& mx) const {

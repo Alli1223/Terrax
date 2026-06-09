@@ -6,6 +6,7 @@
 #include <random>
 #include <algorithm>
 #include <mutex>
+#include <atomic>
 #include <cmath>
 #include <iostream>
 
@@ -403,9 +404,10 @@ static DungeonPlan buildDungeonPlan() {
 }
 
 const DungeonPlan& getDungeonPlan() {
-    static DungeonPlan plan;
-    static std::once_flag once;
-    std::call_once(once, [] { plan = buildDungeonPlan(); });
+    static DungeonPlan           plan;
+    static std::mutex            mtx;
+    static std::atomic<uint64_t> built{~0ull};
+    rebuildCacheOnSeedChange(built, mtx, [] { plan = buildDungeonPlan(); });
     return plan;
 }
 

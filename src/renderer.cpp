@@ -2,6 +2,7 @@
 #include <GLFW/glfw3.h>
 #include "renderer.h"
 #include "app_context.h"
+#include "prop_registry.h"
 #include "game_types.h"
 #include "atlas.h"
 #include "town.h"
@@ -47,10 +48,9 @@ struct LanternLightList {
 // Standard tungsten-lantern colour used by held lanterns, props,
 // streetlamps, and town campfires. Magic-bolt lights set their own.
 static constexpr glm::vec3 LANTERN_DEFAULT_COLOR = glm::vec3(1.00f, 0.76f, 0.40f);
-// Warmer, redder cast for open hearth flame.
-static constexpr glm::vec3 FIRE_COLOR = glm::vec3(1.00f, 0.52f, 0.22f);
 // Softer, warmer amber for static town pools (house lanterns, street lamps) so
-// lit streets glow cosily rather than glaring a hard white-gold.
+// lit streets glow cosily rather than glaring a hard white-gold. (Per-prop
+// light colours now live in the prop registry; this stays for dungeon lights.)
 static constexpr glm::vec3 POOL_COLOR = glm::vec3(1.00f, 0.70f, 0.36f);
 
 static glm::vec3 lanternWorldPos(const glm::vec3& feetPos, float yaw, bool held) {
@@ -147,31 +147,19 @@ static void collectLanternLights(const AppContext& ctx, float flicker, LanternLi
     std::vector<Cand> cand;
 
     for (const PropPlacement& pp : getPropPlacements()) {
-        glm::vec3 lp;
-        float intensity = 0.0f, radius = 0.0f;
-        glm::vec3 color = LANTERN_DEFAULT_COLOR;
-        if (pp.type == PropType::Fireplace) {
-            lp        = pp.pos + glm::vec3(0.0f, 0.70f, 0.0f);
-            intensity = 0.70f * perLightFlicker(t, pp.pos.x, pp.pos.z);
-            radius    = 15.0f;
-            color     = FIRE_COLOR;
-        } else if (night && pp.type == PropType::Lantern) {
-            lp        = pp.pos + glm::vec3(0.0f, 0.45f, 0.0f);
-            intensity = 0.55f * perLightFlicker(t, pp.pos.x, pp.pos.z) * nightFactor;
-            radius    = 25.0f;                     // wider, gentler pool
-            color     = POOL_COLOR;
-        } else if (night && pp.type == PropType::StreetLamp) {
-            lp        = pp.pos + glm::vec3(0.0f, 3.15f, 0.0f);
-            intensity = 0.58f * perLightFlicker(t, pp.pos.x, pp.pos.z) * nightFactor;
-            radius    = 30.0f;
-            color     = POOL_COLOR;
-        } else {
-            continue;
-        }
+        // Light parameters come from the prop registry — a new light-emitting
+        // prop just sets its PropLightDef, no renderer change needed.
+        const PropDef* d = propDef(pp.type);
+        if (!d || !d->light.emits) continue;
+        if (d->light.nightOnly && !night) continue;
+        glm::vec3 lp = pp.pos + glm::vec3(0.0f, d->light.yOffset, 0.0f);
+        float intensity = d->light.intensity * perLightFlicker(t, pp.pos.x, pp.pos.z);
+        if (d->light.nightOnly) intensity *= nightFactor;
+        float radius = d->light.radius;
         float dx = lp.x - cam.x, dz = lp.z - cam.z;
         float d2 = dx * dx + dz * dz;
         if (d2 > COLLECT2) continue;
-        cand.push_back({ lp, intensity, radius, d2, color });
+        cand.push_back({ lp, intensity, radius, d2, d->light.color });
     }
     // Town campfires glow after dark too.
     if (night)
@@ -476,17 +464,29 @@ static glm::mat4 housePreviewMatrix(const AppContext& ctx) {
 }
 
 // Casts backward from the player and returns how far the third-person camera
-// can sit before a solid block would come between it and the player.
+// can sit before a solid block would come between it and the player. Samples a
+// small cross around the ray (a sphere-ish cast rather than a hair-thin line)
+// so a block grazing one side of the lens still pulls the camera in, instead of
+// the wall popping through the corner of the view.
 static float cameraClipDistance(const World& world, const glm::vec3& base,
-                                const glm::vec3& backDir, float desired) {
-    const float margin  = 0.30f;   // keep the camera off the wall surface
-    const float step    = 0.25f;
+                                const glm::vec3& backDir, float desired,
+                                const glm::vec3& rightDir, const glm::vec3& upDir) {
+    const float margin  = 0.28f;   // keep the camera off the wall surface
+    const float step    = 0.20f;
     const float minDist = 0.50f;
+    const float pad     = 0.22f;   // camera "radius" sampled to each side
     for (float t = step; t <= desired; t += step) {
-        glm::vec3 sp = base + backDir * t;
-        BlockType b = world.getBlock((int)floorf(sp.x), (int)floorf(sp.y), (int)floorf(sp.z));
-        if (b != BlockType::Air && b != BlockType::Water)
-            return std::max(t - margin, minDist);
+        glm::vec3 c = base + backDir * t;
+        const glm::vec3 samples[5] = {
+            c,
+            c + rightDir * pad, c - rightDir * pad,
+            c + upDir    * pad, c - upDir    * pad,
+        };
+        for (const glm::vec3& sp : samples) {
+            BlockType b = world.getBlock((int)floorf(sp.x), (int)floorf(sp.y), (int)floorf(sp.z));
+            if (b != BlockType::Air && b != BlockType::Water)
+                return std::max(t - margin, minDist);
+        }
     }
     return desired;
 }
@@ -573,18 +573,19 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     glm::mat4 proj = glm::perspective(glm::radians(ctx.camera.fov), aspect, 0.1f, 1000.0f);
 
     // Third-person camera with wall clipping: pull the camera in so a solid
-    // block never sits between it and the player. Snap inward immediately,
-    // ease back outward so leaving a tight space isn't jarring.
-    glm::vec3 camBase    = ctx.camera.position + glm::vec3(0, 1.6f, 0);
-    float     targetDist = cameraClipDistance(ctx.world, camBase, -ctx.camera.front, ctx.camDist);
-    if (targetDist < ctx.camDistSmooth)
-        ctx.camDistSmooth = targetDist;
-    else
-        ctx.camDistSmooth += (targetDist - ctx.camDistSmooth)
-                           * std::min(1.0f, ctx.deltaTime * 8.0f);
+    // block never sits between it and the player. Both the eye base and the
+    // look-at carry the step-up smoothing offset so the camera glides up a
+    // ledge with the body. Ease the distance in quickly (so a wall never clips
+    // through the view) but back out slowly (so leaving a tight space doesn't
+    // pop) — the old code snapped inward instantly, which read as a jam.
+    glm::vec3 camBase    = ctx.camera.position + glm::vec3(0, 1.6f + ctx.camera.stepSmoothOffset, 0);
+    float     targetDist = cameraClipDistance(ctx.world, camBase, -ctx.camera.front, ctx.camDist,
+                                              ctx.camera.right, ctx.camera.worldUp);
+    float     ease       = (targetDist < ctx.camDistSmooth) ? 18.0f : 8.0f;
+    ctx.camDistSmooth += (targetDist - ctx.camDistSmooth) * std::min(1.0f, ctx.deltaTime * ease);
 
     glm::vec3 eyePos = camBase - ctx.camera.front * ctx.camDistSmooth;
-    glm::vec3 lookAt = ctx.camera.position + glm::vec3(0, 1.2f, 0);
+    glm::vec3 lookAt = ctx.camera.position + glm::vec3(0, 1.2f + ctx.camera.stepSmoothOffset, 0);
 
     // Over-the-shoulder offset while drawing a bow — both the camera
     // and the lookAt slide laterally so the player isn't blocking the
@@ -794,13 +795,12 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
         for (const auto& o : ctx.objectManager.objects()) {
             if (o->dead) continue;
             // Bushes catch the wind like the grass; everything else stays rigid.
+            // Which props sway is a registry flag, so adding a leafy prop needs
+            // no renderer edit.
             float sway = 0.0f;
             if (o->kind == ObjectKind::Prop) {
-                PropType pt = static_cast<const Prop*>(o.get())->type;
-                if (pt == PropType::Bush      || pt == PropType::BushFlowering ||
-                    pt == PropType::BushBerry || pt == PropType::BushConifer   ||
-                    pt == PropType::BushDry)
-                    sway = 0.006f;
+                const PropDef* pd = propDef(static_cast<const Prop*>(o.get())->type);
+                if (pd && pd->swaysInWind) sway = 0.006f;
             }
             glUniform1f(swLoc, sway);
             glUniform1f(seLoc, skyExposureAt(ctx.world, o->position));

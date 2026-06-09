@@ -107,3 +107,41 @@ TEST_CASE(Physics_ClampsAtWorldFloor) {
     CHECK(cam.onGround);
     CHECK(approx(cam.velocity.y, 0.0f));
 }
+
+// Walking into a one-block kerb climbs it (auto step-up) and keeps moving.
+// The feet are placed at the step's edge (x+hw == 10.0) so the vertical settle
+// can't see the step column — this exercises the horizontal step-up path.
+TEST_CASE(Physics_StepUpOneBlock) {
+    World w(false); loadEmptyChunk(w);
+    layLayer(w, 63, BlockType::Stone);                     // floor: top surface at y=64
+    for (int z = 0; z < CHUNK_SIZE; z++)
+        w.setBlock(10, 64, z, BlockType::Stone);           // one-block step at x=10 (top y=65)
+
+    Camera cam;
+    cam.onGround = true;
+    cam.velocity = glm::vec3(5.0f, 0.0f, 0.0f);            // walking +X into the step
+    glm::vec3 r = resolveCollision(glm::vec3(9.7f, 64.0f, 8.0f), cam, HW, PH, w, DT);
+
+    CHECK(approx(r.y, 65.0f));                              // climbed onto the step
+    CHECK(cam.velocity.x > 0.1f);                           // kept its forward momentum
+}
+
+// A two-block (or taller) wall is NOT a step: the player is shoved out and
+// stopped, exactly like the plain wall cases above.
+TEST_CASE(Physics_NoStepUpTwoBlocks) {
+    World w(false); loadEmptyChunk(w);
+    layLayer(w, 63, BlockType::Stone);                     // floor: top surface at y=64
+    for (int z = 0; z < CHUNK_SIZE; z++) {
+        w.setBlock(10, 64, z, BlockType::Stone);           // two-block wall at x=10
+        w.setBlock(10, 65, z, BlockType::Stone);
+    }
+
+    Camera cam;
+    cam.onGround = true;
+    cam.velocity = glm::vec3(5.0f, 0.0f, 0.0f);
+    glm::vec3 r = resolveCollision(glm::vec3(9.7f, 64.0f, 8.0f), cam, HW, PH, w, DT);
+
+    CHECK(approx(cam.velocity.x, 0.0f));                    // blocked, not climbed
+    CHECK(r.x < 9.7f);                                      // shoved out of the wall
+    CHECK(approx(r.y, 64.0f));                              // stayed at ground level
+}

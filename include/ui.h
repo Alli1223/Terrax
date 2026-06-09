@@ -9,6 +9,10 @@ void initImGui(GLFWwindow* window);
 // Renders main menu or join menu depending on ctx.state.
 void renderMenuUI(AppContext& ctx, GLFWwindow* window, Renderer* renderer);
 
+// Character Select screen (shown after the Join menu): pick a saved character
+// from the roster or create a new one before entering the world.
+void renderCharacterSelectUI(AppContext& ctx, GLFWwindow* window);
+
 // Renders the character editor ImGui panel + handles mouse input for voxel editing / rotation.
 // Also calls renderer.renderEditorCharacter for the 3D viewport.
 void renderCharacterEditorUI(AppContext& ctx, GLFWwindow* window, Renderer& renderer);
@@ -31,6 +35,11 @@ void renderInventoryUI(AppContext& ctx, GLFWwindow* window);
 // a quick switcher for each one. Called by renderPlayUI when
 // ctx.showCharacterLoadout.
 void renderCharacterLoadoutUI(AppContext& ctx, GLFWwindow* window);
+
+// In-game skill-tree overlay (K key). Shows the role's tree and lets the player
+// spend skill points to unlock abilities. Called by renderPlayUI when
+// ctx.showSkillTree.
+void renderSkillTreeUI(AppContext& ctx);
 
 // Renders the loading screen (centred progress bar + stage name) while the
 // background worker spawned by beginLoading() pre-warms the world plan.

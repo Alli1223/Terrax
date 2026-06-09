@@ -150,6 +150,12 @@ public:
 
     void generate(int centerX, int centerZ);
     void update(int centerX, int centerZ);
+    // Server-only: keep chunks loaded around EVERY connected player. The single-
+    // centre update() unloads everything far from one point, so calling it once
+    // per player makes each player's call evict the others' chunks — thrashing
+    // generation and corrupting the heap under load. This loads the union of all
+    // players' regions and only unloads a chunk when it's far from ALL of them.
+    void updateForPlayers(std::vector<ChunkPos> centers);
     void drawAll() const;
     void drawAllWater() const;
     void drawAllFoliage() const;
@@ -184,6 +190,7 @@ private:
     bool stopWorkers = false;
     int  lastUpdateCX = 1 << 30;   // last player chunk; sentinel forces first run
     int  lastUpdateCZ = 1 << 30;
+    std::vector<ChunkPos> lastServerCenters;   // last player-chunk set (updateForPlayers)
 
     void workerThread();
 };
@@ -203,3 +210,24 @@ SurfaceSample sampleSurface(int wx, int wz);
 int sampleSurfaceSolid(int wx, int wz);
 
 unsigned int  worldSeed();
+
+// Rebuild a lazily-built, seed-derived cache whenever the world seed changes.
+// `built` records the seed the cache was last built from (~0ull = never built);
+// when it differs from the current worldSeed(), `build()` runs under `mtx` to
+// repopulate the cache. Thread-safe for concurrent first-build (the server's
+// chunk-generation threads share these caches); steady-state is one atomic read.
+// This is what lets a remote client — which boots on its own random seed, then
+// adopts the server's seed from the handshake — rebuild the procedural caches
+// (dungeon plan, ferry routes, prop placements) with no explicit invalidation.
+// `build()` must repopulate from scratch (clear any append-style cache first).
+template <class F>
+inline void rebuildCacheOnSeedChange(std::atomic<uint64_t>& built, std::mutex& mtx, F&& build) {
+    const uint64_t cur = worldSeed();
+    if (built.load(std::memory_order_acquire) != cur) {
+        std::lock_guard<std::mutex> lock(mtx);
+        if (built.load(std::memory_order_relaxed) != cur) {
+            build();
+            built.store(cur, std::memory_order_release);
+        }
+    }
+}

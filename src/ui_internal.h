@@ -4,6 +4,7 @@
 // every ImGui panel uses, plus the one cross-file UI entry point. ui.h remains
 // the public surface; this header is private to the ui_* sources.
 #include "imgui.h"
+#include "ability.h"   // AbilityIcon / IconColor for the shared icon renderer
 
 struct AppContext;
 
@@ -24,3 +25,8 @@ inline ImVec2 vpCentered(float w, float h) {
 // The world-map overlay lives in ui_map.cpp; renderPlayUI (ui_play.cpp) calls
 // it each frame, so it needs external linkage and a shared declaration.
 void renderMapUI(AppContext& ctx);
+
+// Procedural ability glyph used by both the hotbar (ui_play.cpp) and the skill
+// tree (ui_skilltree.cpp). Defined in ui_play.cpp; draws into `dl` centred at
+// `c`, fitting a box of side `size`, tinted by the ability's IconColor.
+void drawAbilityIcon(ImDrawList* dl, ImVec2 c, float size, AbilityIcon glyph, IconColor col);

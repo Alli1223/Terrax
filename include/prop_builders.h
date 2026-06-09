@@ -65,5 +65,20 @@ VoxelVolume* buildFountain();
 VoxelVolume* buildMarketStall();
 VoxelVolume* buildNoticeBoard();
 
+// Graveyard headstones — weathered stone slab, stone cross-topped slab, and a
+// simple wooden grave cross on a dirt mound.
+VoxelVolume* buildTombstone();
+VoxelVolume* buildTombstoneCross();
+VoxelVolume* buildGraveCross();
+
+// Graveyard dressing — a mound of dug earth, a spade stuck in the ground, a
+// laid posy of flowers, a flower wreath, a stone urn, and a bare dead tree.
+VoxelVolume* buildSoilMound();
+VoxelVolume* buildSpade();
+VoxelVolume* buildGraveFlowers();
+VoxelVolume* buildFlowerWreath();
+VoxelVolume* buildStoneUrn();
+VoxelVolume* buildDeadTree();
+
 // Openable house door panel, one mesh per style/colour (the Door object).
 VoxelVolume* buildDoor(int variant);

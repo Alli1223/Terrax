@@ -3,6 +3,7 @@
 #include "world.h"
 #include "dungeon.h"     // furnish dungeon/castle rooms with the same Prop furniture
 #include <mutex>
+#include <atomic>
 #include <random>
 #include <cmath>
 #include <cstdint>
@@ -11,7 +12,6 @@
 namespace {
 
 std::vector<PropPlacement> g_placements;
-std::once_flag            g_once;
 
 // Height of a table's top surface above its base, in world units (the table
 // model is 13 voxels tall — see buildTable). Crockery rests here.
@@ -963,10 +963,94 @@ void build() {
     for (const auto& dptr : dp.dungeons)
         for (const DungeonRoom& rm : dptr->rooms)
             furnishDungeonRoom(*dptr, rm);
+
+    // Graveyard tombstones — rows inside each town's graveyard fence, facing the
+    // gate, with per-stone variation (variant, slight lean, the odd empty plot)
+    // so it reads as a weathered graveyard rather than a grid. The central
+    // walkway is kept clear and a lamp post lights a front corner.
+    for (const Graveyard& gy : getTownPlan().graveyards) {
+        uint32_t h = gy.seed ? gy.seed : 1u;
+        auto nrand = [&]() { h ^= h << 13; h ^= h >> 17; h ^= h << 5; return h; };
+        float faceYaw = glm::degrees(std::atan2((float)gy.gateDX, (float)gy.gateDZ));
+        float fdx = (float)gy.gateDX, fdz = (float)gy.gateDZ;   // toward the gate
+
+        for (int rz = -gy.halfZ + 2; rz <= gy.halfZ - 2; rz += 3)
+            for (int rx = -gy.halfX + 2; rx <= gy.halfX - 2; rx += 3) {
+                if (gy.gateDX != 0 && rz == 0) continue;   // keep the walkway clear
+                if (gy.gateDZ != 0 && rx == 0) continue;
+                uint32_t r = nrand();
+                if ((r & 15u) == 0u) continue;             // a few empty plots
+                glm::vec3 base((float)(gy.center.x + rx) + 0.5f, (float)(gy.baseY + 1),
+                               (float)(gy.center.y + rz) + 0.5f);
+                float jit = (float)((int)((r >> 6) % 21u) - 10);   // +-10 deg lean
+
+                uint32_t kind = (r >> 3) % 24u;
+                if (kind == 0) {                            // a stone urn
+                    g_placements.push_back({ PropType::StoneUrn, base, faceYaw + jit, r });
+                } else if (kind <= 3) {                     // a fresh grave: mound + marker
+                    g_placements.push_back({ PropType::SoilMound, base, faceYaw + jit, r });
+                    uint32_t m = (r & 0x300u);
+                    if      (m == 0x100u) g_placements.push_back({ PropType::Spade,      base + glm::vec3(0.25f, 0.0f, 0.25f), faceYaw, r });
+                    else if (m == 0x200u) g_placements.push_back({ PropType::GraveCross, base, faceYaw + jit, r });
+                } else {                                    // a headstone
+                    PropType pt = (kind % 4u == 0u) ? PropType::TombstoneCross
+                                : (kind % 7u == 0u) ? PropType::GraveCross
+                                :                      PropType::Tombstone;
+                    g_placements.push_back({ pt, base, faceYaw + jit, r });
+                }
+
+                // A tended grave: flowers or a wreath laid just in front (toward
+                // the gate) of roughly two in five markers.
+                uint32_t deco = (r >> 12) % 5u;
+                if (deco == 0)
+                    g_placements.push_back({ PropType::GraveFlowers,
+                        base + glm::vec3(fdx * 0.6f, 0.0f, fdz * 0.6f), faceYaw, r });
+                else if (deco == 1)
+                    g_placements.push_back({ PropType::FlowerWreath,
+                        base + glm::vec3(fdx * 0.7f, 0.0f, fdz * 0.7f), faceYaw, r });
+            }
+
+        // Two bare dead trees in the back corners (away from the gate).
+        for (int s = -1; s <= 1; s += 2) {
+            int cxoff, czoff;
+            if (gy.gateDX != 0) { cxoff = -gy.gateDX * (gy.halfX - 1); czoff = s * (gy.halfZ - 1); }
+            else                { cxoff = s * (gy.halfX - 1);          czoff = -gy.gateDZ * (gy.halfZ - 1); }
+            g_placements.push_back({ PropType::DeadTree,
+                glm::vec3((float)(gy.center.x + cxoff) + 0.5f, (float)(gy.baseY + 1),
+                          (float)(gy.center.y + czoff) + 0.5f),
+                (float)((gy.seed >> (s > 0 ? 5 : 11)) % 360u), gy.seed });
+        }
+
+        // A modelled fence around the perimeter (like the farms), with a gap on
+        // the gate side. Sections every 2 blocks read as a continuous run; the
+        // plot is flattened to baseY so the fences rest on baseY+1.
+        {
+            int x0 = gy.center.x - (gy.halfX + 1), x1 = gy.center.x + (gy.halfX + 1);
+            int z0 = gy.center.y - (gy.halfZ + 1), z1 = gy.center.y + (gy.halfZ + 1);
+            float fy = (float)(gy.baseY + 1);
+            int gxc = gy.center.x + gy.gateDX * (gy.halfX + 1);   // gate centre on the ring
+            int gzc = gy.center.y + gy.gateDZ * (gy.halfZ + 1);
+            auto fpost = [&](int x, int z, float yw) {
+                if (std::abs(x - gxc) <= 1 && std::abs(z - gzc) <= 1) return;   // leave the gate open
+                g_placements.push_back({ PropType::Fence,
+                    glm::vec3((float)x + 0.5f, fy, (float)z + 0.5f), yw, nrand() });
+            };
+            for (int x = x0; x <= x1; x += 2) { fpost(x, z0, 90.0f); fpost(x, z1, 90.0f); }   // front / back
+            for (int z = z0 + 2; z <= z1 - 2; z += 2) { fpost(x0, z, 0.0f); fpost(x1, z, 0.0f); } // sides
+        }
+
+        // A pair of lamps at the front (gate-side) interior corners for an eerie glow.
+        for (int s = -1; s <= 1; s += 2) {
+            int lx, lz;
+            if (gy.gateDX != 0) { lx = gy.center.x + gy.gateDX * (gy.halfX - 1); lz = gy.center.y + s * (gy.halfZ - 1); }
+            else                { lx = gy.center.x + s * (gy.halfX - 1);          lz = gy.center.y + gy.gateDZ * (gy.halfZ - 1); }
+            g_placements.push_back({ PropType::StreetLamp,
+                glm::vec3((float)lx + 0.5f, (float)(gy.baseY + 1), (float)lz + 0.5f), 0.0f, gy.seed });
+        }
+    }
 }
 
 std::vector<DoorPlacement> g_doors;
-std::once_flag             g_doorsOnce;
 
 // One door per house, in the gap of its front wall.
 void buildDoors() {
@@ -1003,12 +1087,16 @@ void buildDoors() {
 } // namespace
 
 const std::vector<PropPlacement>& getPropPlacements() {
-    std::call_once(g_once, [] { build(); });
+    static std::mutex            mtx;
+    static std::atomic<uint64_t> built{~0ull};
+    rebuildCacheOnSeedChange(built, mtx, [] { g_placements.clear(); build(); });
     return g_placements;
 }
 
 const std::vector<DoorPlacement>& getDoorPlacements() {
-    std::call_once(g_doorsOnce, [] { buildDoors(); });
+    static std::mutex            mtx;
+    static std::atomic<uint64_t> built{~0ull};
+    rebuildCacheOnSeedChange(built, mtx, [] { g_doors.clear(); buildDoors(); });
     return g_doors;
 }
 
@@ -1046,8 +1134,10 @@ PropType wildBushVariant(int biome, uint32_t h) {
 // wild bushes out of the stand-alone roadside fields too.
 bool insideRoadsideFarm(int wx, int wz) {
     static std::vector<glm::ivec4> rects;          // (x0, z0, x1, z1) with a 1-block margin
-    static std::once_flag once;
-    std::call_once(once, [] {
+    static std::mutex            mtx;
+    static std::atomic<uint64_t> built{~0ull};
+    rebuildCacheOnSeedChange(built, mtx, [] {
+        rects.clear();
         for (const TownBuilding& b : getTownPlan().roadside)
             if (b.kind == (int)BuildingKind::Farm && b.dimX > 0)
                 rects.push_back(glm::ivec4(b.wx - 1, b.wz - 1, b.wx + b.dimX, b.wz + b.dimZ));

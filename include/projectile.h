@@ -40,6 +40,11 @@ public:
     uint32_t ownerClientId = 0;
     float    damageScale   = 1.0f;
 
+    // Hostile (enemy-fired) bolts are visual-only on the client: the server
+    // simulates their flight and applies damage. They skip the NPC-hit sweep
+    // and instead burst when they reach the local player.
+    bool     hostile       = false;
+
     // Subclass hooks — default impls do nothing. ArrowProjectile uses
     // these to add a brief "stuck" lifetime and to mark the projectile
     // dead the moment it touches an NPC. Future projectile types might
@@ -133,6 +138,15 @@ class ArcaneBoltProjectile : public MagicBoltProjectile {
 public:
     ArcaneBoltProjectile();
     void onHitNpc(class NPC& n) override;
+};
+
+// A hostile NPC's bolt (e.g. a cultist's staff). Visual-only on the client —
+// the server simulates the authoritative flight and applies damage on a player
+// hit, so a player who sidesteps in time dodges it. Flies straight (no gravity)
+// and is spawned from an EnemyProjectileSpawnPacket.
+class EnemyBoltProjectile : public MagicBoltProjectile {
+public:
+    EnemyBoltProjectile();
 };
 
 // Per-frame pass: walk the ObjectManager and check every Projectile

@@ -101,7 +101,7 @@ public:
 //
 // Adding a new unique animation = one `case` in `applyClipPose`. No
 // changes needed to `update()` or to call sites that play it.
-enum class ClipKind { Wave, Cheer, Crouch, Hoe };
+enum class ClipKind { Wave, Cheer, Crouch, Hoe, Slam, Spin, Roar, Brace };
 
 struct AnimationClip {
     ClipKind kind     = ClipKind::Wave;
@@ -168,6 +168,16 @@ public:
     // so the player sees a quick "raise + release" motion.
     bool  isCasting     = false;
     float castAnim      = 0.0f;
+    float castLift      = 0.0f;   // eased 0..1 staff-raise, so a channel holds steady
+    // Whole-body tilt applied at draw time (Player::draw), not by the limb
+    // animation: leanPitch/leanRoll are smoothed banking angles in radians that
+    // make the body lean into its movement; rollProgress runs 0..1 during a
+    // dodge roll (a forward somersault) and is -1 when not rolling.
+    float leanPitch = 0.0f, leanRoll = 0.0f;
+    float rollProgress = -1.0f;
+    // Ease the lean toward the body's current movement, expressed as forward /
+    // rightward speed in the body's own frame. Called each frame by Player.
+    void  updateLean(float fwdSpeed, float rightSpeed, float dt);
     // Static pose override: when set to Sitting / Lying the update() method
     // skips the walking / breathing cycle and snaps every limb to a fixed
     // resting posture (and lying tilts the whole rig 90° forward, hands on

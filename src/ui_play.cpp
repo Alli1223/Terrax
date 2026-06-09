@@ -166,10 +166,366 @@ static void renderDebugOverlay(AppContext& ctx) {
     ImGui::End();
 }
 
+// Whether to show the aiming reticle. Only while the player is actually firing
+// a RANGED main-hand weapon — drawing a bow, or mid-cast with a staff/wand. A
+// melee weapon never shows one, and even a ranged weapon only shows it during
+// the attack, not while idle. Hidden during any menu/overlay or while sitting.
+static bool shouldShowCrosshair(const AppContext& ctx) {
+    if (ctx.showInventory || ctx.showCharacterLoadout || ctx.showMap ||
+        ctx.paused || ctx.chatOpen || ctx.showTrainer) return false;
+    if (ctx.playerPose != PlayerPose::Standing) return false;
+    Item* mh = ctx.inventory.equipped(EquipSlot::MainHand);
+    if (!mh || mh->getKind() != ItemKind::Weapon) return false;
+    WeaponItem* w = static_cast<WeaponItem*>(mh);
+    bool ranged = (w->getType() == WeaponType::Bow) || w->isInstantRanged();
+    if (!ranged) return false;
+    // Active attack only: drawing the bow, or a swing/cast in progress.
+    return ctx.bowChargingHeld ||
+           (ctx.playerRig && (ctx.playerRig->isCasting || ctx.playerRig->isAttacking));
+}
+
+// Bottom-centre ability hotbar (slots 1..6) plus the role resource bar.
+// Draw an ability's glyph procedurally (no texture assets) centred at `c`,
+// fitting a box of side `size`, tinted by the ability's IconColor. Shapes are
+// built from ImGui draw-list primitives in a normalised [-1,1] space (P(x,y)),
+// so the same glyph scales cleanly on the hotbar and in the skill tree. This is
+// a pure rendering map — the `switch` picks a shape, it doesn't dispatch
+// behaviour (that stays virtual on Ability).
+void drawAbilityIcon(ImDrawList* dl, ImVec2 c, float size,
+                     AbilityIcon glyph, IconColor col) {
+    const float    PI = 3.14159265f;
+    const float    r  = size * 0.5f;
+    const float    w  = std::max(2.0f, size * 0.11f);
+    const ImU32    fg = IM_COL32(col.r, col.g, col.b, 255);
+    const ImU32    hi = IM_COL32(std::min(255, col.r + 60), std::min(255, col.g + 60),
+                                 std::min(255, col.b + 60), 255);
+    const ImU32    dk = IM_COL32((int)(col.r * 0.45f), (int)(col.g * 0.45f),
+                                 (int)(col.b * 0.45f), 255);
+    auto P = [&](float x, float y) { return ImVec2(c.x + x * r, c.y + y * r); };
+    auto ray = [&](float ang, float r0, float r1, ImU32 cc, float th) {
+        dl->AddLine(ImVec2(c.x + std::cos(ang) * r0 * r, c.y + std::sin(ang) * r0 * r),
+                    ImVec2(c.x + std::cos(ang) * r1 * r, c.y + std::sin(ang) * r1 * r), cc, th);
+    };
+
+    switch (glyph) {
+        case AbilityIcon::Sword:
+            dl->AddLine(P(-0.55f, 0.6f), P(0.42f, -0.5f), fg, w);
+            dl->AddTriangleFilled(P(0.32f, -0.38f), P(0.64f, -0.7f), P(0.52f, -0.22f), hi);
+            dl->AddLine(P(-0.55f, 0.18f), P(0.0f, 0.5f), dk, w * 0.8f);     // crossguard
+            dl->AddCircleFilled(P(-0.62f, 0.68f), w * 0.6f, dk, 10);       // pommel
+            break;
+        case AbilityIcon::Swords:
+            dl->AddLine(P(-0.62f, 0.62f), P(0.62f, -0.62f), fg, w);
+            dl->AddLine(P(0.62f, 0.62f), P(-0.62f, -0.62f), hi, w);
+            dl->AddCircleFilled(P(-0.62f, 0.62f), w * 0.55f, dk, 10);
+            dl->AddCircleFilled(P(0.62f, 0.62f), w * 0.55f, dk, 10);
+            break;
+        case AbilityIcon::Slash:
+            dl->PathArcTo(P(0.15f, 0.15f), r * 0.95f, -PI * 0.92f, PI * 0.12f, 22);
+            dl->PathStroke(fg, 0, w * 1.25f);
+            dl->AddLine(P(0.5f, -0.55f), P(0.78f, -0.8f), hi, w * 0.6f);
+            dl->AddLine(P(0.62f, -0.3f), P(0.9f, -0.5f), hi, w * 0.5f);
+            break;
+        case AbilityIcon::Whirl:
+            dl->PathArcTo(P(-0.18f, -0.18f), r * 0.5f, -PI * 0.5f, PI * 0.85f, 18);
+            dl->PathStroke(fg, 0, w);
+            dl->PathArcTo(P(0.18f, 0.18f), r * 0.5f, PI * 0.5f, PI * 1.85f, 18);
+            dl->PathStroke(hi, 0, w);
+            break;
+        case AbilityIcon::Hammer:
+            dl->AddLine(P(0.0f, 0.78f), P(0.0f, -0.15f), dk, w * 0.95f);
+            dl->AddRectFilled(P(-0.55f, -0.62f), P(0.55f, -0.12f), fg, 3.0f);
+            dl->AddRect(P(-0.55f, -0.62f), P(0.55f, -0.12f), hi, 3.0f, 0, 1.5f);
+            break;
+        case AbilityIcon::Shield: {
+            ImVec2 sp[5] = { P(-0.55f, -0.55f), P(0.55f, -0.55f), P(0.5f, 0.28f),
+                             P(0.0f, 0.76f), P(-0.5f, 0.28f) };
+            dl->AddConvexPolyFilled(sp, 5, fg);
+            dl->AddPolyline(sp, 5, dk, ImDrawFlags_Closed, 1.5f);
+            dl->AddLine(P(0.0f, -0.5f), P(0.0f, 0.6f), dk, w * 0.5f);
+            break;
+        }
+        case AbilityIcon::ShieldBash: {
+            ImVec2 sp[5] = { P(-0.5f, -0.4f), P(0.45f, -0.4f), P(0.4f, 0.32f),
+                             P(0.0f, 0.72f), P(-0.45f, 0.32f) };
+            dl->AddConvexPolyFilled(sp, 5, fg);
+            dl->AddPolyline(sp, 5, dk, ImDrawFlags_Closed, 1.5f);
+            dl->AddLine(P(0.42f, -0.5f), P(0.82f, -0.85f), hi, w * 0.6f);
+            dl->AddLine(P(0.55f, -0.28f), P(0.92f, -0.42f), hi, w * 0.5f);
+            dl->AddLine(P(0.22f, -0.6f), P(0.4f, -0.95f), hi, w * 0.5f);
+            break;
+        }
+        case AbilityIcon::Chevrons:
+            for (int i = 0; i < 3; i++) {
+                float y = 0.45f - i * 0.45f;
+                dl->AddLine(P(-0.55f, y + 0.25f), P(0.0f, y - 0.22f), fg, w);
+                dl->AddLine(P(0.0f, y - 0.22f), P(0.55f, y + 0.25f), fg, w);
+            }
+            break;
+        case AbilityIcon::Shockwave:
+            dl->AddCircle(c, r * 0.35f, fg, 18, w * 0.7f);
+            dl->AddCircle(c, r * 0.65f, fg, 24, w * 0.6f);
+            dl->AddCircle(c, r * 0.95f, hi, 28, w * 0.5f);
+            break;
+        case AbilityIcon::Flame:
+            dl->AddTriangleFilled(P(-0.45f, 0.35f), P(0.45f, 0.35f), P(0.0f, -0.82f), fg);
+            dl->AddCircleFilled(P(0.0f, 0.32f), r * 0.45f, fg, 16);
+            dl->AddTriangleFilled(P(-0.22f, 0.35f), P(0.22f, 0.35f), P(0.0f, -0.32f), hi);
+            dl->AddCircleFilled(P(0.0f, 0.33f), r * 0.24f, hi, 12);
+            break;
+        case AbilityIcon::Frost:
+            for (int i = 0; i < 6; i++) {
+                float a = i * PI / 3.0f;
+                ray(a, 0.0f, 0.88f, fg, w * 0.7f);
+                ImVec2 mid = P(std::cos(a) * 0.5f, std::sin(a) * 0.5f);
+                dl->AddLine(mid, ImVec2(mid.x + std::cos(a + 0.5f) * r * 0.26f,
+                                        mid.y + std::sin(a + 0.5f) * r * 0.26f), fg, w * 0.5f);
+                dl->AddLine(mid, ImVec2(mid.x + std::cos(a - 0.5f) * r * 0.26f,
+                                        mid.y + std::sin(a - 0.5f) * r * 0.26f), fg, w * 0.5f);
+            }
+            dl->AddCircleFilled(c, w * 0.5f, hi, 10);
+            break;
+        case AbilityIcon::Holy:
+            dl->AddCircleFilled(c, r * 0.4f, fg, 18);
+            for (int i = 0; i < 8; i++) ray(i * PI / 4.0f, 0.55f, 0.95f, hi, w * 0.7f);
+            break;
+        case AbilityIcon::Nova:
+            dl->AddCircleFilled(c, r * 0.3f, hi, 16);
+            for (int i = 0; i < 8; i++) {
+                float a = i * PI / 4.0f;
+                ImVec2 outer = P(std::cos(a) * 0.95f, std::sin(a) * 0.95f);
+                ImVec2 in1   = P(std::cos(a - 0.32f) * 0.42f, std::sin(a - 0.32f) * 0.42f);
+                ImVec2 in2   = P(std::cos(a + 0.32f) * 0.42f, std::sin(a + 0.32f) * 0.42f);
+                dl->AddTriangleFilled(in1, outer, in2, fg);
+            }
+            break;
+        case AbilityIcon::Cross:
+            dl->AddRectFilled(P(-0.24f, -0.8f), P(0.24f, 0.8f), fg, 2.0f);
+            dl->AddRectFilled(P(-0.8f, -0.24f), P(0.8f, 0.24f), fg, 2.0f);
+            dl->AddRectFilled(P(-0.1f, -0.72f), P(0.1f, 0.72f), hi, 1.0f);
+            break;
+        case AbilityIcon::Sanctuary:
+            dl->AddCircle(c, r * 0.92f, fg, 28, w * 0.6f);
+            dl->AddRectFilled(P(-0.14f, -0.5f), P(0.14f, 0.5f), fg, 1.5f);
+            dl->AddRectFilled(P(-0.5f, -0.14f), P(0.5f, 0.14f), fg, 1.5f);
+            break;
+        case AbilityIcon::Leaf:
+            dl->PathClear();
+            dl->PathLineTo(P(0.0f, -0.75f));
+            dl->PathBezierQuadraticCurveTo(P(0.72f, -0.1f), P(0.0f, 0.78f), 16);
+            dl->PathBezierQuadraticCurveTo(P(-0.72f, -0.1f), P(0.0f, -0.75f), 16);
+            dl->PathFillConvex(fg);
+            dl->AddLine(P(0.0f, -0.7f), P(0.0f, 0.72f), dk, w * 0.45f);
+            break;
+        case AbilityIcon::Arrow:
+            dl->AddLine(P(0.0f, 0.78f), P(0.0f, -0.45f), fg, w);
+            dl->AddTriangleFilled(P(-0.4f, -0.28f), P(0.4f, -0.28f), P(0.0f, -0.86f), fg);
+            dl->AddLine(P(0.0f, 0.78f), P(-0.28f, 0.5f), hi, w * 0.7f);
+            dl->AddLine(P(0.0f, 0.78f), P(0.28f, 0.5f), hi, w * 0.7f);
+            break;
+        case AbilityIcon::Claw:
+            for (int i = 0; i < 3; i++) {
+                float x = -0.45f + i * 0.45f;
+                dl->AddLine(P(x - 0.12f, 0.72f), P(x + 0.18f, -0.72f), i == 1 ? hi : fg, w * 0.85f);
+            }
+            break;
+        default:
+            dl->AddCircleFilled(c, r * 0.5f, fg, 16);
+            break;
+    }
+}
+
+static void drawHotbar(AppContext& ctx) {
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    ImVec2 o = vpPos(), s = vpSize();
+    const int   N    = AppContext::HOTBAR_SLOTS;
+    const float slot = 46.0f, gap = 6.0f;
+    float totalW = N * slot + (N - 1) * gap;
+    float x0 = o.x + (s.x - totalW) * 0.5f;
+    float y0 = o.y + s.y - 104.0f - slot;   // sit above the health / XP bar
+
+    for (int i = 0; i < N; i++) {
+        float x = x0 + i * (slot + gap);
+        ImVec2 a(x, y0), b(x + slot, y0 + slot);
+        AbilityId aid = ctx.hotbar[i];
+        Ability*  ab  = (aid != AbilityId::None) ? ctx.findAbility(aid) : nullptr;
+        bool sel = (i == ctx.selectedHotbar) && ab;
+        dl->AddRectFilled(a, b, IM_COL32(18, 18, 26, 205), 4.0f);
+        dl->AddRect(a, b, sel ? IM_COL32(255, 210, 120, 255) : IM_COL32(120, 120, 140, 220),
+                    4.0f, 0, sel ? 2.5f : 1.5f);
+        dl->AddText(ImVec2(x + 3, y0 + 1), IM_COL32(210, 210, 225, 255),
+                    std::to_string(i + 1).c_str());
+        if (!ab) continue;
+        drawAbilityIcon(dl, ImVec2(x + slot * 0.5f, y0 + slot * 0.5f + 3.0f),
+                        slot * 0.62f, ab->icon(), ab->iconColor());
+        float cd = ctx.hotbarCooldown[i], cdMax = ab->cooldown();
+        if (cd > 0.0f && cdMax > 0.0f) {
+            float frac = std::min(1.0f, cd / cdMax);
+            dl->AddRectFilled(ImVec2(x, b.y - slot * frac), b, IM_COL32(0, 0, 0, 150), 4.0f);
+            std::string cds = std::to_string((int)ceilf(cd));
+            ImVec2 cs = ImGui::CalcTextSize(cds.c_str());
+            dl->AddText(ImVec2(x + (slot - cs.x) * 0.5f, y0 + slot * 0.5f - 4),
+                        IM_COL32(255, 235, 190, 255), cds.c_str());
+        }
+    }
+
+    float ry = y0 + slot + 5.0f, rbH = 9.0f;
+    ImVec2 ra(x0, ry), rb(x0 + totalW, ry + rbH);
+    dl->AddRectFilled(ra, rb, IM_COL32(18, 18, 26, 205), 2.0f);
+    float frac = (ctx.resourceMax > 0.0f) ? (ctx.resource / ctx.resourceMax) : 0.0f;
+    ImU32 rcol = ctx.resourceType == ResourceType::Mana ? IM_COL32(70, 120, 230, 255)
+               : ctx.resourceType == ResourceType::Rage ? IM_COL32(200, 60, 50, 255)
+               :                                          IM_COL32(220, 200, 70, 255);
+    dl->AddRectFilled(ra, ImVec2(x0 + totalW * frac, ry + rbH), rcol, 2.0f);
+    std::string rtxt = std::string(resourceName(ctx.resourceType)) + "  " +
+                       std::to_string((int)ctx.resource) + "/" + std::to_string((int)ctx.resourceMax);
+    ImVec2 rs = ImGui::CalcTextSize(rtxt.c_str());
+    dl->AddText(ImVec2(x0 + (totalW - rs.x) * 0.5f, ry - 2), IM_COL32(235, 235, 240, 255), rtxt.c_str());
+}
+
+// A small white reticle at screen centre, drawn with a 1px dark offset so it
+// reads over both bright sky and dark terrain.
+static void drawCrosshair() {
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    ImVec2 o = vpPos(), s = vpSize();
+    ImVec2 c(o.x + s.x * 0.5f, o.y + s.y * 0.5f);
+    const ImU32 col    = IM_COL32(255, 255, 255, 205);
+    const ImU32 shadow = IM_COL32(0, 0, 0, 130);
+    const float gap = 5.0f, len = 9.0f, th = 1.6f;
+    auto tick = [&](float ax, float ay, float bx, float by) {
+        dl->AddLine(ImVec2(c.x + ax + 1, c.y + ay + 1), ImVec2(c.x + bx + 1, c.y + by + 1), shadow, th);
+        dl->AddLine(ImVec2(c.x + ax,     c.y + ay),     ImVec2(c.x + bx,     c.y + by),     col,    th);
+    };
+    tick(-gap - len, 0, -gap, 0);    // left
+    tick( gap, 0,  gap + len, 0);    // right
+    tick(0, -gap - len, 0, -gap);    // up
+    tick(0,  gap, 0,  gap + len);    // down
+    dl->AddCircleFilled(c, 1.3f, col);
+}
+
+// Active-buff tray: a centred row of badges near the top of the screen, one per
+// timed buff (Shield Wall, Battle Shout, Last Stand, Barrier, ...), each showing
+// the ability's glyph, a depleting time bar and the seconds left — so it's clear
+// the buff is on and how long remains.
+static void drawActiveBuffs(AppContext& ctx) {
+    if (ctx.activeBuffs.empty()) return;
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    ImVec2 o = vpPos(), s = vpSize();
+    const int   n   = (int)ctx.activeBuffs.size();
+    const float box = 42.0f, gap = 8.0f;
+    float totalW = n * box + (n - 1) * gap;
+    float x0 = o.x + (s.x - totalW) * 0.5f;
+    float y0 = o.y + 52.0f;
+    for (int i = 0; i < n; i++) {
+        const ActiveBuff& b = ctx.activeBuffs[i];
+        Ability*  ab  = ctx.findAbility(b.id);
+        IconColor col = ab ? ab->iconColor() : IconColor{150, 200, 255};
+        ImU32     border = IM_COL32(col.r, col.g, col.b, 255);
+        float x = x0 + i * (box + gap);
+        ImVec2 a(x, y0), bb(x + box, y0 + box);
+        // Pulse the border in the buff's final second so an expiry reads clearly.
+        float a8 = (b.ttl < 1.0f) ? (0.45f + 0.55f * b.ttl) : 1.0f;
+        dl->AddRectFilled(a, bb, IM_COL32(18, 20, 28, 215), 5.0f);
+        dl->AddRect(a, bb, IM_COL32(col.r, col.g, col.b, (int)(a8 * 255)), 5.0f, 0, 2.0f);
+        if (ab) drawAbilityIcon(dl, ImVec2(x + box * 0.5f, y0 + box * 0.5f - 2.0f),
+                                box * 0.6f, ab->icon(), col);
+        // Depleting time bar along the bottom edge.
+        float frac = (b.total > 0.0f) ? std::max(0.0f, std::min(1.0f, b.ttl / b.total)) : 0.0f;
+        ImVec2 ba(x + 3, bb.y - 6), be(x + box - 3, bb.y - 3);
+        dl->AddRectFilled(ba, be, IM_COL32(0, 0, 0, 150), 1.5f);
+        dl->AddRectFilled(ba, ImVec2(ba.x + (be.x - ba.x) * frac, be.y), border, 1.5f);
+        // Seconds remaining, top-right.
+        std::string secs = std::to_string((int)ceilf(b.ttl));
+        dl->AddText(ImVec2(x + box - 6.0f - secs.size() * 7.0f, y0 + 2.0f),
+                    IM_COL32(240, 240, 245, 255), secs.c_str());
+    }
+}
+
+// The Class Trainer window — opened by pressing E at a town trainer NPC. Lets
+// the player change role mid-game: keeps their character level but reseeds the
+// new role's core abilities and refunds skill points to re-spend in the new
+// tree ("keep level, fresh tree"). Purely client-side; the role rides the next
+// player-model packet so other clients see the new body size.
+static void drawTrainerWindow(AppContext& ctx) {
+    if (!ctx.showTrainer) return;
+    ImVec2 vp = vpPos(), vs = vpSize();
+    const float W = 440.0f, H = 270.0f;
+    ImGui::SetNextWindowPos(ImVec2(vp.x + (vs.x - W) * 0.5f, vp.y + (vs.y - H) * 0.5f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(W, H), ImGuiCond_Always);
+    ImGui::Begin("Class Trainer", &ctx.showTrainer,
+                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+
+    ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.5f, 1.0f), "Choose your calling");
+    ImGui::TextWrapped("Change your class. You keep your level, but your skills reset to "
+                       "the new class's tree (skill points are refunded to re-spend).");
+    ImGui::Separator();
+    ImGui::Text("Current: %s  (Level %d)", roleName(ctx.playerRole), ctx.playerLevel);
+    ImGui::Spacing();
+
+    struct RoleOpt { PlayerRole role; const char* name; const char* blurb; };
+    static const RoleOpt opts[3] = {
+        { PlayerRole::Tank,   "Tank",   "Broad and tough — taunts, shields, holds the line." },
+        { PlayerRole::DPS,    "DPS",    "Lean and deadly — melee flurries and ranged bolts." },
+        { PlayerRole::Healer, "Healer", "Mends allies and smites foes with holy light." },
+    };
+    for (const RoleOpt& o : opts) {
+        ImGui::PushID((int)o.role);
+        if (o.role == ctx.playerRole) {
+            ImGui::TextColored(ImVec4(0.55f, 0.95f, 0.6f, 1.0f), "%-7s (current)", o.name);
+        } else if (ImGui::Button(o.name, ImVec2(96, 0))) {
+            // Swap class: keep level, reseed the role, refund all earned points.
+            ctx.playerRole = o.role;
+            if (ctx.playerRig) {
+                ctx.playerRig->heightScale = roleHeightScale(o.role);
+                ctx.playerRig->weightScale = roleWeightScale(o.role);
+                if (ctx.playerRig->torso) {
+                    ctx.playerRig->torso->scale.x = ctx.playerRig->weightScale;
+                    ctx.playerRig->torso->scale.z = ctx.playerRig->weightScale;
+                }
+            }
+            ctx.setupRoleLoadout();                                        // new core abilities + stats
+            ctx.skillPoints = (ctx.playerLevel > 1) ? ctx.playerLevel - 1 : 0;  // refund (1 pt/level earned)
+            if (ctx.playerRig) rebuildRigFromInventory(*ctx.playerRig, ctx.inventory);
+            sendPlayerModelUpdate(ctx);                                    // other clients see the new size
+            AppContext::HudToast t{ std::string("Now a ") + roleName(o.role) + "!",
+                                    Voxel{255, 220, 120, 255}, 2.0f };
+            ctx.toasts.push_back(std::move(t));
+            ctx.showTrainer = false;
+        }
+        ImGui::SameLine(120.0f);
+        ImGui::TextDisabled("%s", o.blurb);
+        ImGui::PopID();
+    }
+
+    ImGui::Separator();
+    if (ImGui::Button("Close", ImVec2(-1, 0))) ctx.showTrainer = false;
+    ImGui::End();
+}
+
 void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer) {
     (void)window;
 
     if (ctx.showDebugOverlay) renderDebugOverlay(ctx);
+
+    if (shouldShowCrosshair(ctx)) drawCrosshair();
+    if (!ctx.showMap) { drawHotbar(ctx); drawActiveBuffs(ctx); }
+
+    // Cast bar — shown while channelling an ability with a cast time.
+    if (ctx.castTimer > 0.0f && ctx.castTotal > 0.0f) {
+        ImDrawList* dl = ImGui::GetForegroundDrawList();
+        ImVec2 o = vpPos(), s = vpSize();
+        const float w = 240.0f, barH = 16.0f;
+        float x0 = o.x + (s.x - w) * 0.5f;
+        float y0 = o.y + s.y * 0.5f + 60.0f;     // below the reticle, above the hotbar
+        float frac = std::min(1.0f, std::max(0.0f, 1.0f - ctx.castTimer / ctx.castTotal));
+        dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x0 + w, y0 + barH), IM_COL32(18, 18, 26, 210), 3.0f);
+        dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x0 + w * frac, y0 + barH), IM_COL32(150, 200, 255, 235), 3.0f);
+        dl->AddRect(ImVec2(x0, y0), ImVec2(x0 + w, y0 + barH), IM_COL32(120, 120, 140, 220), 3.0f, 0, 1.5f);
+        Ability* ab = ctx.findAbility(ctx.castingAbility);
+        const char* nm = ab ? ab->name() : "Casting";
+        ImVec2 ts = ImGui::CalcTextSize(nm);
+        dl->AddText(ImVec2(x0 + (w - ts.x) * 0.5f, y0 - 16.0f), IM_COL32(220, 235, 255, 245), nm);
+    }
 
     // Underwater tint
     if (ctx.headUnderwater) {
@@ -236,9 +592,11 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
     ImGui::ProgressBar(xpFrac, ImVec2(-1, 8), "");
     ImGui::PopStyleColor();
     ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.5f, 1.0f),
-                       "Lv %d   %d/%d XP   HP %d/100",
-                       ctx.playerLevel, (int)ctx.playerXp, xpNeed,
-                       (int)(ctx.playerHealth * 100));
+                       "%s   Lv %d   %d/%d XP   HP %d/%d",
+                       roleName(ctx.playerRole), ctx.playerLevel,
+                       (int)ctx.playerXp, xpNeed,
+                       (int)(ctx.playerHealth * ctx.maxHpScaled),
+                       (int)ctx.maxHpScaled);
     ImGui::End();
 
     // Nametags
@@ -410,6 +768,12 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
         renderInventoryUI(ctx, window);
         renderCharacterLoadoutUI(ctx, window);
     }
+
+    // Skill tree overlay (K) — spend skill points to unlock abilities.
+    if (ctx.showSkillTree) renderSkillTreeUI(ctx);
+
+    // Class Trainer window (E at a town trainer) — change role mid-game.
+    drawTrainerWindow(ctx);
 
     // Toast queue — XP / level-up / loot notifications stacked top-right.
     // Newest at the bottom of the stack so the eye lands on the latest

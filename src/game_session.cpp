@@ -68,11 +68,17 @@ static void serverThreadMain(unsigned short port) {
         while (accumulator >= SERVER_TICK_DT) {
             auto tickT0 = std::chrono::high_resolution_clock::now();
             auto players = g_server->getPlayerStates();
+            // Keep chunks loaded around ALL players at once. Calling update() per
+            // player would make each player's call evict every other player's
+            // chunks, thrashing generation (heap corruption / crash on join).
+            std::vector<ChunkPos> centers;
+            centers.reserve(players.size());
             for (auto& p : players) {
                 int pcx = (int)floorf(p.pos.x / (float)CHUNK_SIZE);
                 int pcz = (int)floorf(p.pos.z / (float)CHUNK_SIZE);
-                serverWorld.update(pcx, pcz);
+                centers.push_back({ pcx, pcz });
             }
+            serverWorld.updateForPlayers(centers);
             g_server->update(serverWorld);
 
             for (auto& f : ferries) {
@@ -101,6 +107,19 @@ static void serverThreadMain(unsigned short port) {
                                              g_server->getPlayerPosition(hit.attackerId),
                                              hit.damageScale);
                 g_server->npcHits.clear();
+
+                // Resolve area / aggro abilities this tick. Validate the cast
+                // originates near the caster so a client can't AoE across the map.
+                for (const AbilityCastEvent& ac : g_server->abilityCasts) {
+                    glm::vec3 cp = g_server->getPlayerPosition(ac.attackerId);
+                    float ddx = ac.center.x - cp.x, ddz = ac.center.z - cp.z;
+                    if (ddx * ddx + ddz * ddz > 30.0f * 30.0f) continue;
+                    if (ac.effect == 1)
+                        npcDirector.playerTaunt(ac.attackerId, ac.center, ac.radius, ac.scale);
+                    else
+                        npcDirector.playerAoe(ac.attackerId, ac.center, ac.radius, ac.scale);
+                }
+                g_server->abilityCasts.clear();
 
                 npcDirector.update(SERVER_TICK_DT, dirPlayers, serverWorld, g_serverGameTime);
 

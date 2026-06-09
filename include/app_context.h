@@ -11,9 +11,12 @@
 #include "prop.h"
 #include "inventory.h"
 #include "interactable.h"
+#include "role.h"
+#include "ability.h"
 #include <glm/glm.hpp>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <future>
 #include <atomic>
@@ -89,8 +92,62 @@ struct AppContext {
     float playerYaw        = 0.0f;
     bool spawnedOnGround   = false;
     int  spawnX = 8, spawnZ = 8;   // world column the player spawns at
-    float playerHealth     = 1.0f;
+    float playerHealth     = 1.0f;   // fraction 0..1 of maxHpScaled
     float regenDelay       = 0.0f;   // delay before out-of-combat health regen
+
+    // --- Role / archetype ---
+    // Picked in the character editor. Drives body size, wearable armour tiers,
+    // and the cached combat scalars below (recomputeRoleStats). maxHpScaled is
+    // the current max HP in the same 0..100-ish points the old code assumed.
+    PlayerRole playerRole       = PlayerRole::DPS;
+    float      maxHpScaled      = 110.0f;
+    float      defenseMult      = 1.0f;   // incoming damage divided by this
+    float      abilityPowerMult = 1.0f;   // scales outgoing ability damage + heals
+    void recomputeRoleStats();            // refresh the cache from role + level
+    void setupRoleLoadout();              // reseed abilities/hotbar/resource for the role
+    // Outgoing ability power including any active Power buffs (e.g. Battle
+    // Shout). Damage/heal send sites scale by this, not the raw cache, so a
+    // self-buff lifts everything the player casts while it lasts.
+    float buffedAbilityPower() const {
+        float p = abilityPowerMult;
+        for (const ActiveBuff& b : activeBuffs)
+            if (b.kind == BuffKind::Power) p += b.magnitude;
+        return p;
+    }
+
+    // --- Abilities / hotbar / resource ---
+    // The ability book owns every learned ability (unique_ptr, like Items). The
+    // hotbar maps slots 1..6 to learned ability ids; `hotbarCooldown` generalises
+    // the old healCdPrimary/Secondary timers. Resources (Mana/Energy/Rage) gate
+    // casts alongside cooldowns; the type + cap come from the role.
+    ResourceType resourceType        = ResourceType::Energy;
+    float        resource            = 100.0f;
+    float        resourceMax         = 100.0f;
+    float        resourceRegenPerSec = 18.0f;
+    std::vector<std::unique_ptr<Ability>> abilityBook;
+    // Eight slots (keys 1..8) — enough to hold a role's deepest tree (two core
+    // abilities plus up to six unlocks) without leaving a learned skill un-slotted.
+    static constexpr int HOTBAR_SLOTS = 8;
+    AbilityId    hotbar[HOTBAR_SLOTS]         = {};   // all AbilityId::None (0)
+    float        hotbarCooldown[HOTBAR_SLOTS] = {};   // all 0
+    int          selectedHotbar   = 0;
+    int          pendingHotbarSlot = -1;   // set by input, consumed by gameplay
+    std::vector<ActiveBuff> activeBuffs;
+
+    // An in-progress ability cast (e.g. Shield Wall, AoE heal). The ability
+    // fires when castTimer reaches 0; until then the player moves slowly and a
+    // cast bar is shown. castTotal is the full time, for the bar.
+    AbilityId castingAbility = AbilityId::None;
+    float     castTimer = 0.0f;
+    float     castTotal = 0.0f;
+
+    Ability* findAbility(AbilityId id) const;   // in the book, or nullptr if not learned
+    void     grantAbility(AbilityId id);        // add to the book if absent
+
+    // --- Skill tree / progression ---
+    int  skillPoints = 0;                              // +1 per level, spent on tree nodes
+    std::unordered_set<AbilityId> unlockedAbilities;   // ids the player has unlocked
+    bool showSkillTree = false;                        // K — tree overlay
 
     // --- Combat input state ---
     // Driven by the mouse handlers in input.cpp; consumed by gameplay
@@ -98,6 +155,15 @@ struct AppContext {
     bool  shieldRaised   = false;   // right mouse held while shield equipped
     bool  bowChargingHeld = false;  // left mouse held while bow equipped
     float bowCharge      = 0.0f;    // 0..1, fills while held, snaps to 0 on release
+
+    // --- Dodge roll (V) ---
+    // A quick directional roll that dashes the player and grants brief damage
+    // immunity. `rollPressed` is set by input; gameplay starts the roll, dashes
+    // in `rollDir` while `rollTimer` > 0 (i-frames), then a `rollCooldown`.
+    bool      rollPressed  = false;
+    float     rollTimer    = 0.0f;
+    float     rollCooldown = 0.0f;
+    glm::vec3 rollDir      = glm::vec3(0.0f, 0.0f, 1.0f);
 
     // --- Healing staff ---
     // Cooldown timers for the staff's two abilities (counted down each frame
@@ -112,10 +178,20 @@ struct AppContext {
     Inventory inventory;
     bool showInventory       = false;   // I key
     bool showCharacterLoadout = false;  // C key
+    bool showTrainer          = false;  // Class Trainer NPC window (role swap)
 
     // --- Progression ---
     int   playerLevel = 1;
     float playerXp    = 0.0f;   // cumulative XP toward `playerLevel + 1`
+
+    // --- Character roster (persistence) ---
+    // The active saved character's index in the on-disk roster, or -1 for none
+    // (Host / Singleplayer, or before a character is picked). On disconnect from
+    // a Join session this slot is written back with the latest progression.
+    int  activeCharacter       = -1;
+    // True while the Character Editor was opened from "Create New" on the
+    // Character Select screen — flips its buttons to Create / Cancel.
+    bool characterCreationMode = false;
 
     // Transient HUD messages — "+25 XP", "Looted: Iron Sword", "Level Up!"
     // etc. Each entry counts down; gameplay/UI prune expired ones.
@@ -154,6 +230,7 @@ struct AppContext {
     bool weOwnServer               = false;
     bool clientInitialized         = false;
     bool joinNameSent              = false;
+    bool worldSeedApplied          = false;   // remote client has adopted the server's seed
     std::string connectHost        = "127.0.0.1";
     unsigned short connectPort     = DEFAULT_SERVER_PORT;
     std::unordered_map<uint32_t, RemotePlayer> remotePlayers;

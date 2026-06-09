@@ -356,12 +356,16 @@ void NpcDirector::update(float dt, const std::vector<DirectorPlayer>& players,
         else if (n->type == NPCType::Cultist) stepRangedEnemy(*n, dt, world, players);
         else if (n->type == NPCType::Guard)   stepGuard(*n, dt, world, players);
         else if (n->type == NPCType::Farmer)  stepFarmer(*n, dt, world, gameTime);
+        else if (n->type == NPCType::Trainer) n->velocity = glm::vec3(0.0f);  // static — never wanders
         else                                  stepVillager(*n, dt, world, gameTime);
     }
 
     active.erase(std::remove_if(active.begin(), active.end(),
                      [](const std::unique_ptr<NPC>& n) { return n->dead; }),
                  active.end());
+
+    // Advance hostile bolts fired this tick (and earlier) and resolve their hits.
+    stepEnemyProjectiles(dt, players, world);
 }
 
 // Farmers tend a field: walk the furrows to ripe wheat (scythe it) or bare soil
@@ -666,6 +670,24 @@ void NpcDirector::populateTown(int ti) {
         g->position  = glm::vec3(sp.x, g->groundY, sp.y);
         g->idleTimer = frand01(rng) * 2.0f;
         active.push_back(std::move(g));
+        local++;
+    }
+
+    // One static "Class Trainer" near the town centre. Talking to it lets the
+    // player change role (resolved client-side); it never moves or fights. Stays
+    // within the per-town 128-id budget (≤112 villagers + ≤8 guards + 1).
+    {
+        auto tr = std::make_unique<NPC>();
+        tr->id             = 0x40000000u + (uint32_t)ti * 128u + (uint32_t)local;
+        tr->type           = NPCType::Trainer;
+        tr->appearanceSeed = hashU32((uint32_t)ti * 7919u, 0x713Au);
+        tr->townIndex      = ti;
+        tr->groundY        = (float)t.baseY + 1.0f;
+        glm::vec2 sp = nav.nearestWalkable(centre + glm::vec2(2.5f, 2.5f));
+        tr->homePos  = sp;
+        tr->position = glm::vec3(sp.x, tr->groundY, sp.y);
+        tr->idleTimer = 0.0f;
+        active.push_back(std::move(tr));
         local++;
     }
 
@@ -1008,6 +1030,35 @@ bool NpcDirector::inAnyTown(glm::vec2 worldXZ) const {
     return false;
 }
 
+void NpcDirector::applyPlayerDamageToNpc(NPC& n, uint32_t attackerId,
+                                         const glm::vec3& attackerPos, float damageScale) {
+    if (n.dyingTimer > 0.0f) return;
+
+    if (n.type == NPCType::Villager) {
+        n.fleeTimer = 6.0f;                                // panic
+        n.fleeFrom  = glm::vec2(attackerPos.x, attackerPos.z);
+        n.sitting   = false;                               // leap up from any bench
+        n.pendingAct = 0;
+        releaseSeat(n);
+    }
+    if (n.type == NPCType::Villager || n.type == NPCType::Guard) {
+        wantedTimer[attackerId] = 20.0f;                   // a crime — guards respond
+        if (inAnyTown(glm::vec2(n.position.x, n.position.z)))
+            return;                                        // townsfolk are safe in towns
+    }
+    n.health -= 25.0f * damageScale;
+    if (n.health <= 0.0f) {
+        n.health     = 0.0f;
+        n.dyingTimer = 2.0f;
+        // Spawn server-authoritative loot exactly once per kill. Only
+        // bandits (Enemy) drop loot — villagers and guards don't.
+        if (!n.lootDropped && isHostileNpc(n.type) && g_server) {
+            n.lootDropped = true;
+            g_server->spawnLootForKill(attackerId, n.position, n.boss);   // boss → legendary
+        }
+    }
+}
+
 void NpcDirector::playerHitNpc(uint32_t attackerId, uint32_t npcId,
                                glm::vec3 attackerPos, float damageScale) {
     for (auto& n : active) {
@@ -1015,32 +1066,88 @@ void NpcDirector::playerHitNpc(uint32_t attackerId, uint32_t npcId,
         float dx = n->position.x - attackerPos.x;
         float dz = n->position.z - attackerPos.z;
         if (dx * dx + dz * dz > 5.0f * 5.0f) return;          // out of reach
-
-        if (n->type == NPCType::Villager) {
-            n->fleeTimer = 6.0f;                               // panic
-            n->fleeFrom  = glm::vec2(attackerPos.x, attackerPos.z);
-            n->sitting   = false;                              // leap up from any bench
-            n->pendingAct = 0;
-            releaseSeat(*n);
-        }
-        if (n->type == NPCType::Villager || n->type == NPCType::Guard) {
-            wantedTimer[attackerId] = 20.0f;                   // a crime — guards respond
-            if (inAnyTown(glm::vec2(n->position.x, n->position.z)))
-                return;                                        // townsfolk are safe in towns
-        }
-        n->health -= 25.0f * damageScale;
-        if (n->health <= 0.0f) {
-            n->health     = 0.0f;
-            n->dyingTimer = 2.0f;
-            // Spawn server-authoritative loot exactly once per kill. Only
-            // bandits (Enemy) drop loot — villagers and guards don't.
-            if (!n->lootDropped && isHostileNpc(n->type) && g_server) {
-                n->lootDropped = true;
-                g_server->spawnLootForKill(attackerId, n->position, n->boss);   // boss → legendary
-            }
-        }
+        applyPlayerDamageToNpc(*n, attackerId, attackerPos, damageScale);
         return;
     }
+}
+
+void NpcDirector::playerAoe(uint32_t attackerId, glm::vec3 center,
+                            float radius, float damageScale) {
+    const float r2 = radius * radius;
+    for (auto& n : active) {
+        if (n->dyingTimer > 0.0f || !isHostileNpc(n->type)) continue;  // splash hits enemies only
+        float dx = n->position.x - center.x;
+        float dz = n->position.z - center.z;
+        if (dx * dx + dz * dz > r2) continue;
+        if (std::fabs(n->position.y - center.y) > 4.0f) continue;      // not through floors
+        applyPlayerDamageToNpc(*n, attackerId, center, damageScale);
+    }
+}
+
+void NpcDirector::playerTaunt(uint32_t attackerId, glm::vec3 center,
+                              float radius, float duration) {
+    const float r2 = radius * radius;
+    for (auto& n : active) {
+        if (n->dyingTimer > 0.0f || !isHostileNpc(n->type)) continue;  // only enemies can be taunted
+        float dx = n->position.x - center.x;
+        float dz = n->position.z - center.z;
+        if (dx * dx + dz * dz > r2) continue;
+        n->tauntedBy  = attackerId;
+        n->tauntTimer = duration;
+    }
+}
+
+void NpcDirector::spawnEnemyProjectile(glm::vec3 origin, glm::vec3 vel, float damage) {
+    EnemyProjectile pr;
+    pr.id     = nextEnemyProjId++;
+    pr.pos    = origin;
+    pr.vel    = vel;
+    pr.ttl    = 2.5f;
+    pr.damage = damage;
+    enemyProjectiles.push_back(pr);
+
+    // Tell every client to render a matching bolt (origin + velocity + ttl).
+    if (g_server) {
+        EnemyProjectileSpawnPacket pkt{};
+        pkt.id = pr.id;
+        pkt.x  = origin.x; pkt.y = origin.y; pkt.z = origin.z;
+        pkt.vx = vel.x;    pkt.vy = vel.y;   pkt.vz = vel.z;
+        pkt.ttl  = pr.ttl;
+        pkt.type = 0;
+        g_server->broadcast(PacketType::EnemyProjectileSpawn, &pkt, sizeof(pkt));
+    }
+}
+
+void NpcDirector::stepEnemyProjectiles(float dt, const std::vector<DirectorPlayer>& players,
+                                       World& world) {
+    const float hitR2 = 0.8f * 0.8f;
+    for (auto& pr : enemyProjectiles) {
+        pr.pos += pr.vel * dt;
+        pr.ttl -= dt;
+
+        // Terrain stops it (air/water pass through, matching the client bolt).
+        BlockType b = world.getBlock((int)floorf(pr.pos.x),
+                                     (int)floorf(pr.pos.y),
+                                     (int)floorf(pr.pos.z));
+        if (b != BlockType::Air && b != BlockType::Water) { pr.ttl = 0.0f; continue; }
+
+        // Hit the first player within range (body centre ~1m up), then despawn.
+        // Because this runs against the player's *current* position, sidestepping
+        // after the shot is fired makes the bolt miss — that's the dodge.
+        for (const DirectorPlayer& p : players) {
+            glm::vec3 c = p.pos + glm::vec3(0.0f, 1.0f, 0.0f);
+            glm::vec3 d = pr.pos - c;
+            if (d.x * d.x + d.y * d.y + d.z * d.z < hitR2) {
+                pendingDamage.push_back({ p.id, pr.damage });
+                pr.ttl = 0.0f;
+                break;
+            }
+        }
+    }
+    enemyProjectiles.erase(
+        std::remove_if(enemyProjectiles.begin(), enemyProjectiles.end(),
+                       [](const EnemyProjectile& e){ return e.ttl <= 0.0f; }),
+        enemyProjectiles.end());
 }
 
 void NpcDirector::stepBandit(NPC& n, float dt, World& world,
@@ -1048,6 +1155,7 @@ void NpcDirector::stepBandit(NPC& n, float dt, World& world,
     groundSnap(n, world);
     if (n.attackCooldown  > 0.0f) n.attackCooldown  -= dt;
     if (n.attackAnimTimer > 0.0f) n.attackAnimTimer -= dt;
+    if (n.tauntTimer      > 0.0f) n.tauntTimer      -= dt;
 
     // Per-type combat profile: brutes hit hard and slow, skeletons fast and
     // light, bandits in between.
@@ -1076,6 +1184,16 @@ void NpcDirector::stepBandit(NPC& n, float dt, World& world,
         float d2 = dx * dx + dz * dz;
         if (d2 < gBest) { gBest = d2; gTarget = o.get(); }
     }
+    // A taunt overrides the normal target pick: the NPC fixates on the taunting
+    // player (and beats any guard contest) while it lasts.
+    if (n.tauntTimer > 0.0f) {
+        for (const DirectorPlayer& p : players) {
+            if (p.id != n.tauntedBy) continue;
+            if (std::fabs(p.pos.y - n.position.y) <= 4.0f) { pTarget = &p; pBest = 0.0f; }
+            break;
+        }
+    }
+
     // Prefer whichever hostile is closer; the guard's range is tighter, so a
     // guard only wins the contest once it has genuinely closed in.
     const bool hitGuard = gTarget && (!pTarget || gBest < pBest);
@@ -1194,6 +1312,7 @@ void NpcDirector::stepRangedEnemy(NPC& n, float dt, World& world,
     groundSnap(n, world);
     if (n.attackCooldown  > 0.0f) n.attackCooldown  -= dt;
     if (n.attackAnimTimer > 0.0f) n.attackAnimTimer -= dt;
+    if (n.tauntTimer      > 0.0f) n.tauntTimer      -= dt;
 
     const float AGGRO = 24.0f, FIRE = 15.0f;
     const DirectorPlayer* tgt = nullptr;
@@ -1204,6 +1323,16 @@ void NpcDirector::stepRangedEnemy(NPC& n, float dt, World& world,
         float dx = p.pos.x - n.position.x, dz = p.pos.z - n.position.z;
         float d2 = dx * dx + dz * dz;
         if (d2 < best) { best = d2; tgt = &p; }
+    }
+
+    // A taunt forces the caster to fixate on the taunting player (engages once
+    // it has line of sight, like any other target).
+    if (n.tauntTimer > 0.0f) {
+        for (const DirectorPlayer& p : players) {
+            if (p.id != n.tauntedBy) continue;
+            if (std::fabs(p.pos.y - n.position.y) <= 4.0f) tgt = &p;
+            break;
+        }
     }
 
     // Only engage a target the caster can actually see; otherwise it holds its
@@ -1227,7 +1356,15 @@ void NpcDirector::stepRangedEnemy(NPC& n, float dt, World& world,
             if (n.attackCooldown <= 0.0f) {
                 n.attackCooldown  = 2.0f;
                 n.attackAnimTimer = 0.6f;               // drives the cast pose on clients
-                pendingDamage.push_back({ tgt->id, 9.0f });
+                // Fire a real bolt toward where the player is now. Damage is
+                // applied only when it arrives (stepEnemyProjectiles), so a
+                // player who sidesteps in time dodges it.
+                glm::vec3 origin = n.position + glm::vec3(0.0f, 1.4f, 0.0f);
+                glm::vec3 aim    = tgt->pos    + glm::vec3(0.0f, 1.0f, 0.0f);
+                glm::vec3 dir3   = aim - origin;
+                float len = glm::length(dir3);
+                if (len > 0.001f)
+                    spawnEnemyProjectile(origin, (dir3 / len) * 16.0f, 9.0f);
             }
         }
         n.path.clear(); n.pathIndex = 0;

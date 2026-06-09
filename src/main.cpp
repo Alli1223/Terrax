@@ -94,6 +94,13 @@ int main(int argc, char** argv) {
             renderMenuUI(ctx, window, &renderer);
             break;
 
+        case GameState::CharacterSelect:
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+            glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            renderCharacterSelectUI(ctx, window);
+            break;
+
         case GameState::CharacterEditor:
             glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
             glClearColor(0.2f, 0.2f, 0.25f, 1.0f);

@@ -104,6 +104,8 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
             palettes = BRUTE_PALETTES;    palCount = arrLen(BRUTE_PALETTES);    break;
         case NPCType::Cultist:
             palettes = CULTIST_PALETTES;  palCount = arrLen(CULTIST_PALETTES);  break;
+        case NPCType::Trainer:
+            palettes = CULTIST_PALETTES;  palCount = arrLen(CULTIST_PALETTES);  break;  // robed mentor
         default: break;
     }
     const Palette& pal = palettes[pick(palCount)];
@@ -130,6 +132,12 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
         wear[2] = true;             // overalls / shirt
         wear[3] = true;             // trousers
         wear[4] = true;             // work boots
+    } else if (type == NPCType::Trainer) {
+        wear[0] = false;            // no helm — face visible
+        wear[1] = true;             // hooded mantle
+        wear[2] = true;             // robe
+        wear[3] = true;             // robe skirt
+        wear[4] = true;             // boots
     } else {
         wear[0] = (pick(2) == 0);   // ~50% have a helmet
         wear[1] = true;
@@ -195,6 +203,10 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
         mainW   = WeaponType::Staff;      // hurls bolts; uses the cast pose
         mainPri = {120,  90, 150, 255};
         mainAcc = {200, 160, 220, 255};
+    } else if (type == NPCType::Trainer) {
+        mainW   = WeaponType::Staff;      // a mentor's staff of office
+        mainPri = {120,  95,  60, 255};   // carved wood
+        mainAcc = {210, 185, 110, 255};   // gilded tip
     }
 
     applyWeaponsToRig(rig,

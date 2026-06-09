@@ -271,6 +271,84 @@ TownPlan buildTownPlan() {
     placeStreetLamps(plan);
     reportStage(4, 1.0f);
 
+    // One graveyard per town, on flat-ish dry ground just outside the built-up
+    // area, with the gate facing back toward the town. Deterministic from the
+    // town centre + world seed so client and server stamp it identically.
+    {
+        static const int DIRS[8][2] = {
+            {1,0},{0,1},{-1,0},{0,-1},{1,1},{-1,1},{-1,-1},{1,-1}
+        };
+
+        // The graveyard ground must match the level the chunk generator will lay
+        // down — near a town that's the *flattened* height, not the raw land.
+        // townFlattenedHeight()/townFlatLevelAt() are no-ops during this very
+        // build (g_townReady is still false), so mirror them from the town data
+        // we already have. Without this a graveyard inside a town that raised the
+        // surrounding terrain ends up in a pit well below it.
+        auto townGroundY = [&](int gx, int gz) -> int {
+            // Hard-flat zone → exactly the town base + its gentle tilt (matches
+            // townFlatLevelAt's "outside any building" branch).
+            const Town* hard = nullptr; float hardD2 = 1e30f;
+            for (const Town& tt : plan.towns) {
+                float dx = (float)(gx - tt.center.x), dz = (float)(gz - tt.center.y);
+                float fr = townEffectiveFlatR(tt, dx, dz);
+                float d2 = dx * dx + dz * dz;
+                if (d2 < fr * fr && d2 < hardD2) { hardD2 = d2; hard = &tt; }
+            }
+            if (hard) return hard->baseY + townSlopeOffset(*hard, gx, gz);
+            // Blend ring → ease the raw height toward nearby town bases.
+            float h = (float)sampleSurfaceSolid(gx, gz);
+            for (const Town& tt : plan.towns) {
+                float dx = (float)(gx - tt.center.x), dz = (float)(gz - tt.center.y);
+                float fr = townEffectiveFlatR(tt, dx, dz), br = fr + 80.0f;
+                float d2 = dx * dx + dz * dz;
+                if (d2 >= br * br) continue;
+                float dist = std::sqrt(d2);
+                float u = (dist - fr) / (br - fr);
+                float w = 1.0f - u * u * (3.0f - 2.0f * u);   // smoothstep ease-out
+                h += ((float)tt.baseY - h) * w;
+            }
+            return (int)(h + 0.5f);
+        };
+
+        for (const Town& t : plan.towns) {
+            std::mt19937 grng(worldSeed() ^ 0x6BADF00Du
+                              ^ (uint32_t)(t.center.x * 374761393)
+                              ^ (uint32_t)(t.center.y * 668265263));
+            int halfX = 6 + (int)(grng() % 3u);   // 6..8 interior half-width
+            int halfZ = 8 + (int)(grng() % 4u);   // 8..11 interior half-depth
+            int reach = t.radius + 12 + halfZ;     // clear of the buildings
+            int start = (int)(grng() % 8u);
+            bool placed = false;
+            Graveyard g{};
+            for (int k = 0; k < 8 && !placed; k++) {
+                const int* d = DIRS[(start + k) % 8];
+                int gx = t.center.x + d[0] * reach;
+                int gz = t.center.y + d[1] * reach;
+                int gy = townGroundY(gx, gz);
+                if (gy < WORLD_SEA_LEVEL + 1) continue;            // not in water
+                int c0 = townGroundY(gx - halfX, gz - halfZ);
+                int c1 = townGroundY(gx + halfX, gz - halfZ);
+                int c2 = townGroundY(gx - halfX, gz + halfZ);
+                int c3 = townGroundY(gx + halfX, gz + halfZ);
+                int mn = std::min(std::min(c0, c1), std::min(c2, c3));
+                int mx = std::max(std::max(c0, c1), std::max(c2, c3));
+                if (mx - mn > 6) continue;                         // too steep to flatten cleanly
+                g.center = { gx, gz };
+                g.baseY  = gy;
+                g.halfX  = halfX;
+                g.halfZ  = halfZ;
+                int ddx = t.center.x - gx, ddz = t.center.y - gz;  // gate faces the town
+                if (std::abs(ddx) >= std::abs(ddz)) { g.gateDX = ddx >= 0 ? 1 : -1; g.gateDZ = 0; }
+                else                                { g.gateDX = 0; g.gateDZ = ddz >= 0 ? 1 : -1; }
+                g.seed = grng();
+                placed = true;
+            }
+            if (placed) plan.graveyards.push_back(g);
+        }
+        std::cout << "[Towns] Placed " << plan.graveyards.size() << " graveyards." << std::endl;
+    }
+
     int nc = 0, nm = 0, ng = 0;
     for (const Town& t : plan.towns)
         (t.type == TownType::Coastal ? nc : t.type == TownType::Mountain ? nm : ng)++;
@@ -306,13 +384,44 @@ const char* const  kTownBuildStageNames[] = {
 const int          kTownBuildStageCount =
     (int)(sizeof(kTownBuildStageNames) / sizeof(kTownBuildStageNames[0]));
 
+// Cached settlement plan, built lazily the first time any system asks for it.
+// Concurrently safe (the server's chunk-generation threads all call this) via a
+// double-checked lock. The cache is *seed-versioned*: it records the world seed
+// it was built from and rebuilds automatically when worldSeed() changes. That's
+// what lets a remote client — which boots on its own random seed, then adopts
+// the server's seed from the handshake — get the server's settlements without
+// any explicit invalidation call. On the server the seed never changes, so this
+// is a single build. Not std::call_once, which can't be re-run.
+static TownPlan              g_townPlanCache;
+static std::mutex            g_townPlanMutex;
+static std::atomic<uint64_t> g_townPlanSeed{~0ull};   // ~0 = never built
+
 const TownPlan& getTownPlan() {
-    static TownPlan      plan;
-    static std::once_flag once;
-    std::call_once(once, [] {
-        plan = buildTownPlan();
-        g_townReady.store(true, std::memory_order_release);
-    });
-    return plan;
+    const uint64_t cur = worldSeed();
+    if (g_townPlanSeed.load(std::memory_order_acquire) != cur) {
+        std::lock_guard<std::mutex> lock(g_townPlanMutex);
+        if (g_townPlanSeed.load(std::memory_order_relaxed) != cur) {
+            g_townReady.store(false, std::memory_order_release);  // oracle is a no-op during the build
+            g_townPlanCache = buildTownPlan();
+            g_townReady.store(true, std::memory_order_release);
+            g_townPlanSeed.store(cur, std::memory_order_release);
+        }
+    }
+    return g_townPlanCache;
+}
+
+bool findNearestGraveyard(float wx, float wz, glm::ivec2& outCenter, int& outBaseY) {
+    const TownPlan& plan = getTownPlan();
+    const Graveyard* best = nullptr;
+    float bestD2 = 0.0f;
+    for (const Graveyard& g : plan.graveyards) {
+        float dx = (float)g.center.x - wx, dz = (float)g.center.y - wz;
+        float d2 = dx * dx + dz * dz;
+        if (!best || d2 < bestD2) { best = &g; bestD2 = d2; }
+    }
+    if (!best) return false;
+    outCenter = best->center;
+    outBaseY  = best->baseY;
+    return true;
 }
 

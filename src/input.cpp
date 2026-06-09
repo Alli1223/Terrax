@@ -19,7 +19,7 @@ static void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
     AppContext& ctx = *static_cast<AppContext*>(glfwGetWindowUserPointer(window));
     if (ImGui::GetIO().WantCaptureMouse) return;
     if (ctx.state == GameState::Paused || ctx.chatOpen || ctx.showMap) return;
-    if (ctx.showInventory || ctx.showCharacterLoadout) return;
+    if (ctx.showInventory || ctx.showCharacterLoadout || ctx.showTrainer) return;
     if (ctx.state != GameState::Playing && ctx.state != GameState::CharacterEditor) return;
     if (ctx.firstMouse) { ctx.lastMouseX = xpos; ctx.lastMouseY = ypos; ctx.firstMouse = false; }
     float xoff = (float)(xpos - ctx.lastMouseX);
@@ -33,7 +33,7 @@ static void mouse_button_callback(GLFWwindow* window, int button, int action, in
     AppContext& ctx = *static_cast<AppContext*>(glfwGetWindowUserPointer(window));
     if (ImGui::GetIO().WantCaptureMouse) return;
     if (ctx.state != GameState::Playing || ctx.paused || ctx.chatOpen) return;
-    if (ctx.showInventory || ctx.showCharacterLoadout) return;
+    if (ctx.showInventory || ctx.showCharacterLoadout || ctx.showTrainer) return;
     if (!ctx.client || ctx.showMap) return;
 
     // Right mouse with a shield equipped raises the shield instead of
@@ -97,9 +97,10 @@ static void key_callback(GLFWwindow* window, int key, int, int action, int) {
                 ctx.firstMouse = true;
                 return;
             }
-            if (ctx.showInventory || ctx.showCharacterLoadout) {
+            if (ctx.showInventory || ctx.showCharacterLoadout || ctx.showTrainer) {
                 ctx.showInventory = false;
                 ctx.showCharacterLoadout = false;
+                ctx.showTrainer = false;
                 glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
                 ctx.firstMouse = true;
                 return;
@@ -147,8 +148,18 @@ static void key_callback(GLFWwindow* window, int key, int, int action, int) {
             bool open = !(ctx.showInventory || ctx.showCharacterLoadout);
             ctx.showInventory        = open;
             ctx.showCharacterLoadout = open;
+            if (open) ctx.showSkillTree = false;   // one overlay at a time
             glfwSetInputMode(window, GLFW_CURSOR, open ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
             if (open) clearMovement(); else ctx.firstMouse = true;
+            return;
+        }
+        // K opens the skill tree (and closes it again). Mutually exclusive with
+        // the equipment screen so the cursor state stays consistent.
+        if (key == GLFW_KEY_K && action == GLFW_PRESS) {
+            ctx.showSkillTree = !ctx.showSkillTree;
+            if (ctx.showSkillTree) { ctx.showInventory = false; ctx.showCharacterLoadout = false; }
+            glfwSetInputMode(window, GLFW_CURSOR, ctx.showSkillTree ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
+            if (ctx.showSkillTree) clearMovement(); else ctx.firstMouse = true;
             return;
         }
     }
@@ -188,8 +199,12 @@ static void key_callback(GLFWwindow* window, int key, int, int action, int) {
         // V — one-shot wave animation. Easy template for any future
         // emote: pick a ClipKind, call playClip on the rig with a
         // duration. The animation system handles the rest.
-        if (key == GLFW_KEY_V && action == GLFW_PRESS && ctx.playerRig)
-            ctx.playerRig->playClip(ClipKind::Wave, 1.6f);
+        // V — dodge roll (consumed in gameplay.cpp: dashes + grants i-frames).
+        if (key == GLFW_KEY_V && action == GLFW_PRESS) ctx.rollPressed = true;
+        // Number keys 1..8 fire the matching hotbar ability slot. The activation
+        // (cooldown + resource checks) happens in gameplay.cpp via the flag.
+        if (key >= GLFW_KEY_1 && key <= GLFW_KEY_8 && action == GLFW_PRESS)
+            ctx.pendingHotbarSlot = key - GLFW_KEY_1;
     }
 }
 

@@ -1,5 +1,6 @@
 #include "network.h"
 #include "inventory.h"
+#include "role.h"
 #include "game_session.h"
 #include <GLFW/glfw3.h>
 #include <cstring>
@@ -382,7 +383,7 @@ void NetworkServer::doAccept() {
             
             std::cout << "Client connected: ID " << conn->id << std::endl;
             
-            HandshakePacket hp { conn->id };
+            HandshakePacket hp { conn->id, worldSeed() };
             conn->send(PacketType::Handshake, &hp, sizeof(hp));
 
             DayTimePacket dt { getServerGameTime() };
@@ -554,6 +555,15 @@ void NetworkServer::update(World& world) {
                     float scale = ap->damageScale > 0.01f ? ap->damageScale : 1.0f;
                     npcHits.push_back({ msg.client->id, ap->targetNpcId, scale });
                 }
+            }
+        } else if (msg.type == PacketType::AbilityCast) {
+            // Area / aggro ability — queue it for the game loop to resolve in
+            // NpcDirector. Not rebroadcast; spectator visuals ride SpellEffect.
+            if (msg.data.size() == sizeof(AbilityCastPacket) && msg.client) {
+                AbilityCastPacket* ac = (AbilityCastPacket*)msg.data.data();
+                abilityCasts.push_back({ msg.client->id, ac->effect,
+                                         glm::vec3(ac->x, ac->y, ac->z),
+                                         ac->radius, ac->scale });
             }
         } else if (msg.type == PacketType::PlayerHeal) {
             // Relay a player heal to the other clients — the caster already
@@ -857,7 +867,9 @@ void NetworkClient::update(World& world, std::unordered_map<uint32_t, RemotePlay
         if (msg.type == PacketType::Handshake) {
             if (msg.data.size() == sizeof(HandshakePacket)) {
                 HandshakePacket* p = (HandshakePacket*)msg.data.data();
-                clientID = p->clientID;
+                clientID        = p->clientID;
+                serverWorldSeed = p->worldSeed;
+                hasWorldSeed    = true;
             }
         } else if (msg.type == PacketType::ChunkData) {
             if (msg.data.size() >= sizeof(ChunkPos)) {
@@ -930,8 +942,19 @@ void NetworkClient::update(World& world, std::unordered_map<uint32_t, RemotePlay
                 rp.rig->noseStyle    = h->noseStyle;
                 rp.rig->eyebrowStyle = h->eyebrowStyle;
                 rp.rig->earType      = h->earType;
-                rp.rig->armorType    = h->armorType;   // legacy, no-op
+                // `armorType` is repurposed to carry the sender's PlayerRole;
+                // drive the remote rig's build from it so others see the right
+                // size (Tank broad, DPS lean). Clamp unknown values to DPS.
+                int roleRaw = h->armorType;
+                PlayerRole role = (roleRaw >= 0 && roleRaw <= 2)
+                                ? (PlayerRole)roleRaw : PlayerRole::DPS;
+                rp.rig->heightScale = roleHeightScale(role);
+                rp.rig->weightScale = roleWeightScale(role);
                 applyEquipmentToRig(*rp.rig, h->slots);
+                if (rp.rig->torso) {
+                    rp.rig->torso->scale.x = rp.rig->weightScale;
+                    rp.rig->torso->scale.z = rp.rig->weightScale;
+                }
             }
         } else if (msg.type == PacketType::PlayerAttack) {
             if (msg.data.size() == sizeof(PlayerAttackPacket)) {
@@ -983,6 +1006,11 @@ void NetworkClient::update(World& world, std::unordered_map<uint32_t, RemotePlay
             if (msg.data.size() == sizeof(NPCStatePacket)) {
                 NPCStatePacket* p = (NPCStatePacket*)msg.data.data();
                 npcUpdates.push_back(*p);
+            }
+        } else if (msg.type == PacketType::EnemyProjectileSpawn) {
+            if (msg.data.size() == sizeof(EnemyProjectileSpawnPacket)) {
+                EnemyProjectileSpawnPacket* p = (EnemyProjectileSpawnPacket*)msg.data.data();
+                enemyProjectiles.push_back(*p);
             }
         } else if (msg.type == PacketType::PlayerHealth) {
             if (msg.data.size() == sizeof(PlayerHealthPacket)) {

@@ -116,7 +116,7 @@ void castChainHeal(AppContext& ctx, float healPerTarget) {
 
     // The caster is always the first link — mend self immediately.
     glm::vec3 fromPos = ctx.camera.position + glm::vec3(0.0f, 1.2f, 0.0f);
-    ctx.playerHealth  = std::min(1.0f, ctx.playerHealth + healPerTarget / 100.0f);
+    ctx.playerHealth  = std::min(1.0f, ctx.playerHealth + healPerTarget / ctx.maxHpScaled);
     spawnHealMotes(ctx, fromPos, 18, 0.5f, 3.2f);
     sendHeal(ctx, ctx.client->clientID, healPerTarget, fromPos);   // so spectators see it
 
@@ -206,6 +206,13 @@ void drainSpellEvents(AppContext& ctx) {
     ctx.client->healEvents.clear();
 
     for (const SpellEffectPacket& e : ctx.client->spellEffects) {
+        // Animate the casting player's remote model — abilities that don't send
+        // a PlayerAttack (taunt, shield, heals) would otherwise look static.
+        auto rpIt = ctx.remotePlayers.find(e.casterID);
+        if (rpIt != ctx.remotePlayers.end()) {
+            rpIt->second.isAttacking = true;
+            rpIt->second.attackAnim  = 0.0f;
+        }
         if (e.kind == 0) {
             HealZone z;
             z.pos           = glm::vec3(e.x, e.y, e.z);
@@ -215,11 +222,131 @@ void drainSpellEvents(AppContext& ctx) {
             z.ownerClientId = e.casterID;   // not us → cosmetic only
             ctx.healZones.push_back(z);
             spawnHealRing(ctx, z.pos, z.radius);
-        } else {
+        } else if (e.kind == 1) {
             spawnHealMotes(ctx, glm::vec3(e.x, e.y, e.z), 14, 0.5f, 3.0f);
+        } else {
+            // Ability cosmetics (aoe slash / taunt ring / cast flash / aura).
+            spawnAbilityFx(ctx, glm::vec3(e.x, e.y, e.z), e.radius, e.kind);
         }
     }
     ctx.client->spellEffects.clear();
+}
+
+// Coloured voxel-particle burst for an ability cast — see the header. Reuses
+// the heal-zone particle batch (ctx.voxelParticles) so the renderer needs no
+// changes; only the palette / shape differ per kind.
+void spawnAbilityFx(AppContext& ctx, const glm::vec3& center, float radius, uint8_t kind) {
+    Voxel colA, colB;
+    int   count   = 24;
+    float spread  = radius * 0.8f;
+    float up      = 1.4f;
+    float outward = 0.0f;     // radial expansion speed — rings/domes punch outward
+    float lifeMin = 0.6f, lifeVar = 0.6f;
+    float sizeMin = 0.05f, sizeVar = 0.04f;
+    int   shape   = 0;        // 0 burst · 1 ground ring · 2 rising column · 3 dome shell
+    switch (kind) {
+        case 3:  // TAUNT — fierce expanding orange/red ground shockwave
+            colA = {255, 185, 75, 255};  colB = {255, 80, 35, 255};
+            count = 48; shape = 1; up = 1.1f; outward = 5.5f;
+            lifeMin = 0.5f; lifeVar = 0.45f; sizeMin = 0.06f; sizeVar = 0.05f; break;
+        case 4:  // cast flash — violet
+            colA = {200, 160, 255, 255}; colB = {130, 90, 220, 255};
+            count = 16; spread = 0.5f; up = 2.4f; break;
+        case 5:  // buff aura — blue
+            colA = {130, 200, 255, 255}; colB = {80, 140, 230, 255};
+            count = 22; spread = 0.6f; up = 1.6f; break;
+        case 6:  // earth slam — kicked-up brown dust ring
+            colA = {170, 130, 80, 255};  colB = {120, 90, 55, 255};
+            count = 30; shape = 1; up = 0.8f; outward = 2.6f; break;
+        case 7:  // nature renew — gentle green motes
+            colA = {150, 235, 120, 255}; colB = {90, 190, 90, 255};
+            count = 20; spread = 0.7f; up = 1.0f; break;
+        case 8:  // holy nova — radiant white-gold ring
+            colA = {255, 245, 210, 255}; colB = {255, 215, 130, 255};
+            count = 34; shape = 1; up = 1.8f; outward = 3.6f; break;
+        case 9:  // frost — pale icy shards
+            colA = {210, 240, 255, 255}; colB = {130, 195, 245, 255};
+            count = 18; spread = 0.5f; up = 1.6f; break;
+        case 10: // lightning ring — crackling yellow
+            colA = {255, 240, 130, 255}; colB = {255, 200, 70, 255};
+            count = 30; shape = 1; up = 1.2f; outward = 4.0f; break;
+        case 11: // inferno — large roaring firestorm
+            colA = {255, 140, 50, 255};  colB = {220, 50, 30, 255};
+            count = 38; spread = radius * 0.9f; up = 2.2f; break;
+        case 12: // shout — golden roar ring
+            colA = {255, 215, 110, 255}; colB = {235, 160, 60, 255};
+            count = 30; shape = 1; up = 1.0f; outward = 4.6f; break;
+        case 13: // SHIELD DOME — cyan/blue protective bubble swelling outward
+            colA = {160, 220, 255, 255}; colB = {90, 160, 240, 255};
+            count = 54; shape = 3; up = 1.0f; outward = 3.0f;
+            lifeMin = 0.55f; lifeVar = 0.5f; sizeMin = 0.05f; sizeVar = 0.045f; break;
+        case 14: // ROAR EMBERS — orange embers blasting up in a tight column
+            colA = {255, 195, 95, 255};  colB = {255, 110, 40, 255};
+            count = 32; shape = 2; up = 4.4f;
+            lifeMin = 0.5f; lifeVar = 0.6f; sizeMin = 0.045f; sizeVar = 0.05f; break;
+        case 15: // MELEE IMPACT — quick bright sparks at the point of contact
+            colA = {255, 250, 225, 255}; colB = {255, 205, 120, 255};
+            count = 14; shape = 3; up = 1.2f; outward = 3.4f;
+            lifeMin = 0.16f; lifeVar = 0.18f; sizeMin = 0.04f; sizeVar = 0.03f; break;
+        case 2:  // aoe slash — fiery
+        default:
+            colA = {255, 150, 60, 255};  colB = {255, 80, 40, 255};
+            count = 24; spread = radius * 0.8f; up = 1.4f; break;
+    }
+    for (int i = 0; i < count; i++) {
+        VoxelDeathParticle p;
+        p.color = (hrand(0.0f, 1.0f) < 0.5f) ? colA : colB;
+        glm::vec3 vel;
+        if (shape == 1) {              // ground ring — flies outward + a little up
+            float ang = hrand(0.0f, 6.2831853f);
+            glm::vec3 dir(std::cos(ang), 0.0f, std::sin(ang));
+            p.pos = center + dir * radius + glm::vec3(0.0f, 0.1f, 0.0f);
+            vel   = dir * outward + glm::vec3(0.0f, up + hrand(0.2f, 1.4f), 0.0f);
+        } else if (shape == 2) {       // tight column — embers rocketing up
+            float ang = hrand(0.0f, 6.2831853f), rr = hrand(0.0f, 0.4f);
+            p.pos = center + glm::vec3(std::cos(ang) * rr, hrand(0.0f, 0.6f), std::sin(ang) * rr);
+            vel   = glm::vec3(hrand(-0.6f, 0.6f), up + hrand(0.0f, 2.5f), hrand(-0.6f, 0.6f));
+        } else if (shape == 3) {       // dome shell — hemisphere swelling outward + up
+            float ang = hrand(0.0f, 6.2831853f), el = hrand(0.05f, 1.45f);
+            glm::vec3 dir(std::cos(ang) * std::cos(el), std::sin(el), std::sin(ang) * std::cos(el));
+            p.pos = center + dir * (radius * 0.5f) + glm::vec3(0.0f, 0.4f, 0.0f);
+            vel   = dir * outward + glm::vec3(0.0f, up, 0.0f);
+        } else {                       // burst — random spread
+            p.pos = center + glm::vec3(hrand(-spread, spread),
+                                       hrand(0.0f, spread * 0.5f + 0.2f),
+                                       hrand(-spread, spread));
+            vel   = glm::vec3(hrand(-1.2f, 1.2f), up + hrand(0.4f, 2.2f), hrand(-1.2f, 1.2f));
+        }
+        p.vel     = vel;
+        p.life    = lifeMin + hrand(0.0f, lifeVar);
+        p.maxLife = p.life;
+        p.size    = sizeMin + hrand(0.0f, sizeVar);
+        ctx.voxelParticles.push_back(p);
+    }
+}
+
+// While a buff is active (Shield Wall, Last Stand, Barrier, Battle Shout, ...)
+// trickle a soft aura of motes up around the local player so it stays obvious
+// the effect is still on, not just when it was cast. Colour keys to the buff:
+// defence = steel-blue, power = gold. Throttled to a gentle few per second and
+// fades out over the buff's final second. Local-player only.
+void updateBuffAura(AppContext& ctx) {
+    for (const ActiveBuff& b : ctx.activeBuffs) {
+        float chance = 0.11f * std::min(1.0f, b.ttl);   // ~6/sec, easing off at the end
+        if (hrand(0.0f, 1.0f) > chance) continue;
+        Voxel col = (b.kind == BuffKind::Power) ? Voxel{255, 210, 110, 255}
+                                                : Voxel{140, 205, 255, 255};
+        float ang = hrand(0.0f, 6.2831853f), rr = 0.45f + hrand(0.0f, 0.3f);
+        VoxelDeathParticle p;
+        p.color   = col;
+        p.pos     = ctx.camera.position + glm::vec3(std::cos(ang) * rr, hrand(0.1f, 1.7f),
+                                                    std::sin(ang) * rr);
+        p.vel     = glm::vec3(std::cos(ang) * 0.4f, 2.2f + hrand(0.0f, 1.0f), std::sin(ang) * 0.4f);
+        p.life    = 0.4f + hrand(0.0f, 0.35f);
+        p.maxLife = p.life;
+        p.size    = 0.04f + hrand(0.0f, 0.03f);
+        ctx.voxelParticles.push_back(p);
+    }
 }
 
 // Advance active heal zones: emit the particle fountain for everyone, and on
@@ -253,7 +380,7 @@ void updateHealZones(AppContext& ctx) {
         float sdx = ctx.camera.position.x - z.pos.x;
         float sdz = ctx.camera.position.z - z.pos.z;
         if (sdx * sdx + sdz * sdz <= r2 && ctx.playerHealth < 1.0f) {
-            ctx.playerHealth = std::min(1.0f, ctx.playerHealth + z.healPerPulse / 100.0f);
+            ctx.playerHealth = std::min(1.0f, ctx.playerHealth + z.healPerPulse / ctx.maxHpScaled);
             glm::vec3 sp = ctx.camera.position + glm::vec3(0.0f, 1.2f, 0.0f);
             spawnHealMotes(ctx, sp, 10, 0.4f, 3.0f);
             sendHeal(ctx, myId, z.healPerPulse, sp);

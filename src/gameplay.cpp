@@ -5,6 +5,7 @@
 #include "physics.h"
 #include "network.h"
 #include "game_session.h"
+#include "character_save.h"
 #include "town.h"
 #include "prop_placement.h"
 #include "vehicle.h"
@@ -36,6 +37,18 @@ static Ferry* findSupportFerry(AppContext& ctx) {
 }
 
 void disconnectFromGame(AppContext& ctx) {
+    // Persist the active roster character's progression (level, skills, hotbar,
+    // appearance) before tearing the session down. Only Join sessions have an
+    // active roster slot; Host/Singleplayer (activeCharacter == -1) are skipped.
+    if (ctx.sessionMode == SessionMode::Join && ctx.activeCharacter >= 0) {
+        std::vector<CharacterSave> roster = loadRoster();
+        if (ctx.activeCharacter < (int)roster.size()) {
+            roster[ctx.activeCharacter] = captureCharacterFromContext(ctx);
+            saveRoster(roster);
+        }
+    }
+    ctx.activeCharacter = -1;
+
     if (ctx.client) {
         ctx.client->disconnect();
         delete ctx.client;
@@ -50,9 +63,11 @@ void disconnectFromGame(AppContext& ctx) {
     ctx.sessionMode       = SessionMode::None;
     ctx.clientInitialized = false;
     ctx.joinNameSent      = false;
+    ctx.worldSeedApplied  = false;
     ctx.paused            = false;
     ctx.chatOpen          = false;
     ctx.showPlayerList    = false;
+    ctx.showTrainer       = false;
     ctx.spawnedOnGround   = false;
     ctx.keyFwd = ctx.keyBack = ctx.keyLeft = ctx.keyRight = ctx.keyJump = 0;
     ctx.housePreviewActive = false;
@@ -163,7 +178,7 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
     // screens from leaking into combat (swings, casts, heal-zone drops).
     const bool gameplayActive = (ctx.state == GameState::Playing && !ctx.chatOpen
                                  && !ctx.showInventory && !ctx.showCharacterLoadout
-                                 && !ctx.showMap);
+                                 && !ctx.showMap && !ctx.showTrainer);
 
     // Combat input — branches by equipped main-hand weapon.
     //   * Bow: left mouse held charges the shot (rig.bowDrawAmount), and
@@ -259,6 +274,9 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
                     g_audio->play2D(SoundId::Swing, 0.45f);
                     if (target) g_audio->play2D(SoundId::MeleeHit, 0.5f);
                 }
+                // A bright spark at the point of contact sells the melee hit.
+                if (target && !w->usesCastAnimation())
+                    spawnAbilityFx(ctx, target->position + glm::vec3(0.0f, 1.0f, 0.0f), 0.6f, 15);
             } else {
                 NPC* target = findMeleeTargetNpc(ctx);
                 PlayerAttackPacket ap {};
@@ -270,6 +288,8 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
                     g_audio->play2D(SoundId::Swing, 0.45f);
                     if (target) g_audio->play2D(SoundId::MeleeHit, 0.5f);
                 }
+                if (target)
+                    spawnAbilityFx(ctx, target->position + glm::vec3(0.0f, 1.0f, 0.0f), 0.6f, 15);
             }
         }
     }
@@ -278,6 +298,31 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
     // Tick the ability cooldowns every frame regardless of what's held.
     if (ctx.healCdPrimary   > 0.0f) ctx.healCdPrimary   -= ctx.deltaTime;
     if (ctx.healCdSecondary > 0.0f) ctx.healCdSecondary -= ctx.deltaTime;
+
+    // --- Ability hotbar: cooldowns, resource regen, buff decay, activation --
+    for (int i = 0; i < AppContext::HOTBAR_SLOTS; i++)
+        if (ctx.hotbarCooldown[i] > 0.0f) ctx.hotbarCooldown[i] -= ctx.deltaTime;
+    ctx.resource = std::min(ctx.resourceMax, ctx.resource + ctx.resourceRegenPerSec * ctx.deltaTime);
+    for (auto& b : ctx.activeBuffs) b.ttl -= ctx.deltaTime;
+    ctx.activeBuffs.erase(
+        std::remove_if(ctx.activeBuffs.begin(), ctx.activeBuffs.end(),
+                       [](const ActiveBuff& b){ return b.ttl <= 0.0f; }),
+        ctx.activeBuffs.end());
+    updateBuffAura(ctx);   // ongoing aura around the player while a buff is up
+    // Advance an in-progress channelled cast; the ability fires on completion.
+    if (ctx.castTimer > 0.0f) {
+        ctx.castTimer -= ctx.deltaTime;
+        if (ctx.playerRig) ctx.playerRig->isCasting = true;   // hold the cast pose
+        if (ctx.castTimer <= 0.0f) {
+            ctx.castTimer = 0.0f;
+            AbilityId fired = ctx.castingAbility;
+            ctx.castingAbility = AbilityId::None;
+            if (Ability* ab = ctx.findAbility(fired)) ab->activate(ctx);
+        }
+    }
+    if (gameplayActive && ctx.pendingHotbarSlot >= 0)
+        tryActivateHotbar(ctx, ctx.pendingHotbarSlot);
+    ctx.pendingHotbarSlot = -1;
 
     // Right mouse triggers a weapon's secondary attack (the healing staff's
     // AOE). Edge-detected so one press drops one zone; input.cpp suppresses
@@ -301,7 +346,31 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
         && ctx.inventory.equipped(EquipSlot::OffHand) != nullptr;
 
     ctx.client->update(ctx.world, ctx.remotePlayers);
+
+    // The world is server-authoritative. A joining client streams terrain blocks
+    // from the server, but it still builds a lot of content locally from the
+    // world seed (the town plan, props, vegetation, NPC placement, the map). That
+    // seed MUST be the server's, or the local content diverges from the streamed
+    // terrain — which is exactly the "client generates a different world" desync.
+    // Adopt the server's seed the moment the handshake delivers it. Every
+    // seed-derived cache (town plan, props, dungeon plan, ferry routes) is
+    // seed-versioned, so it rebuilds itself on the next access once the seed
+    // changes — no explicit invalidation needed. A host shares the server's seed
+    // in-process already, and re-seeding there would race the running server's
+    // chunk-generation threads, so it's skipped.
+    if (!ctx.weOwnServer && !ctx.worldSeedApplied && ctx.client->hasWorldSeed) {
+        setWorldSeed(ctx.client->serverWorldSeed);
+        ctx.worldSeedApplied = true;
+        std::cout << "[Client] Adopted server world seed "
+                  << ctx.client->serverWorldSeed << "\n";
+    }
+    // Until the seed is in hand, don't request chunks or place props — they'd be
+    // built from the wrong seed. The network keeps draining each frame (above),
+    // so the handshake still arrives and normal play resumes next frame.
+    if (!ctx.weOwnServer && !ctx.worldSeedApplied) return;
+
     drainSpellEvents(ctx);    // apply/show heals + spawn cosmetic spell fx
+    syncEnemyProjectiles(ctx);  // spawn visible bolts for enemy ranged attacks
     updateHealZones(ctx);     // advance heal sanctuaries (owner pulses health)
     updatePlayerVitals(ctx);
 
@@ -350,11 +419,52 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
         ctx.playerYaw += diff * std::min(1.0f, ctx.deltaTime * 10.0f);
     }
 
+    // Lean the body into its movement. The character always turns to face the
+    // direction it's moving (above), so it's ALWAYS running "forwards" — pressing
+    // S spins it around to face the camera, it doesn't reverse it. So the forward
+    // lean is driven by movement *magnitude* (always lean forward when moving),
+    // never the signed W/S input — otherwise walking toward the camera leans the
+    // body backwards. A/D still bank the character into the turn.
+    if (gameplayActive && ctx.playerRig) {
+        float spd     = ctx.keySprint ? 20.0f : 10.0f;
+        float fwdIn   = (float)(ctx.keyFwd   - ctx.keyBack);
+        float rightIn = (float)(ctx.keyRight - ctx.keyLeft);
+        float moveMag = sqrtf(fwdIn * fwdIn + rightIn * rightIn);   // 0 when still, ~1.4 diagonal
+        ctx.playerRig->updateLean(moveMag * spd, rightIn * spd, ctx.deltaTime);
+    }
+
     if (gameplayActive) {
         // While seated / lying down the player is locked to the pose anchor —
         // skip all movement physics (it would fight the snap-to-anchor inside
         // updatePropInteraction below).
         const bool inPose = (ctx.playerPose != PlayerPose::Standing);
+
+        // --- Dodge roll (V): a quick directional dash with brief i-frames ----
+        if (ctx.rollCooldown > 0.0f) ctx.rollCooldown -= ctx.deltaTime;
+        if (ctx.rollPressed && !inPose && ctx.camera.onGround &&
+            ctx.rollCooldown <= 0.0f && ctx.rollTimer <= 0.0f) {
+            glm::vec3 dir = (glm::length(moveDir) > 0.001f) ? moveDir : camForward;
+            ctx.rollDir      = glm::normalize(glm::vec3(dir.x, 0.0f, dir.z));
+            ctx.rollTimer    = 0.5f;     // dash + damage-immunity window
+            ctx.rollCooldown = 1.0f;     // 1 s before the next roll
+            ctx.playerYaw    = glm::degrees(atan2f(ctx.rollDir.x, ctx.rollDir.z));
+            if (ctx.playerRig) ctx.playerRig->rollProgress = 0.0f;
+            if (g_audio) g_audio->play2D(SoundId::Swing, 0.45f);
+        }
+        ctx.rollPressed = false;
+        if (ctx.rollTimer > 0.0f) {
+            ctx.rollTimer -= ctx.deltaTime;
+            // Steer the roll toward the current input so it curves with you — if
+            // you start pressing left mid-roll, the dodge veers left, not straight.
+            if (glm::length(moveDir) > 0.001f) {
+                glm::vec3 want = glm::normalize(glm::vec3(moveDir.x, 0.0f, moveDir.z));
+                ctx.rollDir   = glm::normalize(glm::mix(ctx.rollDir, want, std::min(1.0f, ctx.deltaTime * 12.0f)));
+                ctx.playerYaw = glm::degrees(atan2f(ctx.rollDir.x, ctx.rollDir.z));
+            }
+            if (ctx.playerRig)
+                ctx.playerRig->rollProgress = (ctx.rollTimer > 0.0f)
+                    ? std::clamp(1.0f - ctx.rollTimer / 0.5f, 0.0f, 1.0f) : -1.0f;
+        }
 
         // Riding a ferry: carry the player with the deck before block physics.
         Ferry* supportFerry = inPose ? nullptr : findSupportFerry(ctx);
@@ -401,9 +511,15 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
             ctx.camera.onGround  = false;
         } else {
             float walkSpeed = ctx.keySprint ? 20.0f : 10.0f;
-            ctx.camera.velocity.x = moveDir.x * walkSpeed;
-            ctx.camera.velocity.z = moveDir.z * walkSpeed;
-            if (ctx.keyJump && ctx.camera.onGround) ctx.camera.velocity.y = 8.0f;
+            if (ctx.castTimer > 0.0f) walkSpeed *= 0.35f;       // slowed while channelling a cast
+            if (ctx.rollTimer > 0.0f) {                          // dodge roll: dash in the locked dir
+                ctx.camera.velocity.x = ctx.rollDir.x * 13.0f;
+                ctx.camera.velocity.z = ctx.rollDir.z * 13.0f;
+            } else {
+                ctx.camera.velocity.x = moveDir.x * walkSpeed;
+                ctx.camera.velocity.z = moveDir.z * walkSpeed;
+            }
+            if (ctx.keyJump && ctx.camera.onGround && ctx.rollTimer <= 0.0f) ctx.camera.velocity.y = 8.0f;
             ctx.camera.applyGravity(ctx.deltaTime);
             ctx.camera.position = resolveCollision(ctx.camera.position, ctx.camera, hw, ph, ctx.world, ctx.deltaTime);
         }
@@ -484,8 +600,16 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
     ctx.objectManager.streamDoors(ctx.camera.position, 180.0f,
                                   getDoorPlacements(), ctx.propLibrary,
                                   &ctx.camera.position);
+    // Ease the step-up offset back to zero so a one-block climb glides instead
+    // of snapping. The same offset is applied to the third-person camera in the
+    // renderer, so the body and camera rise together. (Offset is always <= 0.)
+    ctx.camera.stepSmoothOffset -= ctx.camera.stepSmoothOffset
+                                 * std::min(1.0f, ctx.deltaTime * 12.0f);
+    if (ctx.camera.stepSmoothOffset > -0.001f) ctx.camera.stepSmoothOffset = 0.0f;
+
     if (ctx.localPlayer) {
-        ctx.localPlayer->position    = ctx.camera.position;
+        ctx.localPlayer->position    = ctx.camera.position
+                                     + glm::vec3(0.0f, ctx.camera.stepSmoothOffset, 0.0f);
         ctx.localPlayer->yaw         = ctx.playerYaw;
         ctx.localPlayer->lanternHeld = ctx.lanternHeld;
         ctx.localPlayer->update(ctx.deltaTime, ctx.world);
@@ -494,6 +618,20 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
     updateLootPickup(ctx);
     updatePropInteraction(ctx);
     updateNpcInteraction(ctx);
+
+    // The Class Trainer window opens by pressing E near a trainer (above), not
+    // via a key toggle, so reconcile the cursor with its state here: free it when
+    // the window opens, recapture it when it closes (Close button / X / Esc).
+    {
+        static bool prevShowTrainer = false;
+        if (ctx.showTrainer != prevShowTrainer) {
+            glfwSetInputMode(window, GLFW_CURSOR,
+                             ctx.showTrainer ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
+            if (ctx.showTrainer) ctx.keyFwd = ctx.keyBack = ctx.keyLeft = ctx.keyRight = ctx.keyJump = 0;
+            else                 ctx.firstMouse = true;
+            prevShowTrainer = ctx.showTrainer;
+        }
+    }
 
     if (ctx.state == GameState::Playing && !ctx.paused) {
         updateLeafParticles(ctx);
@@ -517,7 +655,7 @@ void sendPlayerModelUpdate(AppContext& ctx) {
     mh.noseStyle    = ctx.playerRig->noseStyle;
     mh.eyebrowStyle = ctx.playerRig->eyebrowStyle;
     mh.earType      = ctx.playerRig->earType;
-    mh.armorType    = 0;   // legacy field, replaced by `slots`
+    mh.armorType    = (int)ctx.playerRole;   // legacy field repurposed to carry role
     mh.playerLevel  = ctx.playerLevel;
     fillSlotsFromInventory(mh.slots, ctx.inventory);
     ctx.client->send(PacketType::PlayerModel, &mh, sizeof(mh));

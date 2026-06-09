@@ -166,10 +166,103 @@ static void renderDebugOverlay(AppContext& ctx) {
     ImGui::End();
 }
 
+// Whether to show the aiming reticle. Only while the player is actually firing
+// a RANGED main-hand weapon — drawing a bow, or mid-cast with a staff/wand. A
+// melee weapon never shows one, and even a ranged weapon only shows it during
+// the attack, not while idle. Hidden during any menu/overlay or while sitting.
+static bool shouldShowCrosshair(const AppContext& ctx) {
+    if (ctx.showInventory || ctx.showCharacterLoadout || ctx.showMap ||
+        ctx.paused || ctx.chatOpen) return false;
+    if (ctx.playerPose != PlayerPose::Standing) return false;
+    Item* mh = ctx.inventory.equipped(EquipSlot::MainHand);
+    if (!mh || mh->getKind() != ItemKind::Weapon) return false;
+    WeaponItem* w = static_cast<WeaponItem*>(mh);
+    bool ranged = (w->getType() == WeaponType::Bow) || w->isInstantRanged();
+    if (!ranged) return false;
+    // Active attack only: drawing the bow, or a swing/cast in progress.
+    return ctx.bowChargingHeld ||
+           (ctx.playerRig && (ctx.playerRig->isCasting || ctx.playerRig->isAttacking));
+}
+
+// Bottom-centre ability hotbar (slots 1..6) plus the role resource bar.
+static void drawHotbar(AppContext& ctx) {
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    ImVec2 o = vpPos(), s = vpSize();
+    const int   N    = AppContext::HOTBAR_SLOTS;
+    const float slot = 46.0f, gap = 6.0f;
+    float totalW = N * slot + (N - 1) * gap;
+    float x0 = o.x + (s.x - totalW) * 0.5f;
+    float y0 = o.y + s.y - 104.0f - slot;   // sit above the health / XP bar
+
+    for (int i = 0; i < N; i++) {
+        float x = x0 + i * (slot + gap);
+        ImVec2 a(x, y0), b(x + slot, y0 + slot);
+        AbilityId aid = ctx.hotbar[i];
+        Ability*  ab  = (aid != AbilityId::None) ? ctx.findAbility(aid) : nullptr;
+        bool sel = (i == ctx.selectedHotbar) && ab;
+        dl->AddRectFilled(a, b, IM_COL32(18, 18, 26, 205), 4.0f);
+        dl->AddRect(a, b, sel ? IM_COL32(255, 210, 120, 255) : IM_COL32(120, 120, 140, 220),
+                    4.0f, 0, sel ? 2.5f : 1.5f);
+        dl->AddText(ImVec2(x + 3, y0 + 1), IM_COL32(210, 210, 225, 255),
+                    std::to_string(i + 1).c_str());
+        if (!ab) continue;
+        std::string tag(ab->name());
+        if (tag.size() > 5) tag = tag.substr(0, 5);
+        ImVec2 ts = ImGui::CalcTextSize(tag.c_str());
+        dl->AddText(ImVec2(x + (slot - ts.x) * 0.5f, y0 + slot * 0.5f - 4),
+                    IM_COL32(235, 235, 245, 255), tag.c_str());
+        float cd = ctx.hotbarCooldown[i], cdMax = ab->cooldown();
+        if (cd > 0.0f && cdMax > 0.0f) {
+            float frac = std::min(1.0f, cd / cdMax);
+            dl->AddRectFilled(ImVec2(x, b.y - slot * frac), b, IM_COL32(0, 0, 0, 150), 4.0f);
+            std::string cds = std::to_string((int)ceilf(cd));
+            ImVec2 cs = ImGui::CalcTextSize(cds.c_str());
+            dl->AddText(ImVec2(x + (slot - cs.x) * 0.5f, y0 + slot * 0.5f - 4),
+                        IM_COL32(255, 235, 190, 255), cds.c_str());
+        }
+    }
+
+    float ry = y0 + slot + 5.0f, rbH = 9.0f;
+    ImVec2 ra(x0, ry), rb(x0 + totalW, ry + rbH);
+    dl->AddRectFilled(ra, rb, IM_COL32(18, 18, 26, 205), 2.0f);
+    float frac = (ctx.resourceMax > 0.0f) ? (ctx.resource / ctx.resourceMax) : 0.0f;
+    ImU32 rcol = ctx.resourceType == ResourceType::Mana ? IM_COL32(70, 120, 230, 255)
+               : ctx.resourceType == ResourceType::Rage ? IM_COL32(200, 60, 50, 255)
+               :                                          IM_COL32(220, 200, 70, 255);
+    dl->AddRectFilled(ra, ImVec2(x0 + totalW * frac, ry + rbH), rcol, 2.0f);
+    std::string rtxt = std::string(resourceName(ctx.resourceType)) + "  " +
+                       std::to_string((int)ctx.resource) + "/" + std::to_string((int)ctx.resourceMax);
+    ImVec2 rs = ImGui::CalcTextSize(rtxt.c_str());
+    dl->AddText(ImVec2(x0 + (totalW - rs.x) * 0.5f, ry - 2), IM_COL32(235, 235, 240, 255), rtxt.c_str());
+}
+
+// A small white reticle at screen centre, drawn with a 1px dark offset so it
+// reads over both bright sky and dark terrain.
+static void drawCrosshair() {
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    ImVec2 o = vpPos(), s = vpSize();
+    ImVec2 c(o.x + s.x * 0.5f, o.y + s.y * 0.5f);
+    const ImU32 col    = IM_COL32(255, 255, 255, 205);
+    const ImU32 shadow = IM_COL32(0, 0, 0, 130);
+    const float gap = 5.0f, len = 9.0f, th = 1.6f;
+    auto tick = [&](float ax, float ay, float bx, float by) {
+        dl->AddLine(ImVec2(c.x + ax + 1, c.y + ay + 1), ImVec2(c.x + bx + 1, c.y + by + 1), shadow, th);
+        dl->AddLine(ImVec2(c.x + ax,     c.y + ay),     ImVec2(c.x + bx,     c.y + by),     col,    th);
+    };
+    tick(-gap - len, 0, -gap, 0);    // left
+    tick( gap, 0,  gap + len, 0);    // right
+    tick(0, -gap - len, 0, -gap);    // up
+    tick(0,  gap, 0,  gap + len);    // down
+    dl->AddCircleFilled(c, 1.3f, col);
+}
+
 void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer) {
     (void)window;
 
     if (ctx.showDebugOverlay) renderDebugOverlay(ctx);
+
+    if (shouldShowCrosshair(ctx)) drawCrosshair();
+    if (!ctx.showMap) drawHotbar(ctx);
 
     // Underwater tint
     if (ctx.headUnderwater) {
@@ -236,9 +329,11 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
     ImGui::ProgressBar(xpFrac, ImVec2(-1, 8), "");
     ImGui::PopStyleColor();
     ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.5f, 1.0f),
-                       "Lv %d   %d/%d XP   HP %d/100",
-                       ctx.playerLevel, (int)ctx.playerXp, xpNeed,
-                       (int)(ctx.playerHealth * 100));
+                       "%s   Lv %d   %d/%d XP   HP %d/%d",
+                       roleName(ctx.playerRole), ctx.playerLevel,
+                       (int)ctx.playerXp, xpNeed,
+                       (int)(ctx.playerHealth * ctx.maxHpScaled),
+                       (int)ctx.maxHpScaled);
     ImGui::End();
 
     // Nametags
@@ -410,6 +505,9 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
         renderInventoryUI(ctx, window);
         renderCharacterLoadoutUI(ctx, window);
     }
+
+    // Skill tree overlay (K) — spend skill points to unlock abilities.
+    if (ctx.showSkillTree) renderSkillTreeUI(ctx);
 
     // Toast queue — XP / level-up / loot notifications stacked top-right.
     // Newest at the bottom of the stack so the eye lands on the latest

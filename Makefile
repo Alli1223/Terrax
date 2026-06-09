@@ -31,12 +31,13 @@ SRCS := src/main.cpp src/shader.cpp src/camera.cpp src/world.cpp src/world_gen.c
         src/renderer.cpp src/gameplay.cpp src/gameplay_entities.cpp \
         src/gameplay_effects.cpp src/gameplay_spells.cpp \
         src/ui.cpp src/ui_menus.cpp \
-        src/ui_editors.cpp src/ui_map.cpp src/ui_play.cpp src/graphics_settings.cpp \
-        src/object_manager.cpp src/player_object.cpp src/prop.cpp \
+        src/ui_editors.cpp src/ui_map.cpp src/ui_play.cpp src/ui_skilltree.cpp src/graphics_settings.cpp \
+        src/object_manager.cpp src/player_object.cpp src/prop.cpp src/prop_registry.cpp \
         src/furniture.cpp src/decorations.cpp src/prop_placement.cpp \
         src/vehicles.cpp src/ferry_routes.cpp src/npc.cpp src/animal.cpp \
         src/vegetation.cpp src/building.cpp src/building_house.cpp \
         src/building_special.cpp src/building_farm.cpp src/items.cpp src/inventory.cpp \
+        src/role.cpp src/ability.cpp src/skill_tree.cpp \
         src/clothing_painter.cpp src/weapon_builder.cpp src/item_generator.cpp \
         src/inventory_ui.cpp src/loot_drop.cpp src/projectile.cpp \
         src/npc_appearance.cpp src/farm_director.cpp src/audio.cpp

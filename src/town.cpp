@@ -271,6 +271,51 @@ TownPlan buildTownPlan() {
     placeStreetLamps(plan);
     reportStage(4, 1.0f);
 
+    // One graveyard per town, on flat-ish dry ground just outside the built-up
+    // area, with the gate facing back toward the town. Deterministic from the
+    // town centre + world seed so client and server stamp it identically.
+    {
+        static const int DIRS[8][2] = {
+            {1,0},{0,1},{-1,0},{0,-1},{1,1},{-1,1},{-1,-1},{1,-1}
+        };
+        for (const Town& t : plan.towns) {
+            std::mt19937 grng(worldSeed() ^ 0x6BADF00Du
+                              ^ (uint32_t)(t.center.x * 374761393)
+                              ^ (uint32_t)(t.center.y * 668265263));
+            int halfX = 6 + (int)(grng() % 3u);   // 6..8 interior half-width
+            int halfZ = 8 + (int)(grng() % 4u);   // 8..11 interior half-depth
+            int reach = t.radius + 12 + halfZ;     // clear of the buildings
+            int start = (int)(grng() % 8u);
+            bool placed = false;
+            Graveyard g{};
+            for (int k = 0; k < 8 && !placed; k++) {
+                const int* d = DIRS[(start + k) % 8];
+                int gx = t.center.x + d[0] * reach;
+                int gz = t.center.y + d[1] * reach;
+                int gy = sampleSurfaceSolid(gx, gz);
+                if (gy < WORLD_SEA_LEVEL + 1) continue;            // not in water
+                int c0 = sampleSurfaceSolid(gx - halfX, gz - halfZ);
+                int c1 = sampleSurfaceSolid(gx + halfX, gz - halfZ);
+                int c2 = sampleSurfaceSolid(gx - halfX, gz + halfZ);
+                int c3 = sampleSurfaceSolid(gx + halfX, gz + halfZ);
+                int mn = std::min(std::min(c0, c1), std::min(c2, c3));
+                int mx = std::max(std::max(c0, c1), std::max(c2, c3));
+                if (mx - mn > 6) continue;                         // too steep to flatten cleanly
+                g.center = { gx, gz };
+                g.baseY  = gy;
+                g.halfX  = halfX;
+                g.halfZ  = halfZ;
+                int ddx = t.center.x - gx, ddz = t.center.y - gz;  // gate faces the town
+                if (std::abs(ddx) >= std::abs(ddz)) { g.gateDX = ddx >= 0 ? 1 : -1; g.gateDZ = 0; }
+                else                                { g.gateDX = 0; g.gateDZ = ddz >= 0 ? 1 : -1; }
+                g.seed = grng();
+                placed = true;
+            }
+            if (placed) plan.graveyards.push_back(g);
+        }
+        std::cout << "[Towns] Placed " << plan.graveyards.size() << " graveyards." << std::endl;
+    }
+
     int nc = 0, nm = 0, ng = 0;
     for (const Town& t : plan.towns)
         (t.type == TownType::Coastal ? nc : t.type == TownType::Mountain ? nm : ng)++;
@@ -314,5 +359,20 @@ const TownPlan& getTownPlan() {
         g_townReady.store(true, std::memory_order_release);
     });
     return plan;
+}
+
+bool findNearestGraveyard(float wx, float wz, glm::ivec2& outCenter, int& outBaseY) {
+    const TownPlan& plan = getTownPlan();
+    const Graveyard* best = nullptr;
+    float bestD2 = 0.0f;
+    for (const Graveyard& g : plan.graveyards) {
+        float dx = (float)g.center.x - wx, dz = (float)g.center.y - wz;
+        float d2 = dx * dx + dz * dz;
+        if (!best || d2 < bestD2) { best = &g; bestD2 = d2; }
+    }
+    if (!best) return false;
+    outCenter = best->center;
+    outBaseY  = best->baseY;
+    return true;
 }
 

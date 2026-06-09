@@ -139,6 +139,158 @@ VoxelVolume* buildFenceSection() {
     return v;
 }
 
+// --- Graveyard headstones --------------------------------------------------
+namespace {
+const Voxel STONE_G {124, 126, 132, 255};   // pale weathered granite
+const Voxel STONE_D { 92,  94, 100, 255};   // shadowed / engraved
+const Voxel MOSS_G  { 78, 116,  64, 255};   // creeping moss
+const Voxel GWOOD   {110,  74,  42, 255};   // grave-cross timber
+const Voxel GWOODD  { 78,  50,  30, 255};
+const Voxel MOUND   { 88,  64,  40, 255};   // turned earth at the base
+}
+
+VoxelVolume* buildTombstone() {
+    // A rounded headstone: a plinth, a slab body, and a stepped arch top that
+    // reads as a curved crown. Front face carries a couple of engraved lines
+    // and one side is streaked with moss so no two rows look identical.
+    const int W = 14, H = 28, D = 6;
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    voxFill(v, 1, 0, 0, W - 2, 2, D - 1, STONE_D);        // base plinth (wider, dark)
+    voxFill(v, 3, 2, 1, W - 4, H - 7, D - 2, STONE_G);    // main slab
+    voxFill(v, 4, H - 7, 1, W - 5, H - 5, D - 2, STONE_G);// shoulders (narrower)
+    voxFill(v, 5, H - 5, 1, W - 6, H - 3, D - 2, STONE_G);// arch
+    voxFill(v, 6, H - 3, 1, W - 7, H - 2, D - 2, STONE_G);// crown
+    voxFill(v, 5,  9, 1, W - 6,  9, 1, STONE_D);          // engraved line
+    voxFill(v, 5, 13, 1, W - 6, 13, 1, STONE_D);
+    voxFill(v, 6, 17, 1, W - 7, 17, 1, STONE_D);
+    voxFill(v, 3, 2, 1, 3,  9, 1, MOSS_G);               // moss up one edge
+    voxFill(v, 1, 0, 0, W - 2, 0, D - 1, MOSS_G);         // moss round the base
+    return v;
+}
+
+VoxelVolume* buildTombstoneCross() {
+    // A slab topped with a raised cross — the grander marker.
+    const int W = 12, H = 32, D = 6;
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    int cx = W / 2;
+    voxFill(v, 1, 0, 0, W - 2, 2, D - 1, STONE_D);        // plinth
+    voxFill(v, 3, 2, 1, W - 4, H - 13, D - 2, STONE_G);   // slab body
+    voxFill(v, cx - 1, H - 13, 2, cx, H - 1, D - 3, STONE_G);   // cross — upright
+    voxFill(v, cx - 4, H - 8,  2, cx + 3, H - 6, D - 3, STONE_G);// cross — arms
+    voxFill(v, 4, 8, 1, W - 5, 8, 1, STONE_D);            // engraving
+    voxFill(v, 3, 2, 1, 3, 7, 1, MOSS_G);                // moss
+    return v;
+}
+
+VoxelVolume* buildGraveCross() {
+    // A humble wooden cross on a small mound of turned earth.
+    const int W = 10, H = 26, D = 4;
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    int cx = W / 2;
+    voxFill(v, 1, 0, 0, W - 2, 1, D - 1, MOUND);          // earth mound
+    voxFill(v, cx - 1, 1, 1, cx, H - 1, D - 2, GWOOD);    // upright post
+    voxFill(v, 1, H - 9, 1, W - 2, H - 7, D - 2, GWOOD);  // crossbar
+    voxFill(v, cx - 1, 4, 1, cx - 1, H - 4, 1, GWOODD);   // grain accent
+    return v;
+}
+
+VoxelVolume* buildSoilMound() {
+    // A low rounded heap of freshly dug earth — a new grave or a digger's pile.
+    const int W = 22, H = 8, D = 14;
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    const Voxel SOIL {84, 58, 36, 255}, SOILD {62, 42, 27, 255}, SOILL {106, 76, 48, 255};
+    voxFill(v, 1, 0, 1, W - 2, 1, D - 2, SOILD);          // wide dark base
+    voxFill(v, 2, 1, 2, W - 3, 3, D - 3, SOIL);
+    voxFill(v, 4, 3, 3, W - 5, 5, D - 4, SOIL);           // stepped to a rounded crown
+    voxFill(v, 6, 5, 4, W - 7, 6, D - 5, SOILL);
+    voxFill(v, 3, 2, 3, 4, 3, 4, SOILL);                  // scattered clods
+    voxFill(v, W - 5, 2, D - 5, W - 4, 3, D - 4, SOILD);
+    return v;
+}
+
+VoxelVolume* buildSpade() {
+    // A gravedigger's spade standing blade-down in a little turned earth.
+    const int W = 8, H = 30, D = 6;
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    const Voxel SWOOD {124, 84, 48, 255}, METAL {126, 130, 138, 255},
+                METALD {96, 100, 108, 255}, SOIL {80, 56, 34, 255};
+    int cx = W / 2;
+    voxFill(v, 1, 0, 1, W - 2, 1, D - 2, SOIL);           // earth at the base
+    voxFill(v, cx - 2, 1, 1, cx + 1, 7, D - 2, METALD);   // blade
+    voxFill(v, cx - 1, 7, 2, cx, 9, D - 3, METAL);        // socket
+    voxFill(v, cx - 1, 9, 2, cx, H - 4, D - 3, SWOOD);    // shaft
+    voxFill(v, cx - 2, H - 4, 2, cx + 1, H - 2, D - 3, SWOOD); // D-grip
+    return v;
+}
+
+VoxelVolume* buildGraveFlowers() {
+    // A small posy of cut flowers laid on the ground, blooms at one end.
+    const int W = 12, H = 4, D = 8;
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    const Voxel STEM {70, 110, 50, 255}, R {212, 72, 82, 255}, Y {240, 210, 92, 255},
+                P {200, 120, 210, 255}, WH {236, 236, 240, 255};
+    voxFill(v, 2, 0, 3, W - 3, 1, 4, STEM);               // bundled stems
+    voxFill(v, W - 5, 1, 2, W - 4, 2, 3, R);              // blooms
+    voxFill(v, W - 4, 1, 4, W - 3, 2, 5, Y);
+    voxFill(v, W - 6, 1, 4, W - 5, 2, 5, P);
+    v->setVoxel(W - 3, 1, 4, WH);
+    return v;
+}
+
+VoxelVolume* buildFlowerWreath() {
+    // A circular wreath of greenery and flowers laid flat on a grave.
+    const int W = 16, H = 4, D = 16;
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    const Voxel GREEN {64, 108, 52, 255}, GREEND {48, 86, 42, 255},
+                R {212, 72, 82, 255}, Y {240, 210, 92, 255}, WH {236, 236, 240, 255};
+    const int cx = 8, cz = 8, rin = 4, rout = 7;
+    for (int z = 0; z < D; z++)
+        for (int x = 0; x < W; x++) {
+            int dx = x - cx, dz = z - cz, d2 = dx * dx + dz * dz;
+            if (d2 >= rin * rin && d2 <= rout * rout)
+                voxFill(v, x, 0, z, x, 1, z, ((x + z) & 1) ? GREEN : GREEND);
+        }
+    v->setVoxel(cx,          2, cz + rout - 1, R);        // dotted blooms on the ring
+    v->setVoxel(cx + rout - 1, 2, cz,          Y);
+    v->setVoxel(cx - rout + 1, 2, cz,          WH);
+    v->setVoxel(cx,          2, cz - rout + 1, R);
+    return v;
+}
+
+VoxelVolume* buildStoneUrn() {
+    // A classical funerary urn on a small plinth, a touch of moss at the foot.
+    const int W = 12, H = 22, D = 12;
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    const Voxel STONE {130, 132, 138, 255}, STONED {100, 102, 108, 255}, MOSS {78, 116, 64, 255};
+    voxFill(v, 1, 0, 1, W - 2, 2, D - 2, STONED);         // plinth
+    voxFill(v, 3, 2, 3, W - 4, 4, D - 4, STONE);          // foot
+    voxFill(v, 2, 4, 2, W - 3, 12, D - 3, STONE);         // body
+    voxFill(v, 1, 8, 1, W - 2, 10, D - 2, STONE);         // belly bulge
+    voxFill(v, 3, 12, 3, W - 4, 14, D - 4, STONE);        // neck
+    voxFill(v, 1, 14, 1, W - 2, 16, D - 2, STONE);        // flared rim
+    voxFill(v, 3, 16, 3, W - 4, 17, D - 4, STONED);       // recessed mouth
+    voxFill(v, 1, 0, 1, 2, 5, 2, MOSS);                   // moss
+    return v;
+}
+
+VoxelVolume* buildDeadTree() {
+    // A bare, gnarled tree — a leafless yew silhouette for atmosphere.
+    const int W = 18, H = 56, D = 18;
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    const Voxel BARK {80, 64, 50, 255}, BARKD {58, 46, 36, 255};
+    int cx = W / 2;
+    voxFill(v, cx - 2, 0, cx - 2, cx + 1, 6, cx + 1, BARKD);  // root flare
+    voxFill(v, cx - 1, 6, cx - 1, cx, H - 14, cx, BARK);      // trunk
+    voxFill(v, cx, H - 30, cx, cx + 5, H - 26, cx, BARK);     // a bare branch...
+    voxFill(v, cx + 4, H - 26, cx, cx + 5, H - 20, cx, BARK); // ...turning up
+    voxFill(v, cx - 5, H - 22, cx, cx - 1, H - 19, cx, BARK); // a branch the other way
+    voxFill(v, cx - 5, H - 19, cx, cx - 4, H - 14, cx, BARK);
+    voxFill(v, cx, H - 16, cx - 5, cx, H - 12, cx - 1, BARK); // a branch in -Z
+    voxFill(v, cx, H - 14, cx, cx, H - 6, cx, BARK);          // top spire
+    voxFill(v, cx - 2, H - 34, cx - 1, cx - 1, H - 33, cx, BARKD); // gnarl knot
+    return v;
+}
+
 VoxelVolume* buildFlowerPot() {
     // Small terracotta pot with a bright mixed-colour flower crown.
     const int W = 10, H = 16, D = 10;

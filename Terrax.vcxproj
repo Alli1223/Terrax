@@ -104,6 +104,7 @@
     <ClCompile Include="src\town_terrain.cpp" />
     <ClCompile Include="src\object_manager.cpp" />
     <ClCompile Include="src\player_object.cpp" />
+    <ClCompile Include="src\prop_registry.cpp" />
     <ClCompile Include="src\prop.cpp" />
     <ClCompile Include="src\furniture.cpp" />
     <ClCompile Include="src\decorations.cpp" />
@@ -120,6 +121,10 @@
     <ClCompile Include="src\dungeon.cpp" />
     <ClCompile Include="src\castle.cpp" />
     <ClCompile Include="src\items.cpp" />
+    <ClCompile Include="src\role.cpp" />
+    <ClCompile Include="src\ability.cpp" />
+    <ClCompile Include="src\skill_tree.cpp" />
+    <ClCompile Include="src\ui_skilltree.cpp" />
     <ClCompile Include="src\inventory.cpp" />
     <ClCompile Include="src\clothing_painter.cpp" />
     <ClCompile Include="src\weapon_builder.cpp" />

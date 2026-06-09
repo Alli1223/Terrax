@@ -11,9 +11,12 @@
 #include "prop.h"
 #include "inventory.h"
 #include "interactable.h"
+#include "role.h"
+#include "ability.h"
 #include <glm/glm.hpp>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <future>
 #include <atomic>
@@ -89,8 +92,45 @@ struct AppContext {
     float playerYaw        = 0.0f;
     bool spawnedOnGround   = false;
     int  spawnX = 8, spawnZ = 8;   // world column the player spawns at
-    float playerHealth     = 1.0f;
+    float playerHealth     = 1.0f;   // fraction 0..1 of maxHpScaled
     float regenDelay       = 0.0f;   // delay before out-of-combat health regen
+
+    // --- Role / archetype ---
+    // Picked in the character editor. Drives body size, wearable armour tiers,
+    // and the cached combat scalars below (recomputeRoleStats). maxHpScaled is
+    // the current max HP in the same 0..100-ish points the old code assumed.
+    PlayerRole playerRole       = PlayerRole::DPS;
+    float      maxHpScaled      = 110.0f;
+    float      defenseMult      = 1.0f;   // incoming damage divided by this
+    float      abilityPowerMult = 1.0f;   // scales outgoing ability damage + heals
+    void recomputeRoleStats();            // refresh the cache from role + level
+    void setupRoleLoadout();              // reseed abilities/hotbar/resource for the role
+
+    // --- Abilities / hotbar / resource ---
+    // The ability book owns every learned ability (unique_ptr, like Items). The
+    // hotbar maps slots 1..6 to learned ability ids; `hotbarCooldown` generalises
+    // the old healCdPrimary/Secondary timers. Resources (Mana/Energy/Rage) gate
+    // casts alongside cooldowns; the type + cap come from the role.
+    ResourceType resourceType        = ResourceType::Energy;
+    float        resource            = 100.0f;
+    float        resourceMax         = 100.0f;
+    float        resourceRegenPerSec = 18.0f;
+    std::vector<std::unique_ptr<Ability>> abilityBook;
+    static constexpr int HOTBAR_SLOTS = 6;
+    AbilityId    hotbar[HOTBAR_SLOTS]       = { AbilityId::None, AbilityId::None, AbilityId::None,
+                                                AbilityId::None, AbilityId::None, AbilityId::None };
+    float        hotbarCooldown[HOTBAR_SLOTS] = { 0, 0, 0, 0, 0, 0 };
+    int          selectedHotbar   = 0;
+    int          pendingHotbarSlot = -1;   // set by input, consumed by gameplay
+    std::vector<ActiveBuff> activeBuffs;
+
+    Ability* findAbility(AbilityId id) const;   // in the book, or nullptr if not learned
+    void     grantAbility(AbilityId id);        // add to the book if absent
+
+    // --- Skill tree / progression ---
+    int  skillPoints = 0;                              // +1 per level, spent on tree nodes
+    std::unordered_set<AbilityId> unlockedAbilities;   // ids the player has unlocked
+    bool showSkillTree = false;                        // K — tree overlay
 
     // --- Combat input state ---
     // Driven by the mouse handlers in input.cpp; consumed by gameplay

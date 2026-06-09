@@ -32,6 +32,11 @@ void renderInventoryUI(AppContext& ctx, GLFWwindow* window);
 // ctx.showCharacterLoadout.
 void renderCharacterLoadoutUI(AppContext& ctx, GLFWwindow* window);
 
+// In-game skill-tree overlay (K key). Shows the role's tree and lets the player
+// spend skill points to unlock abilities. Called by renderPlayUI when
+// ctx.showSkillTree.
+void renderSkillTreeUI(AppContext& ctx);
+
 // Renders the loading screen (centred progress bar + stage name) while the
 // background worker spawned by beginLoading() pre-warms the world plan.
 // Returns true once both the worker AND the main-thread finalisation step

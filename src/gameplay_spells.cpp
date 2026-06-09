@@ -116,7 +116,7 @@ void castChainHeal(AppContext& ctx, float healPerTarget) {
 
     // The caster is always the first link — mend self immediately.
     glm::vec3 fromPos = ctx.camera.position + glm::vec3(0.0f, 1.2f, 0.0f);
-    ctx.playerHealth  = std::min(1.0f, ctx.playerHealth + healPerTarget / 100.0f);
+    ctx.playerHealth  = std::min(1.0f, ctx.playerHealth + healPerTarget / ctx.maxHpScaled);
     spawnHealMotes(ctx, fromPos, 18, 0.5f, 3.2f);
     sendHeal(ctx, ctx.client->clientID, healPerTarget, fromPos);   // so spectators see it
 
@@ -206,6 +206,13 @@ void drainSpellEvents(AppContext& ctx) {
     ctx.client->healEvents.clear();
 
     for (const SpellEffectPacket& e : ctx.client->spellEffects) {
+        // Animate the casting player's remote model — abilities that don't send
+        // a PlayerAttack (taunt, shield, heals) would otherwise look static.
+        auto rpIt = ctx.remotePlayers.find(e.casterID);
+        if (rpIt != ctx.remotePlayers.end()) {
+            rpIt->second.isAttacking = true;
+            rpIt->second.attackAnim  = 0.0f;
+        }
         if (e.kind == 0) {
             HealZone z;
             z.pos           = glm::vec3(e.x, e.y, e.z);
@@ -215,11 +222,56 @@ void drainSpellEvents(AppContext& ctx) {
             z.ownerClientId = e.casterID;   // not us → cosmetic only
             ctx.healZones.push_back(z);
             spawnHealRing(ctx, z.pos, z.radius);
-        } else {
+        } else if (e.kind == 1) {
             spawnHealMotes(ctx, glm::vec3(e.x, e.y, e.z), 14, 0.5f, 3.0f);
+        } else {
+            // Ability cosmetics (aoe slash / taunt ring / cast flash / aura).
+            spawnAbilityFx(ctx, glm::vec3(e.x, e.y, e.z), e.radius, e.kind);
         }
     }
     ctx.client->spellEffects.clear();
+}
+
+// Coloured voxel-particle burst for an ability cast — see the header. Reuses
+// the heal-zone particle batch (ctx.voxelParticles) so the renderer needs no
+// changes; only the palette / shape differ per kind.
+void spawnAbilityFx(AppContext& ctx, const glm::vec3& center, float radius, uint8_t kind) {
+    Voxel colA, colB;
+    int   count;
+    float spread, up;
+    bool  ring = false;
+    switch (kind) {
+        case 3:  // taunt ring — orange
+            colA = {255, 170, 60, 255};  colB = {255, 90, 40, 255};
+            count = 26; spread = radius; up = 1.6f; ring = true; break;
+        case 4:  // cast flash — violet
+            colA = {200, 160, 255, 255}; colB = {130, 90, 220, 255};
+            count = 16; spread = 0.5f; up = 2.4f; break;
+        case 5:  // buff aura — blue
+            colA = {130, 200, 255, 255}; colB = {80, 140, 230, 255};
+            count = 18; spread = 0.6f; up = 1.2f; break;
+        case 2:  // aoe slash — fiery
+        default:
+            colA = {255, 150, 60, 255};  colB = {255, 80, 40, 255};
+            count = 24; spread = radius * 0.8f; up = 1.4f; break;
+    }
+    for (int i = 0; i < count; i++) {
+        VoxelDeathParticle p;
+        p.color = (hrand(0.0f, 1.0f) < 0.5f) ? colA : colB;
+        if (ring) {
+            float ang = hrand(0.0f, 6.2831853f);
+            p.pos = center + glm::vec3(std::cos(ang) * radius, 0.1f, std::sin(ang) * radius);
+        } else {
+            p.pos = center + glm::vec3(hrand(-spread, spread),
+                                       hrand(0.0f, spread * 0.5f + 0.2f),
+                                       hrand(-spread, spread));
+        }
+        p.vel     = glm::vec3(hrand(-1.2f, 1.2f), up + hrand(0.4f, 2.2f), hrand(-1.2f, 1.2f));
+        p.life    = 0.6f + hrand(0.0f, 0.6f);
+        p.maxLife = p.life;
+        p.size    = 0.05f + hrand(0.0f, 0.04f);
+        ctx.voxelParticles.push_back(p);
+    }
 }
 
 // Advance active heal zones: emit the particle fountain for everyone, and on
@@ -253,7 +305,7 @@ void updateHealZones(AppContext& ctx) {
         float sdx = ctx.camera.position.x - z.pos.x;
         float sdz = ctx.camera.position.z - z.pos.z;
         if (sdx * sdx + sdz * sdz <= r2 && ctx.playerHealth < 1.0f) {
-            ctx.playerHealth = std::min(1.0f, ctx.playerHealth + z.healPerPulse / 100.0f);
+            ctx.playerHealth = std::min(1.0f, ctx.playerHealth + z.healPerPulse / ctx.maxHpScaled);
             glm::vec3 sp = ctx.camera.position + glm::vec3(0.0f, 1.2f, 0.0f);
             spawnHealMotes(ctx, sp, 10, 0.4f, 3.0f);
             sendHeal(ctx, myId, z.healPerPulse, sp);

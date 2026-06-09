@@ -102,6 +102,19 @@ static void serverThreadMain(unsigned short port) {
                                              hit.damageScale);
                 g_server->npcHits.clear();
 
+                // Resolve area / aggro abilities this tick. Validate the cast
+                // originates near the caster so a client can't AoE across the map.
+                for (const AbilityCastEvent& ac : g_server->abilityCasts) {
+                    glm::vec3 cp = g_server->getPlayerPosition(ac.attackerId);
+                    float ddx = ac.center.x - cp.x, ddz = ac.center.z - cp.z;
+                    if (ddx * ddx + ddz * ddz > 30.0f * 30.0f) continue;
+                    if (ac.effect == 1)
+                        npcDirector.playerTaunt(ac.attackerId, ac.center, ac.radius, ac.scale);
+                    else
+                        npcDirector.playerAoe(ac.attackerId, ac.center, ac.radius, ac.scale);
+                }
+                g_server->abilityCasts.clear();
+
                 npcDirector.update(SERVER_TICK_DT, dirPlayers, serverWorld, g_serverGameTime);
 
                 // Forward NPC-dealt damage to the affected players.

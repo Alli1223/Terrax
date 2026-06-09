@@ -579,6 +579,42 @@ void stampTownPlaza(Chunk* c, const Town& t) {
         }
 }
 
+// Stamp a graveyard's GROUND: flatten a grassy plot and lay a gravel walkway
+// down the gate axis. The enclosing fence is modelled props (placed in
+// prop_placement.cpp, like the farms) rather than a wall of blocks, and the
+// headstones are non-colliding props too — so you can walk among the graves.
+static void stampGraveyard(Chunk* c, const Graveyard& g) {
+    const int ox = c->pos.x * CHUNK_SIZE, oz = c->pos.z * CHUNK_SIZE;
+    const int RX = g.halfX + 1, RZ = g.halfZ + 1;        // plot half-extents
+    if (g.center.x + RX < ox || g.center.x - RX >= ox + CHUNK_SIZE) return;
+    if (g.center.y + RZ < oz || g.center.y - RZ >= oz + CHUNK_SIZE) return;
+
+    const int baseY = g.baseY;
+    for (int wx = g.center.x - RX; wx <= g.center.x + RX; wx++) {
+        if (wx < ox || wx >= ox + CHUNK_SIZE) continue;
+        for (int wz = g.center.y - RZ; wz <= g.center.y + RZ; wz++) {
+            if (wz < oz || wz >= oz + CHUNK_SIZE) continue;
+            int lx = wx - ox, lz = wz - oz;
+            int rx = wx - g.center.x, rz = wz - g.center.y;
+
+            // A gravel walkway down the gate axis through the centre.
+            bool isPath = (g.gateDX != 0) ? (rz == 0 && std::abs(rx) <= RX)
+                                          : (rx == 0 && std::abs(rz) <= RZ);
+
+            // Clear vegetation / overhangs above the plot.
+            for (int wy = baseY + 1; wy <= baseY + 9; wy++) c->set(lx, wy, lz, BlockType::Air);
+            // Ground surface — gravel path, else graveyard grass.
+            c->set(lx, baseY, lz, isPath ? BlockType::Gravel : BlockType::Grass);
+            // Foundation so the plot doesn't float where the ground dips away.
+            for (int wy = baseY - 1; wy >= 0 && wy >= baseY - 8; wy--) {
+                BlockType cur = c->get(lx, wy, lz);
+                if (cur == BlockType::Air || cur == BlockType::Water) c->set(lx, wy, lz, BlockType::Dirt);
+                else break;
+            }
+        }
+    }
+}
+
 void stampTownChunk(Chunk* c) {
     const TownPlan& plan = getTownPlan();
     const int ox = c->pos.x * CHUNK_SIZE, oz = c->pos.z * CHUNK_SIZE;
@@ -646,4 +682,8 @@ void stampTownChunk(Chunk* c) {
         stampBuilding(c, b);
         stampHouseSteps(c, b);
     }
+
+    // Graveyards (each culls itself to this chunk).
+    for (const Graveyard& g : plan.graveyards)
+        stampGraveyard(c, g);
 }

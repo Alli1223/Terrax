@@ -104,6 +104,7 @@
     <ClCompile Include="src\farm_director.cpp"><Filter>NPCs &amp; Wildlife</Filter></ClCompile>
     <!-- Props & Vehicles -->
     <ClCompile Include="src\prop.cpp"><Filter>Props &amp; Vehicles</Filter></ClCompile>
+    <ClCompile Include="src\prop_registry.cpp"><Filter>Props &amp; Vehicles</Filter></ClCompile>
     <ClCompile Include="src\furniture.cpp"><Filter>Props &amp; Vehicles</Filter></ClCompile>
     <ClCompile Include="src\decorations.cpp"><Filter>Props &amp; Vehicles</Filter></ClCompile>
     <ClCompile Include="src\prop_placement.cpp"><Filter>Props &amp; Vehicles</Filter></ClCompile>
@@ -111,6 +112,10 @@
     <ClCompile Include="src\ferry_routes.cpp"><Filter>Props &amp; Vehicles</Filter></ClCompile>
     <!-- Items & Inventory -->
     <ClCompile Include="src\items.cpp"><Filter>Items &amp; Inventory</Filter></ClCompile>
+    <ClCompile Include="src\role.cpp"><Filter>Items &amp; Inventory</Filter></ClCompile>
+    <ClCompile Include="src\ability.cpp"><Filter>Items &amp; Inventory</Filter></ClCompile>
+    <ClCompile Include="src\skill_tree.cpp"><Filter>Items &amp; Inventory</Filter></ClCompile>
+    <ClCompile Include="src\ui_skilltree.cpp"><Filter>Items &amp; Inventory</Filter></ClCompile>
     <ClCompile Include="src\inventory.cpp"><Filter>Items &amp; Inventory</Filter></ClCompile>
     <ClCompile Include="src\clothing_painter.cpp"><Filter>Items &amp; Inventory</Filter></ClCompile>
     <ClCompile Include="src\weapon_builder.cpp"><Filter>Items &amp; Inventory</Filter></ClCompile>
@@ -187,12 +192,16 @@
     <ClInclude Include="include\farm_director.h"><Filter>NPCs &amp; Wildlife</Filter></ClInclude>
     <!-- Props & Vehicles -->
     <ClInclude Include="include\prop.h"><Filter>Props &amp; Vehicles</Filter></ClInclude>
+    <ClInclude Include="include\prop_registry.h"><Filter>Props &amp; Vehicles</Filter></ClInclude>
     <ClInclude Include="include\prop_builders.h"><Filter>Props &amp; Vehicles</Filter></ClInclude>
     <ClInclude Include="include\prop_placement.h"><Filter>Props &amp; Vehicles</Filter></ClInclude>
     <ClInclude Include="include\vehicle.h"><Filter>Props &amp; Vehicles</Filter></ClInclude>
     <ClInclude Include="include\ferry_routes.h"><Filter>Props &amp; Vehicles</Filter></ClInclude>
     <!-- Items & Inventory -->
     <ClInclude Include="include\items.h"><Filter>Items &amp; Inventory</Filter></ClInclude>
+    <ClInclude Include="include\role.h"><Filter>Items &amp; Inventory</Filter></ClInclude>
+    <ClInclude Include="include\ability.h"><Filter>Items &amp; Inventory</Filter></ClInclude>
+    <ClInclude Include="include\skill_tree.h"><Filter>Items &amp; Inventory</Filter></ClInclude>
     <ClInclude Include="include\inventory.h"><Filter>Items &amp; Inventory</Filter></ClInclude>
     <ClInclude Include="include\clothing_painter.h"><Filter>Items &amp; Inventory</Filter></ClInclude>
     <ClInclude Include="include\weapon_builder.h"><Filter>Items &amp; Inventory</Filter></ClInclude>

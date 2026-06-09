@@ -376,9 +376,11 @@ bool drawItemCell(AppContext& ctx, ImVec2 size, int cellIdx, Item* item,
             dl->AddText(ImVec2(p.x + 1, p.y), IM_COL32(20, 14, 10, 255), "E");
         }
 
-        // Level badge in the top-left. Red when the player can't equip
-        // it yet, parchment when they can.
-        bool ok = canEquipForLevel(item, ctx.playerLevel);
+        // Level badge in the top-left. Red when the player can't equip it yet
+        // (under-leveled OR the wrong armour tier for their role), parchment
+        // when they can.
+        bool ok = canEquipForLevel(item, ctx.playerLevel) &&
+                  canEquipRole(item, ctx.playerRole);
         ImU32 badgeBg = ok ? IM_COL32(40, 30, 20, 220) : IM_COL32(160, 30, 30, 230);
         ImU32 badgeFg = ok ? IM_COL32(240, 220, 160, 255) : IM_COL32(255, 220, 200, 255);
         ImVec2 bg0(cursor.x + 2, cursor.y + 2);
@@ -434,6 +436,10 @@ bool drawItemCell(AppContext& ctx, ImVec2 size, int cellIdx, Item* item,
                                "Requires Level %d (you are %d)",
                                item->level, ctx.playerLevel);
         }
+        if (!canEquipRole(item, ctx.playerRole)) {
+            ImGui::TextColored(ImVec4(1.00f, 0.40f, 0.35f, 1.0f),
+                               "%s cannot wear this armour", roleName(ctx.playerRole));
+        }
         if (item->attackPower  > 0) ImGui::Text("Attack:  %.0f", item->attackPower);
         if (item->defenseValue > 0) ImGui::Text("Defense: %.0f", item->defenseValue);
         if (ctx.inventory.isEquipped(item))
@@ -477,6 +483,14 @@ bool drawItemCell(AppContext& ctx, ImVec2 size, int cellIdx, Item* item,
                     // left wondering why the slot didn't fill.
                     AppContext::HudToast t;
                     t.text  = "Requires Level " + std::to_string(dragged->level);
+                    t.color = {220, 100, 80, 255};
+                    t.lifeTime = 2.5f;
+                    ctx.toasts.push_back(std::move(t));
+                    fits = false;
+                }
+                if (fits && !canEquipRole(dragged, ctx.playerRole)) {
+                    AppContext::HudToast t;
+                    t.text  = std::string(roleName(ctx.playerRole)) + " can't wear that armour";
                     t.color = {220, 100, 80, 255};
                     t.lifeTime = 2.5f;
                     ctx.toasts.push_back(std::move(t));
@@ -553,15 +567,21 @@ bool drawItemCell(AppContext& ctx, ImVec2 size, int cellIdx, Item* item,
                 ctx.inventory.unequip(rev->second);
                 changed = true;
             }
-        } else if (canEquipForLevel(item, ctx.playerLevel)) {
-            ctx.inventory.equip(item);
-            changed = true;
-        } else {
+        } else if (!canEquipForLevel(item, ctx.playerLevel)) {
             AppContext::HudToast t;
             t.text  = "Requires Level " + std::to_string(item->level);
             t.color = {220, 100, 80, 255};
             t.lifeTime = 2.5f;
             ctx.toasts.push_back(std::move(t));
+        } else if (!canEquipRole(item, ctx.playerRole)) {
+            AppContext::HudToast t;
+            t.text  = std::string(roleName(ctx.playerRole)) + " can't wear that armour";
+            t.color = {220, 100, 80, 255};
+            t.lifeTime = 2.5f;
+            ctx.toasts.push_back(std::move(t));
+        } else {
+            ctx.inventory.equip(item);
+            changed = true;
         }
     }
     (void)clicked;

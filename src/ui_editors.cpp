@@ -58,6 +58,26 @@ void renderCharacterEditorUI(AppContext& ctx, GLFWwindow* window, Renderer& rend
         rebuildRigFromInventory(*ctx.playerRig, ctx.inventory);
     }
 
+    // Role — sets the archetype, body size and base stats. Tanks are broad and
+    // tall, DPS lean and short. Changing role resets the size sliders to the
+    // role's defaults (they can then be fine-tuned below).
+    int roleIdx = (int)ctx.playerRole;
+    if (ImGui::Combo("Role", &roleIdx, "Tank\0DPS\0Healer\0")) {
+        ctx.playerRole = (PlayerRole)roleIdx;
+        ctx.playerRig->heightScale = roleHeightScale(ctx.playerRole);
+        ctx.playerRig->weightScale = roleWeightScale(ctx.playerRole);
+        if (ctx.playerRig->torso) {
+            ctx.playerRig->torso->scale.x = ctx.playerRig->weightScale;
+            ctx.playerRig->torso->scale.z = ctx.playerRig->weightScale;
+        }
+        ctx.setupRoleLoadout();   // reseed stats, resource and starting abilities
+        rebuildRigFromInventory(*ctx.playerRig, ctx.inventory);
+    }
+    ImGui::TextDisabled("%s — wears up to %s armour",
+                        roleName(ctx.playerRole),
+                        ctx.playerRole == PlayerRole::Tank   ? "Plate" :
+                        ctx.playerRole == PlayerRole::DPS    ? "Leather" : "Cloth");
+
     ImGui::Separator();
     if (ImGui::SliderFloat("Height", &ctx.playerRig->heightScale, 0.5f, 1.5f)) {}
     if (ImGui::SliderFloat("Weight", &ctx.playerRig->weightScale, 0.5f, 1.5f)) {

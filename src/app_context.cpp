@@ -94,6 +94,13 @@ AppContext::AppContext()
     inventory.equip(startShoe);
     inventory.equip(startSword);
 
+    // Apply the default role's body proportions, combat scalars and starting
+    // ability loadout. The editor lets the player change role before entering
+    // the world.
+    playerRig->heightScale = roleHeightScale(playerRole);
+    playerRig->weightScale = roleWeightScale(playerRole);
+    setupRoleLoadout();
+
     rebuildRigFromInventory(*playerRig, inventory);
 
     houseModel = new HouseModel();
@@ -101,6 +108,54 @@ AppContext::AppContext()
     noclip = true;
     camera.pitch = -20.0f;
     camera.updateVectors();
+}
+
+void AppContext::recomputeRoleStats() {
+    RoleStats s      = roleBaseStats(playerRole);
+    maxHpScaled      = roleMaxHp(playerRole, playerLevel);
+    defenseMult      = s.defenseMult;
+    abilityPowerMult = s.abilityPowerMult;
+
+    // Resource type + cap come from the role. (Rage gets a slow trickle for now;
+    // Phase 4 makes it build on dealing/taking damage instead.)
+    switch (playerRole) {
+        case PlayerRole::Tank:   resourceType = ResourceType::Rage;   resourceMax = 100.0f; resourceRegenPerSec =  8.0f; break;
+        case PlayerRole::Healer: resourceType = ResourceType::Mana;   resourceMax = 120.0f; resourceRegenPerSec = 10.0f; break;
+        case PlayerRole::DPS:
+        default:                 resourceType = ResourceType::Energy; resourceMax = 100.0f; resourceRegenPerSec = 18.0f; break;
+    }
+    if (resource > resourceMax) resource = resourceMax;
+}
+
+Ability* AppContext::findAbility(AbilityId aid) const {
+    for (const auto& a : abilityBook)
+        if (a && a->id() == aid) return a.get();
+    return nullptr;
+}
+
+void AppContext::grantAbility(AbilityId aid) {
+    if (aid == AbilityId::None || findAbility(aid)) return;
+    if (auto a = createAbility(aid)) abilityBook.push_back(std::move(a));
+}
+
+void AppContext::setupRoleLoadout() {
+    recomputeRoleStats();
+    abilityBook.clear();
+    activeBuffs.clear();
+    unlockedAbilities.clear();
+    for (int i = 0; i < HOTBAR_SLOTS; i++) { hotbar[i] = AbilityId::None; hotbarCooldown[i] = 0.0f; }
+
+    // Seed the role's pre-unlocked core abilities and lay them across the hotbar
+    // in order. The rest of the tree is bought with skill points (skill_tree.*).
+    for (AbilityId aid : roleStartingAbilities(playerRole)) {
+        grantAbility(aid);
+        unlockedAbilities.insert(aid);
+    }
+    int slot = 0;
+    for (const auto& a : abilityBook)
+        if (slot < HOTBAR_SLOTS) hotbar[slot++] = a->id();
+
+    resource = resourceMax;
 }
 
 AppContext::~AppContext() {

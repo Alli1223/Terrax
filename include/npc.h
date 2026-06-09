@@ -75,6 +75,8 @@ public:
     float     dyingLerp       = 0.0f;   // client: 0..1 fall-over progress
     float     fleeTimer       = 0.0f;   // server: villager panic countdown
     glm::vec2 fleeFrom{0.0f};           // server: the point a villager flees from
+    uint32_t  tauntedBy       = 0;      // server: client whose taunt locked this NPC's aggro
+    float     tauntTimer      = 0.0f;   // server: seconds of forced aggro remaining
 
     // --- Server-side AI state (owned by NpcDirector) ---
     int       townIndex = -1;           // villager: home town index
@@ -169,6 +171,17 @@ struct PlayerDamage {
     float    amount;
 };
 
+// A hostile NPC's projectile, simulated server-side. The client renders a
+// matching visual spawned from an EnemyProjectileSpawnPacket; the server owns
+// the flight + collision so a player can dodge by moving out of its path.
+struct EnemyProjectile {
+    uint32_t  id;
+    glm::vec3 pos;
+    glm::vec3 vel;
+    float     ttl;
+    float     damage;
+};
+
 // Server-side: owns every live NPC, streams town populations and bandit camps
 // in and out by player proximity, and runs villager / bandit AI each tick.
 class NpcDirector {
@@ -183,6 +196,13 @@ public:
     void playerHitNpc(uint32_t attackerId, uint32_t npcId, glm::vec3 attackerPos,
                        float damageScale = 1.0f);
 
+    // Area damage to hostile NPCs within `radius` of `center` (e.g. DPS Cleave).
+    void playerAoe(uint32_t attackerId, glm::vec3 center, float radius, float damageScale);
+
+    // Force hostile NPCs within `radius` to fixate on the casting player for
+    // `duration` seconds (Tank taunt).
+    void playerTaunt(uint32_t attackerId, glm::vec3 center, float radius, float duration);
+
     // Damage NPCs dealt to players this tick; the server loop drains it.
     std::vector<PlayerDamage> pendingDamage;
 
@@ -196,6 +216,10 @@ private:
     const std::vector<SeatSpot>& townSeats(int townIndex);
     // Frees a villager's claimed bench seat (if any) so someone else may use it.
     void releaseSeat(NPC& n);
+    // Shared NPC-damage core for both the single-target hit and the AoE sweep:
+    // town protection, villager panic, the wanted flag, HP loss and kill->loot.
+    void applyPlayerDamageToNpc(NPC& n, uint32_t attackerId,
+                                const glm::vec3& attackerPos, float damageScale);
     void stepVillager(NPC& n, float dt, World& world, float gameTime);
     void stepFarmer(NPC& n, float dt, World& world, float gameTime);
     void stepGuard(NPC& n, float dt, World& world,
@@ -209,6 +233,14 @@ private:
                     const std::vector<DirectorPlayer>& players);
     void stepRangedEnemy(NPC& n, float dt, World& world,
                          const std::vector<DirectorPlayer>& players);
+
+    // Hostile-NPC projectiles, simulated server-side. spawnEnemyProjectile both
+    // records the bolt and broadcasts an EnemyProjectileSpawn so clients render
+    // it; stepEnemyProjectiles advances them and applies damage on a player hit.
+    void spawnEnemyProjectile(glm::vec3 origin, glm::vec3 vel, float damage);
+    void stepEnemyProjectiles(float dt, const std::vector<DirectorPlayer>& players, World& world);
+    std::vector<EnemyProjectile> enemyProjectiles;
+    uint32_t nextEnemyProjId = 1;
 
     // Farms: stream farmer NPCs in/out by player proximity (crop state itself
     // lives in the FarmDirector). A farmer's n.townIndex is its farm index.

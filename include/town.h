@@ -88,8 +88,22 @@ struct Town {
     std::vector<glm::ivec2>   lampPosts;   // street-light positions (world XZ)
 };
 
+// A small fenced graveyard beside a town — one per town. The player respawns at
+// the nearest. Fully deterministic (derived from the town + world seed) so the
+// client and server stamp it identically. The fence is stamped as solid blocks
+// (so it encloses); the tombstones are detailed props (see getPropPlacements).
+struct Graveyard {
+    glm::ivec2 center;          // world XZ of the graveyard centre
+    int        baseY;           // ground (grass) surface Y; the player stands at baseY+1
+    int        halfX;           // interior half-extent in X (fence ring at centre ± halfX+1)
+    int        halfZ;
+    int        gateDX, gateDZ;  // cardinal direction the gate opening faces (toward the town)
+    uint32_t   seed;
+};
+
 struct TownPlan {
     std::vector<Town>      towns;
+    std::vector<Graveyard> graveyards;     // one per town; drives respawn
     std::vector<TownRoad>  highways;       // terrain-following roads between settlements
     std::vector<TownDock>  docks;          // jetties where highways meet the sea
     std::vector<TownBridge> bridges;       // raised spans over gullies and rivers
@@ -114,3 +128,7 @@ float townFlattenedHeight(float wx, float wz, float rawHeight);
 // even with townFlattenedHeight in the bias, leaving paths and house doors
 // at mismatched heights).
 int townFlatLevelAt(int wx, int wz);
+
+// Nearest graveyard centre to a world XZ. Returns false if the plan has no
+// graveyards (e.g. no towns yet). Used for respawn.
+bool findNearestGraveyard(float wx, float wz, glm::ivec2& outCenter, int& outBaseY);

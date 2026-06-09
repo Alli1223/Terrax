@@ -279,6 +279,19 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
     if (ctx.healCdPrimary   > 0.0f) ctx.healCdPrimary   -= ctx.deltaTime;
     if (ctx.healCdSecondary > 0.0f) ctx.healCdSecondary -= ctx.deltaTime;
 
+    // --- Ability hotbar: cooldowns, resource regen, buff decay, activation --
+    for (int i = 0; i < AppContext::HOTBAR_SLOTS; i++)
+        if (ctx.hotbarCooldown[i] > 0.0f) ctx.hotbarCooldown[i] -= ctx.deltaTime;
+    ctx.resource = std::min(ctx.resourceMax, ctx.resource + ctx.resourceRegenPerSec * ctx.deltaTime);
+    for (auto& b : ctx.activeBuffs) b.ttl -= ctx.deltaTime;
+    ctx.activeBuffs.erase(
+        std::remove_if(ctx.activeBuffs.begin(), ctx.activeBuffs.end(),
+                       [](const ActiveBuff& b){ return b.ttl <= 0.0f; }),
+        ctx.activeBuffs.end());
+    if (gameplayActive && ctx.pendingHotbarSlot >= 0)
+        tryActivateHotbar(ctx, ctx.pendingHotbarSlot);
+    ctx.pendingHotbarSlot = -1;
+
     // Right mouse triggers a weapon's secondary attack (the healing staff's
     // AOE). Edge-detected so one press drops one zone; input.cpp suppresses
     // block placement while a secondary-capable weapon is held.
@@ -302,6 +315,7 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
 
     ctx.client->update(ctx.world, ctx.remotePlayers);
     drainSpellEvents(ctx);    // apply/show heals + spawn cosmetic spell fx
+    syncEnemyProjectiles(ctx);  // spawn visible bolts for enemy ranged attacks
     updateHealZones(ctx);     // advance heal sanctuaries (owner pulses health)
     updatePlayerVitals(ctx);
 
@@ -484,8 +498,16 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
     ctx.objectManager.streamDoors(ctx.camera.position, 180.0f,
                                   getDoorPlacements(), ctx.propLibrary,
                                   &ctx.camera.position);
+    // Ease the step-up offset back to zero so a one-block climb glides instead
+    // of snapping. The same offset is applied to the third-person camera in the
+    // renderer, so the body and camera rise together. (Offset is always <= 0.)
+    ctx.camera.stepSmoothOffset -= ctx.camera.stepSmoothOffset
+                                 * std::min(1.0f, ctx.deltaTime * 12.0f);
+    if (ctx.camera.stepSmoothOffset > -0.001f) ctx.camera.stepSmoothOffset = 0.0f;
+
     if (ctx.localPlayer) {
-        ctx.localPlayer->position    = ctx.camera.position;
+        ctx.localPlayer->position    = ctx.camera.position
+                                     + glm::vec3(0.0f, ctx.camera.stepSmoothOffset, 0.0f);
         ctx.localPlayer->yaw         = ctx.playerYaw;
         ctx.localPlayer->lanternHeld = ctx.lanternHeld;
         ctx.localPlayer->update(ctx.deltaTime, ctx.world);
@@ -517,7 +539,7 @@ void sendPlayerModelUpdate(AppContext& ctx) {
     mh.noseStyle    = ctx.playerRig->noseStyle;
     mh.eyebrowStyle = ctx.playerRig->eyebrowStyle;
     mh.earType      = ctx.playerRig->earType;
-    mh.armorType    = 0;   // legacy field, replaced by `slots`
+    mh.armorType    = (int)ctx.playerRole;   // legacy field repurposed to carry role
     mh.playerLevel  = ctx.playerLevel;
     fillSlotsFromInventory(mh.slots, ctx.inventory);
     ctx.client->send(PacketType::PlayerModel, &mh, sizeof(mh));

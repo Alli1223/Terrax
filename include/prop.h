@@ -34,6 +34,12 @@ enum class PropType : uint8_t {
     Crate, ProducePile, Fountain, MarketStall, NoticeBoard,
     // Wild bush variants scattered across the world (see streamWildProps)
     BushFlowering, BushBerry, BushConifer, BushDry,
+    // Graveyard markers — detailed voxel headstones placed in rows inside a
+    // graveyard's fence (see getPropPlacements / the Graveyard plan).
+    Tombstone, TombstoneCross, GraveCross,
+    // Graveyard dressing — mounds of dug earth, a gravedigger's spade, laid
+    // flowers, a wreath, a stone urn, and a bare dead tree.
+    SoilMound, Spade, GraveFlowers, FlowerWreath, StoneUrn, DeadTree,
     Count
 };
 

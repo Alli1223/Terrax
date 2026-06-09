@@ -276,6 +276,27 @@ void ArcaneBoltProjectile::onHitNpc(NPC& /*n*/) {
 }
 
 // ---------------------------------------------------------------------------
+// EnemyBoltProjectile — a hostile NPC's bolt. Visual-only on the client (the
+// server simulates the authoritative flight and applies damage), so it flies
+// straight and bursts when it reaches the local player.
+// ---------------------------------------------------------------------------
+
+EnemyBoltProjectile::EnemyBoltProjectile() {
+    boltElement  = Element::Arcane;          // reuse the arcane trail feel
+    boltCore     = {210, 120, 240, 255};     // sickly violet — reads as "enemy"
+    boltEdge     = {120,  40, 150, 255};
+    trailColorA  = {200, 110, 235, 255};
+    trailColorB  = {110,  50, 150, 255};
+    if (ownsMesh && mesh) { delete mesh; mesh = nullptr; }
+    setTint(boltCore, boltEdge);
+    meshScale = 0.13f;     // a touch larger so it's easy to see coming
+    drag      = 0.0f;      // straight line — matches the server sim
+    gravity   = 0.0f;
+    lifeTime  = 2.5f;      // overwritten from the spawn packet's ttl
+    hostile   = true;
+}
+
+// ---------------------------------------------------------------------------
 // Per-frame projectile-vs-NPC collision sweep
 // ---------------------------------------------------------------------------
 
@@ -336,6 +357,37 @@ void updateProjectileCollisions(AppContext& ctx) {
                     ctx.voxelParticles.push_back(p);
                 }
             }
+        }
+
+        // Hostile (enemy-fired) bolts are visual-only on the client — the
+        // server applies their damage. They never hit NPCs; instead they burst
+        // when they reach the local player so a hit reads clearly. If the
+        // player dodged, the bolt flies past and expires on terrain / lifetime.
+        if (proj->hostile) {
+            if (!proj->grounded && !proj->dead) {
+                glm::vec3 c = ctx.camera.position + glm::vec3(0.0f, 1.0f, 0.0f);
+                glm::vec3 d = proj->position - c;
+                if (d.x * d.x + d.y * d.y + d.z * d.z < 0.8f * 0.8f) {
+                    proj->dead = true;
+                    for (int i = 0; i < 16; i++) {
+                        float ang = (float)i * 6.2831f / 16.0f;
+                        VoxelDeathParticle p;
+                        p.pos      = proj->position;
+                        float sp   = 1.5f + (rand() % 100) / 70.0f;
+                        p.vel      = glm::vec3(std::cos(ang) * sp,
+                                               1.5f + (rand() % 100) / 80.0f,
+                                               std::sin(ang) * sp);
+                        p.color    = (i & 1) ? Voxel{200, 110, 235, 255}
+                                             : Voxel{120, 50, 160, 255};
+                        p.life     = 0.7f;
+                        p.maxLife  = 0.7f;
+                        p.size     = 0.09f;
+                        p.grounded = false;
+                        ctx.voxelParticles.push_back(p);
+                    }
+                }
+            }
+            continue;   // never run the NPC sweep for enemy bolts
         }
 
         if (proj->grounded) continue;

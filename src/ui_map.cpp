@@ -99,6 +99,25 @@ static void drawCastleMarker(ImDrawList* dl, ImVec2 p, float r) {
     }
 }
 
+// A graveyard marker — a stone, rounded-top headstone with an engraved cross on
+// a sliver of grass. Reads clearly against the towns and dungeons.
+static void drawGraveyardMarker(ImDrawList* dl, ImVec2 p, float r) {
+    const ImU32 stone = IM_COL32(180, 182, 188, 245);
+    const ImU32 edge  = IM_COL32(32, 34, 40, 225);
+    const ImU32 grass = IM_COL32(72, 112, 62, 230);
+    float w = r * 0.70f;
+    float topY = p.y - r * 0.15f, botY = p.y + r * 0.9f;
+    dl->AddRectFilled({ p.x - r, p.y + r * 0.6f }, { p.x + r, p.y + r * 0.95f }, grass, 1.5f); // grass tuft
+    dl->AddCircleFilled({ p.x, topY }, w, stone, 16);                  // arched top
+    dl->AddRectFilled({ p.x - w, topY }, { p.x + w, botY }, stone);    // slab body
+    dl->AddCircle({ p.x, topY }, w, edge, 16, 1.2f);
+    dl->AddLine({ p.x - w, topY }, { p.x - w, botY }, edge, 1.2f);
+    dl->AddLine({ p.x + w, topY }, { p.x + w, botY }, edge, 1.2f);
+    dl->AddLine({ p.x - w, botY }, { p.x + w, botY }, edge, 1.2f);
+    dl->AddLine({ p.x, topY - w * 0.2f }, { p.x, p.y + r * 0.45f }, edge, 1.3f);                 // cross
+    dl->AddLine({ p.x - w * 0.5f, p.y + r * 0.12f }, { p.x + w * 0.5f, p.y + r * 0.12f }, edge, 1.3f);
+}
+
 void renderMapUI(AppContext& ctx) {
     if (!ctx.showMap) return;
 
@@ -339,13 +358,32 @@ void renderMapUI(AppContext& ctx) {
         }
     }
 
+    // ── Nearest graveyard: a tombstone marking the respawn point ─────────────
+    {
+        glm::ivec2 gc; int gby;
+        if (findNearestGraveyard(ctx.camera.position.x, ctx.camera.position.z, gc, gby)) {
+            ImVec2 sp = worldToMap((float)gc.x, (float)gc.y);
+            float  d2 = (sp.x - mc.x) * (sp.x - mc.x) + (sp.y - mc.y) * (sp.y - mc.y);
+            if (d2 < h * h) {
+                drawGraveyardMarker(dl, sp, 6.0f);
+                if (worldRadius < 1100.0f) {
+                    const char* lbl = "Graveyard";
+                    ImVec2 ts = ImGui::CalcTextSize(lbl);
+                    ImVec2 tp = { sp.x - ts.x * 0.5f, sp.y + 9.0f };
+                    dl->AddText({ tp.x + 1, tp.y + 1 }, IM_COL32(0, 0, 0, 210), lbl);
+                    dl->AddText(tp, IM_COL32(205, 235, 210, 245), lbl);
+                }
+            }
+        }
+    }
+
     // ── Legend (top-left corner; shapes match the markers above) ─────────────
     {
         float lx = canvasTL.x + 6.0f, ly = canvasTL.y + 6.0f;
         const float lineH = 18.0f;
-        dl->AddRectFilled({ lx - 4, ly - 4 }, { lx + 124, ly + lineH * 7 + 4 },
+        dl->AddRectFilled({ lx - 4, ly - 4 }, { lx + 124, ly + lineH * 8 + 4},
                           IM_COL32(15, 10, 5, 180), 4.0f);
-        dl->AddRect({ lx - 4, ly - 4 }, { lx + 124, ly + lineH * 7 + 4 },
+        dl->AddRect({ lx - 4, ly - 4 }, { lx + 124, ly + lineH * 8 + 4},
                     IM_COL32(180, 140, 60, 160), 4.0f, 0, 1.0f);
         const TownType types[3]   = { TownType::Grassland, TownType::Mountain, TownType::Coastal };
         const char*    labels[3]  = { "Grassland", "Mountain", "Coastal" };
@@ -367,6 +405,9 @@ void renderMapUI(AppContext& ctx) {
         float cyv = ly + lineH * 6 + lineH * 0.5f;   // castle swatch
         drawCastleMarker(dl, { lx + 9, cyv }, 5.0f);
         dl->AddText({ lx + 24, cyv - 7 }, IM_COL32(235, 225, 200, 235), "Castle");
+        float gyv = ly + lineH * 7 + lineH * 0.5f;   // graveyard swatch
+        drawGraveyardMarker(dl, { lx + 9, gyv }, 5.0f);
+        dl->AddText({ lx + 24, gyv - 7 }, IM_COL32(235, 225, 200, 235), "Graveyard");
     }
 
     // Local player: white triangle pointing in facing direction

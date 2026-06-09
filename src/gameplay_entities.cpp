@@ -184,16 +184,62 @@ void awardEnemyKill(AppContext& ctx, const NPC* npc) {
     while (ctx.playerXp >= float(xpForNextLevel(ctx.playerLevel))) {
         ctx.playerXp -= float(xpForNextLevel(ctx.playerLevel));
         ctx.playerLevel++;
+        ctx.skillPoints++;                 // one skill point per level (press K to spend)
         leveledUp = true;
         pushToast(ctx, std::string("Level Up!  You are now level ")
-                       + std::to_string(ctx.playerLevel),
+                       + std::to_string(ctx.playerLevel) + "  (+1 skill point)",
                   Voxel{255, 220, 80, 255}, 5.5f);
     }
     // Resend the PlayerModel so the server knows our new level — future
-    // loot rolls for our kills will scale to the new level.
-    if (leveledUp) sendPlayerModelUpdate(ctx);
+    // loot rolls for our kills will scale to the new level. Refresh the cached
+    // role stats so the larger HP pool takes effect immediately.
+    if (leveledUp) {
+        ctx.recomputeRoleStats();
+        sendPlayerModelUpdate(ctx);
+    }
 
     spawnDeathParticles(ctx, npc);
+}
+
+// Fire hotbar slot `slot` if its ability is off cooldown and affordable. All
+// the per-ability effect logic lives in Ability::activate; this is just the
+// gate (cooldown + resource + not mid-swing) plus spending the cost.
+void tryActivateHotbar(AppContext& ctx, int slot) {
+    if (slot < 0 || slot >= AppContext::HOTBAR_SLOTS) return;
+    AbilityId aid = ctx.hotbar[slot];
+    if (aid == AbilityId::None) return;
+    Ability* ab = ctx.findAbility(aid);
+    if (!ab) return;
+    if (ctx.hotbarCooldown[slot] > 0.0f) return;                 // still cooling down
+    if (ctx.playerRig && (ctx.playerRig->isAttacking || ctx.playerRig->isCasting))
+        return;                                                  // don't interrupt a swing/cast
+    if (ctx.resource < ab->resourceCost()) {
+        pushToast(ctx, std::string("Not enough ") + resourceName(ctx.resourceType),
+                  Voxel{210, 170, 120, 255}, 1.2f);
+        return;
+    }
+    ctx.resource            -= ab->resourceCost();
+    ctx.hotbarCooldown[slot] = ab->cooldown();
+    ctx.selectedHotbar       = slot;
+    ab->activate(ctx);
+}
+
+// Spawn a client-side visual bolt for each enemy projectile the server fired.
+// The bolt flies the straight server-authored path; the server independently
+// applies the damage on hit, so dodging is handled there. Fire-and-forget: the
+// bolt self-expires on terrain / lifetime (Projectile::update).
+void syncEnemyProjectiles(AppContext& ctx) {
+    if (!ctx.client) return;
+    for (const EnemyProjectileSpawnPacket& e : ctx.client->enemyProjectiles) {
+        auto bolt = std::make_unique<EnemyBoltProjectile>();
+        bolt->position = glm::vec3(e.x, e.y, e.z);
+        bolt->velocity = glm::vec3(e.vx, e.vy, e.vz);
+        float spd = glm::length(bolt->velocity);
+        bolt->restingDir = (spd > 0.001f) ? bolt->velocity / spd : glm::vec3(0.0f, 0.0f, 1.0f);
+        bolt->lifeTime   = e.ttl;
+        ctx.objectManager.add(std::move(bolt));
+    }
+    ctx.client->enemyProjectiles.clear();
 }
 
 // Creates/updates client-side NPC objects from the server's NPCState
@@ -581,14 +627,23 @@ void updatePlayerVitals(AppContext& ctx) {
                 }
             }
         }
-        ctx.playerHealth -= dmg / 100.0f;
+        // Role defence (plus any active defence buff such as Shield Wall)
+        // reduces the hit; max HP scales the fraction so a Tank's larger pool
+        // drains slower than a DPS's for the same raw damage.
+        float defense = ctx.defenseMult;
+        for (const ActiveBuff& b : ctx.activeBuffs)
+            if (b.kind == BuffKind::Defense) defense += b.magnitude;
+        ctx.playerHealth -= (dmg / defense) / ctx.maxHpScaled;
+        // Tanks build Rage by weathering hits.
+        if (ctx.resourceType == ResourceType::Rage)
+            ctx.resource = std::min(ctx.resourceMax, ctx.resource + dmg * 0.5f);
         ctx.client->pendingSelfDamage = 0.0f;
         ctx.regenDelay = 5.0f;
     }
     // Incoming heals (chain heal / sanctuary cast by any player, including us)
     // top the bar back up. Capped at full; never blocked by the regen delay.
     if (ctx.client && ctx.client->pendingSelfHeal > 0.0f) {
-        ctx.playerHealth = std::min(1.0f, ctx.playerHealth + ctx.client->pendingSelfHeal / 100.0f);
+        ctx.playerHealth = std::min(1.0f, ctx.playerHealth + ctx.client->pendingSelfHeal / ctx.maxHpScaled);
         ctx.client->pendingSelfHeal = 0.0f;
     }
     if (ctx.regenDelay > 0.0f) {
@@ -597,7 +652,14 @@ void updatePlayerVitals(AppContext& ctx) {
         ctx.playerHealth = std::min(1.0f, ctx.playerHealth + 0.045f * ctx.deltaTime);
     }
     if (ctx.playerHealth <= 0.0f) {
-        // Death — respawn back at the spawn town.
+        // Death — respawn at the nearest graveyard (falling back to the spawn
+        // town if the world has none). The ground-snap on the next frame settles
+        // the player onto the surface, so the exact Y here doesn't matter.
+        glm::ivec2 gc; int gy;
+        if (findNearestGraveyard(ctx.camera.position.x, ctx.camera.position.z, gc, gy)) {
+            ctx.spawnX = gc.x;
+            ctx.spawnZ = gc.y;
+        }
         ctx.camera.position = glm::vec3((float)ctx.spawnX + 0.5f, 140.0f,
                                         (float)ctx.spawnZ + 0.5f);
         ctx.camera.velocity = glm::vec3(0.0f);

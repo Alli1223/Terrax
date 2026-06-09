@@ -37,7 +37,7 @@ SRCS := src/main.cpp src/shader.cpp src/camera.cpp src/world.cpp src/world_gen.c
         src/vehicles.cpp src/ferry_routes.cpp src/npc.cpp src/animal.cpp \
         src/vegetation.cpp src/building.cpp src/building_house.cpp \
         src/building_special.cpp src/building_farm.cpp src/items.cpp src/inventory.cpp \
-        src/role.cpp src/ability.cpp src/skill_tree.cpp \
+        src/role.cpp src/ability.cpp src/skill_tree.cpp src/character_save.cpp \
         src/clothing_painter.cpp src/weapon_builder.cpp src/item_generator.cpp \
         src/inventory_ui.cpp src/loot_drop.cpp src/projectile.cpp \
         src/npc_appearance.cpp src/farm_director.cpp src/audio.cpp

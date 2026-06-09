@@ -111,7 +111,9 @@ struct TownPlan {
     std::vector<TownBuilding>  roadside;   // standalone structures scattered along highways
 };
 
-// Lazily builds (once, thread-safe) and returns the global settlement plan.
+// Lazily builds and returns the global settlement plan. Seed-versioned: it
+// rebuilds automatically if the world seed changes (e.g. when a remote client
+// adopts the server's seed), so callers never need to invalidate it.
 const TownPlan& getTownPlan();
 
 // Chunk-generation pass: stamps any town features that fall inside this chunk.

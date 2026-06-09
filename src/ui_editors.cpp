@@ -8,6 +8,7 @@
 #include "renderer.h"
 #include "game_session.h"
 #include "gameplay.h"
+#include "character_save.h"
 #include "town.h"
 #include "npc.h"
 #include "prop_placement.h"
@@ -50,7 +51,28 @@ void renderCharacterEditorUI(AppContext& ctx, GLFWwindow* window, Renderer& rend
         ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus);
 
-    if (ImGui::Button("Back to Menu", ImVec2(-1, 0))) ctx.state = GameState::MainMenu;
+    // Header buttons depend on how we got here. From "Create New" on the
+    // Character Select screen we save into the roster and enter the world; from
+    // the main-menu Character Editor tool we just go back to the menu.
+    if (ctx.characterCreationMode) {
+        ImGui::InputText("Name", ctx.playerName, MAX_PLAYER_NAME + 1);
+        if (ImGui::Button("Create Character", ImVec2(-1, 0))) {
+            CharacterSave cs = captureCharacterFromContext(ctx);
+            std::vector<CharacterSave> roster = loadRoster();
+            roster.push_back(cs);
+            saveRoster(roster);
+            ctx.activeCharacter       = (int)roster.size() - 1;
+            ctx.characterCreationMode = false;
+            applyCharacterToContext(ctx, cs);   // book/hotbar match the saved record
+            beginLoading(ctx);
+        }
+        if (ImGui::Button("Cancel", ImVec2(-1, 0))) {
+            ctx.characterCreationMode = false;
+            ctx.state = GameState::CharacterSelect;
+        }
+    } else {
+        if (ImGui::Button("Back to Menu", ImVec2(-1, 0))) ctx.state = GameState::MainMenu;
+    }
     ImGui::Separator();
 
     if (ImGui::Combo("Character Type", &ctx.editorCharType, "Human Male\0Human Female\0")) {

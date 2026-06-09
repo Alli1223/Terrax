@@ -124,6 +124,7 @@
     <ClCompile Include="src\role.cpp" />
     <ClCompile Include="src\ability.cpp" />
     <ClCompile Include="src\skill_tree.cpp" />
+    <ClCompile Include="src\character_save.cpp" />
     <ClCompile Include="src\ui_skilltree.cpp" />
     <ClCompile Include="src\inventory.cpp" />
     <ClCompile Include="src\clothing_painter.cpp" />
@@ -201,6 +202,7 @@
     <ClInclude Include="include\vegetation.h" />
     <ClInclude Include="include\items.h" />
     <ClInclude Include="include\inventory.h" />
+    <ClInclude Include="include\character_save.h" />
     <ClInclude Include="include\clothing_painter.h" />
     <ClInclude Include="include\weapon_builder.h" />
     <ClInclude Include="include\item_generator.h" />
@@ -241,4 +243,22 @@
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
+  <!-- Make the build output self-contained: copy the GLSL shaders next to the
+       executable. The game opens shaders by a path relative to its working
+       directory (src/shader.cpp). Launching from Visual Studio works because the
+       debugger's working dir is the project root (LocalDebuggerWorkingDirectory),
+       but a directly-launched exe uses its own folder — without this copy that
+       folder has no shaders\, so every shader fails to open, compiles empty, and
+       the program link dies with "must write to gl_Position". Uses the built-in
+       Copy task (no xcopy/pwsh dependency) and SkipUnchangedFiles for incremental
+       builds. This mirrors what the CI release workflow stages into the zip. -->
+  <Target Name="CopyShadersToOutput" AfterTargets="Build">
+    <ItemGroup>
+      <ShaderAssets Include="$(ProjectDir)shaders\**\*.vert;$(ProjectDir)shaders\**\*.frag" />
+    </ItemGroup>
+    <Copy SourceFiles="@(ShaderAssets)"
+          DestinationFiles="@(ShaderAssets->'$(OutDir)shaders\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+    <Message Importance="high" Text="Copied @(ShaderAssets->Count()) shader file(s) to $(OutDir)shaders\" />
+  </Target>
 </Project>

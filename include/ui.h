@@ -9,6 +9,10 @@ void initImGui(GLFWwindow* window);
 // Renders main menu or join menu depending on ctx.state.
 void renderMenuUI(AppContext& ctx, GLFWwindow* window, Renderer* renderer);
 
+// Character Select screen (shown after the Join menu): pick a saved character
+// from the roster or create a new one before entering the world.
+void renderCharacterSelectUI(AppContext& ctx, GLFWwindow* window);
+
 // Renders the character editor ImGui panel + handles mouse input for voxel editing / rotation.
 // Also calls renderer.renderEditorCharacter for the 3D viewport.
 void renderCharacterEditorUI(AppContext& ctx, GLFWwindow* window, Renderer& renderer);

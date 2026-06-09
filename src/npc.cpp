@@ -356,6 +356,7 @@ void NpcDirector::update(float dt, const std::vector<DirectorPlayer>& players,
         else if (n->type == NPCType::Cultist) stepRangedEnemy(*n, dt, world, players);
         else if (n->type == NPCType::Guard)   stepGuard(*n, dt, world, players);
         else if (n->type == NPCType::Farmer)  stepFarmer(*n, dt, world, gameTime);
+        else if (n->type == NPCType::Trainer) n->velocity = glm::vec3(0.0f);  // static — never wanders
         else                                  stepVillager(*n, dt, world, gameTime);
     }
 
@@ -669,6 +670,24 @@ void NpcDirector::populateTown(int ti) {
         g->position  = glm::vec3(sp.x, g->groundY, sp.y);
         g->idleTimer = frand01(rng) * 2.0f;
         active.push_back(std::move(g));
+        local++;
+    }
+
+    // One static "Class Trainer" near the town centre. Talking to it lets the
+    // player change role (resolved client-side); it never moves or fights. Stays
+    // within the per-town 128-id budget (≤112 villagers + ≤8 guards + 1).
+    {
+        auto tr = std::make_unique<NPC>();
+        tr->id             = 0x40000000u + (uint32_t)ti * 128u + (uint32_t)local;
+        tr->type           = NPCType::Trainer;
+        tr->appearanceSeed = hashU32((uint32_t)ti * 7919u, 0x713Au);
+        tr->townIndex      = ti;
+        tr->groundY        = (float)t.baseY + 1.0f;
+        glm::vec2 sp = nav.nearestWalkable(centre + glm::vec2(2.5f, 2.5f));
+        tr->homePos  = sp;
+        tr->position = glm::vec3(sp.x, tr->groundY, sp.y);
+        tr->idleTimer = 0.0f;
+        active.push_back(std::move(tr));
         local++;
     }
 

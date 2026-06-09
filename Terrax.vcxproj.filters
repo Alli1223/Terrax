@@ -115,6 +115,7 @@
     <ClCompile Include="src\role.cpp"><Filter>Items &amp; Inventory</Filter></ClCompile>
     <ClCompile Include="src\ability.cpp"><Filter>Items &amp; Inventory</Filter></ClCompile>
     <ClCompile Include="src\skill_tree.cpp"><Filter>Items &amp; Inventory</Filter></ClCompile>
+    <ClCompile Include="src\character_save.cpp"><Filter>Items &amp; Inventory</Filter></ClCompile>
     <ClCompile Include="src\ui_skilltree.cpp"><Filter>Items &amp; Inventory</Filter></ClCompile>
     <ClCompile Include="src\inventory.cpp"><Filter>Items &amp; Inventory</Filter></ClCompile>
     <ClCompile Include="src\clothing_painter.cpp"><Filter>Items &amp; Inventory</Filter></ClCompile>
@@ -203,6 +204,7 @@
     <ClInclude Include="include\ability.h"><Filter>Items &amp; Inventory</Filter></ClInclude>
     <ClInclude Include="include\skill_tree.h"><Filter>Items &amp; Inventory</Filter></ClInclude>
     <ClInclude Include="include\inventory.h"><Filter>Items &amp; Inventory</Filter></ClInclude>
+    <ClInclude Include="include\character_save.h"><Filter>Items &amp; Inventory</Filter></ClInclude>
     <ClInclude Include="include\clothing_painter.h"><Filter>Items &amp; Inventory</Filter></ClInclude>
     <ClInclude Include="include\weapon_builder.h"><Filter>Items &amp; Inventory</Filter></ClInclude>
     <ClInclude Include="include\item_generator.h"><Filter>Items &amp; Inventory</Filter></ClInclude>

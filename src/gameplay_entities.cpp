@@ -206,6 +206,7 @@ void awardEnemyKill(AppContext& ctx, const NPC* npc) {
 // gate (cooldown + resource + not mid-swing) plus spending the cost.
 void tryActivateHotbar(AppContext& ctx, int slot) {
     if (slot < 0 || slot >= AppContext::HOTBAR_SLOTS) return;
+    if (ctx.castTimer > 0.0f) return;                            // already channelling a cast
     AbilityId aid = ctx.hotbar[slot];
     if (aid == AbilityId::None) return;
     Ability* ab = ctx.findAbility(aid);
@@ -221,7 +222,23 @@ void tryActivateHotbar(AppContext& ctx, int slot) {
     ctx.resource            -= ab->resourceCost();
     ctx.hotbarCooldown[slot] = ab->cooldown();
     ctx.selectedHotbar       = slot;
-    ab->activate(ctx);
+    if (ab->castTime() > 0.0f) {
+        // Channelled cast — the effect fires when it completes (updateGameplay)
+        // and the player moves slowly until then.
+        ctx.castingAbility = aid;
+        ctx.castTimer = ab->castTime();
+        ctx.castTotal = ab->castTime();
+        if (ctx.playerRig) {
+            ctx.playerRig->isCasting = true; ctx.playerRig->castAnim = 0.0f;
+            // Defensive buffs (Shield Wall, Last Stand) brace behind the shield
+            // for the whole channel instead of the staff weave — the clip is
+            // applied last so it overrides the cast pose.
+            if (ab->kind() == AbilityKind::Buff)
+                ctx.playerRig->playClip(ClipKind::Brace, ab->castTime() + 0.35f);
+        }
+    } else {
+        ab->activate(ctx);
+    }
 }
 
 // Spawn a client-side visual bolt for each enemy projectile the server fired.
@@ -543,7 +560,7 @@ void updateNpcInteraction(AppContext& ctx) {
     for (auto& o : ctx.objectManager.objects()) {
         if (o->dead || o->kind != ObjectKind::NPC) continue;
         NPC* n = static_cast<NPC*>(o.get());
-        if (n->type != NPCType::Villager) continue;
+        if (n->type != NPCType::Villager && n->type != NPCType::Trainer) continue;
         glm::vec3 to = n->position - eye; to.y = 0.0f;
         float d2 = to.x * to.x + to.z * to.z;
         if (d2 > bestD2) continue;
@@ -553,7 +570,8 @@ void updateNpcInteraction(AppContext& ctx) {
     }
 
     if (best) {
-        ctx.talkTargetName = npcName(best->appearanceSeed);
+        bool trainer = (best->type == NPCType::Trainer);
+        ctx.talkTargetName = trainer ? "Class Trainer" : npcName(best->appearanceSeed);
         ctx.talkTargetSeed = best->appearanceSeed;
         ctx.talkTargetPos  = best->position;
     } else {
@@ -561,10 +579,15 @@ void updateNpcInteraction(AppContext& ctx) {
     }
 
     if (ctx.interactPressed && best) {
-        ctx.talkName  = npcName(best->appearanceSeed);
-        ctx.talkLine  = npcFlavorLine(best->appearanceSeed, ctx.talkCount);
-        ctx.talkTimer = 6.0f;
-        ctx.talkCount++;
+        if (best->type == NPCType::Trainer) {
+            // Open the class-change window instead of a flavour line.
+            ctx.showTrainer = true;
+        } else {
+            ctx.talkName  = npcName(best->appearanceSeed);
+            ctx.talkLine  = npcFlavorLine(best->appearanceSeed, ctx.talkCount);
+            ctx.talkTimer = 6.0f;
+            ctx.talkCount++;
+        }
     }
     ctx.interactPressed = false;
     if (ctx.talkTimer > 0.0f) ctx.talkTimer -= ctx.deltaTime;
@@ -605,6 +628,12 @@ NPC* findRangedTargetNpc(AppContext& ctx) {
 void updatePlayerVitals(AppContext& ctx) {
     if (ctx.client && ctx.client->pendingSelfDamage > 0.0f) {
         float dmg = ctx.client->pendingSelfDamage;
+
+        // Dodge-roll i-frames: shrug the hit off entirely.
+        if (ctx.rollTimer > 0.0f) {
+            dmg = 0.0f;
+            pushToast(ctx, "Dodge!", Voxel{160, 230, 255, 255}, 1.0f);
+        }
 
         // Active shield block — if the player is raising the shield AND
         // has one equipped, soak damage equal to (defense * a flat

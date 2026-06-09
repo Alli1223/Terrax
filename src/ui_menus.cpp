@@ -8,6 +8,7 @@
 #include "renderer.h"
 #include "game_session.h"
 #include "gameplay.h"
+#include "character_save.h"
 #include "town.h"
 #include "npc.h"
 #include "prop_placement.h"
@@ -147,6 +148,7 @@ void renderMenuUI(AppContext& ctx, GLFWwindow* window, Renderer* renderer) {
             ctx.state = GameState::JoinMenu;
         }
         if (ImGui::Button("Character Editor", ImVec2(-1, 36))) {
+            ctx.characterCreationMode = false;   // standalone tool, not roster creation
             ctx.state = GameState::CharacterEditor;
         }
         if (ImGui::Button("House Editor", ImVec2(-1, 36))) {
@@ -184,13 +186,94 @@ void renderMenuUI(AppContext& ctx, GLFWwindow* window, Renderer* renderer) {
             ctx.connectHost = hostBuf;
             ctx.connectPort = (unsigned short)port;
             ctx.weOwnServer = false;
-            beginLoading(ctx);
+            // Pick (or create) the character to play as before loading the world.
+            ctx.state = GameState::CharacterSelect;
         }
         if (ImGui::Button("Back", ImVec2(-1, 36))) {
             ctx.state = GameState::MainMenu;
         }
         ImGui::End();
     }
+}
+
+// ---------------------------------------------------------------------------
+// Character Select (shown after the Join menu, before loading the world)
+// ---------------------------------------------------------------------------
+void renderCharacterSelectUI(AppContext& ctx, GLFWwindow* window) {
+    (void)window;
+    // The on-disk roster is the source of truth — reload it every frame so
+    // creates (saved in the editor) and deletes show up immediately.
+    std::vector<CharacterSave> roster = loadRoster();
+    const char* roleNames[3] = { "Tank", "DPS", "Healer" };
+
+    const float W = 460.0f, H = 430.0f;
+    ImGui::SetNextWindowPos(vpCentered(W, H), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(W, H), ImGuiCond_Always);
+    ImGui::Begin("Select Character", nullptr,
+                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize);
+
+    ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.5f, 1.0f), "Choose your character");
+    ImGui::TextDisabled("Connecting to %s:%d", ctx.connectHost.c_str(), (int)ctx.connectPort);
+    ImGui::Separator();
+
+    ImGui::BeginChild("roster", ImVec2(0, H - 150.0f), true);
+    if (roster.empty())
+        ImGui::TextDisabled("No saved characters yet — create one below.");
+    for (int i = 0; i < (int)roster.size(); i++) {
+        const CharacterSave& c = roster[i];
+        const char* rn = (c.role < 3) ? roleNames[c.role] : "?";
+        ImGui::PushID(i);
+        ImGui::AlignTextToFramePadding();
+        ImGui::Text("%s", c.name[0] ? c.name : "Unnamed");
+        ImGui::SameLine(190.0f); ImGui::TextDisabled("%s  Lv%d", rn, (int)c.level);
+        ImGui::SameLine(300.0f);
+        if (ImGui::SmallButton("Play")) {
+            ctx.activeCharacter = i;
+            applyCharacterToContext(ctx, c);
+            beginLoading(ctx);
+            ImGui::PopID(); ImGui::EndChild(); ImGui::End();
+            return;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Delete")) {
+            roster.erase(roster.begin() + i);
+            saveRoster(roster);
+            ImGui::PopID();
+            i--; continue;              // next frame reloads from disk anyway
+        }
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+
+    ImGui::Separator();
+    if (ImGui::Button("Create New", ImVec2(-1, 32))) {
+        // Seed a fresh level-1 character (keeping the current name) and open the
+        // editor in creation mode.
+        ctx.activeCharacter       = -1;
+        ctx.characterCreationMode = true;
+        ctx.editorCharType        = 0;
+        ctx.playerRole            = PlayerRole::DPS;
+        ctx.playerLevel           = 1;
+        ctx.playerXp              = 0.0f;
+        ctx.skillPoints           = 0;
+        if (ctx.playerRig) {
+            ctx.playerRig->setupDefaultHuman(true);
+            ctx.playerRig->randomizeAppearance();
+            ctx.playerRig->heightScale = roleHeightScale(ctx.playerRole);
+            ctx.playerRig->weightScale = roleWeightScale(ctx.playerRole);
+            if (ctx.playerRig->torso) {
+                ctx.playerRig->torso->scale.x = ctx.playerRig->weightScale;
+                ctx.playerRig->torso->scale.z = ctx.playerRig->weightScale;
+            }
+        }
+        ctx.setupRoleLoadout();
+        if (ctx.playerRig) rebuildRigFromInventory(*ctx.playerRig, ctx.inventory);
+        ctx.state = GameState::CharacterEditor;
+    }
+    if (ImGui::Button("Back", ImVec2(-1, 28)))
+        ctx.state = GameState::JoinMenu;
+
+    ImGui::End();
 }
 
 // ---------------------------------------------------------------------------

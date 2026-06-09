@@ -848,6 +848,63 @@ void World::update(int cx, int cz) {
     }
 }
 
+void World::updateForPlayers(std::vector<ChunkPos> centers) {
+    if (centers.empty()) return;   // no players: leave the world as-is
+
+    // Normalise (sort + dedupe) so the no-change check below is order-independent
+    // and two players in the same chunk count once.
+    std::sort(centers.begin(), centers.end(),
+              [](const ChunkPos& a, const ChunkPos& b) { return a.x != b.x ? a.x < b.x : a.z < b.z; });
+    centers.erase(std::unique(centers.begin(), centers.end(),
+                              [](const ChunkPos& a, const ChunkPos& b) { return a == b; }),
+                  centers.end());
+    if (centers == lastServerCenters) return;   // nobody crossed a chunk boundary
+    lastServerCenters = centers;
+
+    auto nearAnyPlayer = [&](const ChunkPos& k, int margin) {
+        for (const ChunkPos& c : centers)
+            if (abs(k.x - c.x) <= renderDistance + margin &&
+                abs(k.z - c.z) <= renderDistance + margin) return true;
+        return false;
+    };
+
+    // 1. Discover + queue missing chunks around every player (union of regions).
+    std::vector<std::pair<int, Chunk*>> newChunks;
+    {
+        std::lock_guard<std::mutex> lock(chunksMutex);
+        for (const ChunkPos& c : centers)
+            for (int dx = -renderDistance; dx <= renderDistance; dx++)
+                for (int dz = -renderDistance; dz <= renderDistance; dz++) {
+                    ChunkPos cp{ c.x + dx, c.z + dz };
+                    if (chunks.find(cp) != chunks.end()) continue;
+                    auto chunk = std::make_unique<Chunk>(cp, true);
+                    Chunk* ptr = chunk.get();
+                    ptr->state = ChunkState::Generating;
+                    chunks[cp] = std::move(chunk);
+                    newChunks.push_back({ std::max(abs(dx), abs(dz)), ptr });
+                }
+    }
+    if (!newChunks.empty()) {
+        std::sort(newChunks.begin(), newChunks.end());
+        std::lock_guard<std::mutex> qlock(queueMutex);
+        for (auto& [d, ptr] : newChunks) generationQueue.push(ptr);
+        cv.notify_all();
+    }
+
+    // 2. Unload chunks that are far from EVERY player (never the in-flight ones).
+    std::vector<ChunkPos> toRemove;
+    {
+        std::lock_guard<std::mutex> lock(chunksMutex);
+        for (auto& [k, v] : chunks) {
+            if (nearAnyPlayer(k, 2)) continue;
+            ChunkState s = v->state.load();
+            if (s != ChunkState::Generating && s != ChunkState::Meshing)
+                toRemove.push_back(k);
+        }
+        for (auto& k : toRemove) chunks.erase(k);
+    }
+}
+
 void World::drawAll() const {
     std::lock_guard<std::mutex> lock(chunksMutex);
     for (auto& [k, c] : chunks) c->draw();

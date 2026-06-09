@@ -13,7 +13,7 @@ void renderSkillTreeUI(AppContext& ctx) {
     if (!ctx.showSkillTree) return;
 
     ImVec2 vp = vpPos(), vs = vpSize();
-    const float W = 540.0f, H = 440.0f;
+    const float W = 720.0f, H = 624.0f;   // four rows of nodes (core + three tiers)
     ImGui::SetNextWindowPos(ImVec2(vp.x + (vs.x - W) * 0.5f, vp.y + (vs.y - H) * 0.5f), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(W, H), ImGuiCond_Always);
     ImGui::Begin("Skill Tree", &ctx.showSkillTree,
@@ -29,7 +29,7 @@ void renderSkillTreeUI(AppContext& ctx) {
     const std::vector<SkillNode>& tree = skillTreeFor(ctx.playerRole);
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImVec2 origin  = ImGui::GetCursorScreenPos();
-    const float cellW = 168.0f, cellH = 104.0f, nodeW = 150.0f, nodeH = 84.0f;
+    const float cellW = 168.0f, cellH = 96.0f, nodeW = 150.0f, nodeH = 78.0f;
 
     auto nodeCenter = [&](const SkillNode& n) {
         return ImVec2(origin.x + n.gridX * cellW + nodeW * 0.5f,
@@ -65,7 +65,13 @@ void renderSkillTreeUI(AppContext& ctx) {
         bool hovered = ImGui::IsItemHovered();
         ImGui::PopID();
 
-        dl->AddText(ImVec2(a.x + 7, a.y + 6), IM_COL32(240, 240, 245, 255), n.name);
+        // Procedural ability glyph at the card's upper-left. createAbility() is a
+        // cheap throwaway used only to read the icon — the tree is drawn only
+        // while the overlay is open, so the per-node allocation is negligible.
+        if (auto tmp = createAbility(n.ability))
+            drawAbilityIcon(dl, ImVec2(a.x + 22, a.y + 23), 30.0f,
+                            tmp->icon(), tmp->iconColor());
+        dl->AddText(ImVec2(a.x + 44, a.y + 9), IM_COL32(240, 240, 245, 255), n.name);
         std::string line;
         if (owned)                                  line = "Unlocked";
         else if (n.core)                            line = "Core";
@@ -82,8 +88,9 @@ void renderSkillTreeUI(AppContext& ctx) {
         }
     }
 
-    // Drop the cursor below the grid so the footer sits under it.
-    ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + cellH * 2.0f + 12.0f));
+    // Drop the cursor below the grid so the footer sits under it (four rows of
+    // nodes now that each role has a capstone tier).
+    ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + cellH * 4.0f + 12.0f));
     ImGui::Separator();
     ImGui::TextDisabled("Press K to close. Highlighted nodes can be learned now.");
     ImGui::End();

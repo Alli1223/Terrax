@@ -3,6 +3,7 @@
 #include "world.h"
 #include "dungeon.h"     // furnish dungeon/castle rooms with the same Prop furniture
 #include <mutex>
+#include <atomic>
 #include <random>
 #include <cmath>
 #include <cstdint>
@@ -11,7 +12,6 @@
 namespace {
 
 std::vector<PropPlacement> g_placements;
-std::once_flag            g_once;
 
 // Height of a table's top surface above its base, in world units (the table
 // model is 13 voxels tall — see buildTable). Crockery rests here.
@@ -1051,7 +1051,6 @@ void build() {
 }
 
 std::vector<DoorPlacement> g_doors;
-std::once_flag             g_doorsOnce;
 
 // One door per house, in the gap of its front wall.
 void buildDoors() {
@@ -1088,12 +1087,16 @@ void buildDoors() {
 } // namespace
 
 const std::vector<PropPlacement>& getPropPlacements() {
-    std::call_once(g_once, [] { build(); });
+    static std::mutex            mtx;
+    static std::atomic<uint64_t> built{~0ull};
+    rebuildCacheOnSeedChange(built, mtx, [] { g_placements.clear(); build(); });
     return g_placements;
 }
 
 const std::vector<DoorPlacement>& getDoorPlacements() {
-    std::call_once(g_doorsOnce, [] { buildDoors(); });
+    static std::mutex            mtx;
+    static std::atomic<uint64_t> built{~0ull};
+    rebuildCacheOnSeedChange(built, mtx, [] { g_doors.clear(); buildDoors(); });
     return g_doors;
 }
 
@@ -1131,8 +1134,10 @@ PropType wildBushVariant(int biome, uint32_t h) {
 // wild bushes out of the stand-alone roadside fields too.
 bool insideRoadsideFarm(int wx, int wz) {
     static std::vector<glm::ivec4> rects;          // (x0, z0, x1, z1) with a 1-block margin
-    static std::once_flag once;
-    std::call_once(once, [] {
+    static std::mutex            mtx;
+    static std::atomic<uint64_t> built{~0ull};
+    rebuildCacheOnSeedChange(built, mtx, [] {
+        rects.clear();
         for (const TownBuilding& b : getTownPlan().roadside)
             if (b.kind == (int)BuildingKind::Farm && b.dimX > 0)
                 rects.push_back(glm::ivec4(b.wx - 1, b.wz - 1, b.wx + b.dimX, b.wz + b.dimZ));

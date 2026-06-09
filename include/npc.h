@@ -18,7 +18,8 @@ struct Town;
 // enemies (bandits + dungeon foes) are hostile, farmers work the fields.
 // Append new values only — npcType is serialised by value in NPCState.
 enum class NPCType : uint8_t { Villager = 0, Enemy = 1, Guard = 2, Farmer = 3,
-                              Skeleton = 4, Brute = 5, Cultist = 6 };
+                              Skeleton = 4, Brute = 5, Cultist = 6,
+                              Trainer = 7 };   // static town "Class Trainer" — role swap
 
 // True for hostile NPC types — the town watch fights them and the player can
 // kill them for loot/XP. Extended as new enemy types are added.

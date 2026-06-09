@@ -43,8 +43,12 @@ void updateHousePreview(AppContext& ctx);
 void drainSpellEvents(AppContext& ctx);
 void updateHealZones(AppContext& ctx);
 // Coloured voxel-particle burst for an ability cast. `kind` matches
-// SpellEffectPacket.kind (2=aoe slash, 3=taunt ring, 4=cast flash, 5=buff aura).
+// SpellEffectPacket.kind: 2=aoe slash, 3=taunt ring, 4=cast flash, 5=buff aura,
+// 6=earth, 7=nature, 8=holy, 9=frost, 10=lightning, 11=inferno, 12=shout.
 // Called by ability.cpp for the caster's own copy and by drainSpellEvents for
 // spectators, so both stay in visual sync.
 void spawnAbilityFx(AppContext& ctx, const glm::vec3& center, float radius, uint8_t kind);
+// Trickle a persistent aura of motes around the local player while any buff is
+// active, so an ongoing Shield Wall / Battle Shout / Barrier stays visible.
+void updateBuffAura(AppContext& ctx);
 void tryActivateHotbar(AppContext& ctx, int slot);

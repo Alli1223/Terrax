@@ -2,6 +2,7 @@
 #include "town.h"
 #include "world.h"
 #include <mutex>
+#include <atomic>
 #include <iostream>
 
 namespace {
@@ -10,8 +11,10 @@ const int JETTY_REACH = 9;   // matches DOCK_LEN in town.cpp — the jetty lengt
 
 const std::vector<FerryRoute>& getFerryRoutes() {
     static std::vector<FerryRoute> routes;
-    static std::once_flag once;
-    std::call_once(once, [] {
+    static std::mutex              mtx;
+    static std::atomic<uint64_t>   built{~0ull};
+    rebuildCacheOnSeedChange(built, mtx, [] {
+        routes.clear();                 // rebuild from scratch if the seed changed
         const TownPlan& plan = getTownPlan();
         for (const TownFerryLink& link : plan.ferryLinks) {
             const TownDock* da = nullptr;

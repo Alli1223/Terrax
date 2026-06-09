@@ -190,12 +190,21 @@ void BipedalRig::playClip(ClipKind kind, float durationSeconds) {
 
 namespace {
 
-// Breath rocks the upper body gently so a standing-still character
-// looks alive instead of frozen.
-void applyBreathingPose(BipedalRig& r, float /*dt*/) {
+// Breath rocks the upper body gently so a standing-still character looks alive
+// instead of frozen. Also eases the torso/head TWIST (y/z) back to neutral —
+// the combat overlays below drive those for power, and nothing else resets them.
+void applyBreathingPose(BipedalRig& r, float dt) {
     float breathe = sinf(r.animTime * 2.0f) * 1.5f;
-    if (r.torso) r.torso->localRot.x = breathe;
-    if (r.head)  r.head->localRot.x  = -breathe * 0.5f;
+    if (r.torso) {
+        r.torso->localRot.x = breathe;
+        approachAngle(r.torso->localRot.y, 0.0f, dt, 6.0f);
+        approachAngle(r.torso->localRot.z, 0.0f, dt, 6.0f);
+    }
+    if (r.head) {
+        r.head->localRot.x = -breathe * 0.5f;
+        approachAngle(r.head->localRot.y, 0.0f, dt, 6.0f);
+        approachAngle(r.head->localRot.z, 0.0f, dt, 6.0f);
+    }
 }
 
 // Arms swing opposite the legs in a sin wave when walking; relaxes
@@ -220,33 +229,98 @@ void applyBaseLocomotion(BipedalRig& r, float dt, float velocity) {
     }
 }
 
-// Right-arm sword swing — bell curve over `attackAnim` clamped to 1.0.
-// Clears `isAttacking` when the swing finishes.
+// The "attack" overlay. For a bow it's a short string-release recoil; for a
+// melee weapon it's a big, over-the-top diagonal chop — wind up over the
+// shoulder, then drive the weapon down and across with the whole body twisting
+// into it. Drives the same flag NPCs set, so bandits / skeletons / brutes get
+// the amplified swing too. Clears `isAttacking` when it finishes.
 void applyAttackPose(BipedalRig& r, float dt) {
     if (!r.isAttacking || !r.rArm) return;
-    r.attackAnim += dt * 5.0f;
+    // Slower + more deliberate than before: a weighty single strike, not a
+    // flurry. The basic-attack cadence is gated on isAttacking, so this rate
+    // doubles as the swing cooldown — slowing it also stops attack spamming.
+    r.attackAnim += dt * 3.4f;
     if (r.attackAnim > 1.0f) { r.isAttacking = false; r.attackAnim = 0.0f; }
-    float swing = sinf(r.attackAnim * 3.14159f) * 90.0f;
-    r.rArm->localRot.x = -swing;
-    r.rArm->localRot.y =  swing * 0.5f;
+    float t = r.attackAnim;
+
+    // A bow's "attack" is the release: the draw hand springs forward off the
+    // string. Detected by an equipped bow (its string mesh is shown).
+    if (r.bowString && r.bowString->volume) {
+        float snap = sinf(std::min(1.0f, t * 2.4f) * 3.14159f);
+        r.rArm->localRot.x = -42.0f - snap * 32.0f;     // hand snaps forward
+        r.rArm->localRot.y =  22.0f - snap * 26.0f;
+        r.rArm->localRot.z =  0.0f;
+        if (r.lArm && !r.isBlocking) r.lArm->localRot.x = -90.0f + snap * 8.0f;  // bow-arm recoil
+        return;
+    }
+
+    // Melee timing: a held wind-up (anticipation), a sharp strike, then a
+    // planted follow-through that holds — the hold is what sells the impact.
+    //   [0.00, 0.38)  cocked overhead (loading up)
+    //   [0.38, 0.52)  explosive strike down + across
+    //   [0.52, 1.00)  weapon planted, slow recover
+    float s = (t < 0.38f) ? 0.0f
+            : (t < 0.52f) ? (t - 0.38f) / 0.14f
+            : 1.0f;
+    s = s * s * (3.0f - 2.0f * s);   // smoothstep: cocked(0) → followed-through(1)
+    // A brief spike right at the impact frame for the wrist-roll flourish.
+    float strike = (t >= 0.38f && t < 0.70f) ? sinf((t - 0.38f) / 0.32f * 3.14159f) : 0.0f;
+
+    // Weapon arm: a big overhead diagonal chop driven down and across the body.
+    // The ARM still swings dramatically — only the body settles down.
+    r.rArm->localRot.x = glm::mix(-152.0f, -30.0f, s);
+    r.rArm->localRot.y = glm::mix(-28.0f,   36.0f, s);
+    r.rArm->localRot.z = strike * 28.0f;
+    // Keep the BODY mostly planted: a small twist + lean for weight, roughly
+    // half of what it used to be, so the character doesn't visibly slide /
+    // swivel on every hit. (Torso is the parent of the arms/legs, so a big
+    // twist here reads as the whole character lurching around.)
+    if (r.torso) {
+        r.torso->localRot.y = glm::mix(8.0f, -11.0f, s);
+        r.torso->localRot.x = strike * 7.0f;
+    }
+    if (r.head) r.head->localRot.y = glm::mix(4.0f, -5.0f, s);
+    // Off hand flares out for balance (unless it's holding a shield up).
+    if (r.lArm && !r.isBlocking) {
+        r.lArm->localRot.x = glm::mix(6.0f, -26.0f, s);
+        r.lArm->localRot.z = -strike * 38.0f;
+    }
 }
 
-// Both arms raise forward in a casting motion (used by staves).
+// Staff cast: the caster holds the staff ALOFT and weaves it in a circle while
+// channelling, the body swaying and the head turned up to the focus. `castLift`
+// eases in/out continuously, so a long channel holds steady instead of pumping
+// with `castAnim`. Also used by Cultist NPCs (they set isCasting), so they get
+// the same conjuring motion. Still self-clears `isCasting` after one gesture so
+// a quick single cast ends cleanly.
 void applyCastingPose(BipedalRig& r, float dt) {
-    if (!r.isCasting) return;
-    r.castAnim += dt * 4.5f;
-    if (r.castAnim > 1.0f) { r.isCasting = false; r.castAnim = 0.0f; }
-    float bell = std::sin(r.castAnim * 3.14159f);
-    float lift = -65.0f - bell * 25.0f;
-    if (r.rArm) {
-        r.rArm->localRot.x = lift;
-        r.rArm->localRot.y = -10.0f - bell * 15.0f;
-        r.rArm->localRot.z =  10.0f * bell;
+    float target = (r.isCasting && !r.isAttacking) ? 1.0f : 0.0f;
+    approachAngle(r.castLift, target, dt, 9.0f);   // smooth raise / lower
+    if (r.isCasting) {
+        r.castAnim += dt * 4.5f;
+        if (r.castAnim > 1.0f) { r.isCasting = false; r.castAnim = 0.0f; }
     }
-    if (r.lArm) {
-        r.lArm->localRot.x = lift;
-        r.lArm->localRot.y =  10.0f + bell * 15.0f;
-        r.lArm->localRot.z = -10.0f * bell;
+    if (r.castLift < 0.01f || r.isAttacking) return;   // nothing to show / don't fight a swing
+
+    float in    = r.castLift;
+    float swirl = r.animTime * 6.0f;                   // continuous circular weave
+    // Staff (right) arm held high, tracing a circle as the spell builds.
+    if (r.rArm) {
+        r.rArm->localRot.x = (-128.0f - sinf(swirl) * 16.0f) * in;
+        r.rArm->localRot.y = ( -12.0f + cosf(swirl) * 24.0f) * in;
+        r.rArm->localRot.z = (  sinf(swirl * 0.7f) * 26.0f) * in;
+    }
+    // Off hand channels alongside, weaving the opposite way.
+    if (r.lArm && !r.isBlocking) {
+        r.lArm->localRot.x = ( -96.0f - cosf(swirl) * 14.0f) * in;
+        r.lArm->localRot.y = (  18.0f - cosf(swirl) * 18.0f) * in;
+        r.lArm->localRot.z = ( -sinf(swirl * 0.7f) * 22.0f) * in;
+    }
+    // Body sways with the channel; head turns up toward the staff.
+    if (r.torso) r.torso->localRot.y = sinf(swirl * 0.5f) * 9.0f * in;
+    if (r.head) {
+        r.head->localRot.x = -18.0f * in;
+        r.head->localRot.y = sinf(swirl * 0.5f) * 11.0f * in;
     }
 }
 
@@ -257,18 +331,23 @@ void applyBlockingPose(BipedalRig& r, float dt) {
     approachAngle(r.lArm->localRot.y,  15.0f, dt, 12.0f);
 }
 
-// Right arm pulls back, left arm extends forward to hold the bow.
+// Bow draw: the bow arm punches straight out while the draw hand hauls the
+// string back toward the cheek — elbow flaring up and back as the shot charges,
+// the shoulder turning into it. Pulls harder the further it's drawn.
 void applyBowDrawPose(BipedalRig& r, float dt) {
     if (r.bowDrawAmount <= 0.0f || r.isAttacking) return;
-    float pullBack = r.bowDrawAmount * 95.0f;
-    if (r.rArm) {
-        approachAngle(r.rArm->localRot.x, -pullBack, dt, 10.0f);
-        approachAngle(r.rArm->localRot.y,   25.0f,   dt, 10.0f);
-    }
+    float d = r.bowDrawAmount;
     if (r.lArm && !r.isBlocking) {
-        approachAngle(r.lArm->localRot.x, -88.0f, dt, 10.0f);
-        approachAngle(r.lArm->localRot.y, -10.0f, dt, 10.0f);
+        approachAngle(r.lArm->localRot.x, -92.0f, dt, 13.0f);  // bow arm out, level
+        approachAngle(r.lArm->localRot.y, -14.0f, dt, 13.0f);
+        approachAngle(r.lArm->localRot.z,   0.0f, dt, 13.0f);
     }
+    if (r.rArm) {
+        approachAngle(r.rArm->localRot.x, -50.0f - d * 50.0f, dt, 14.0f);  // hand toward the face
+        approachAngle(r.rArm->localRot.y,  30.0f + d * 35.0f, dt, 14.0f);  // elbow back / out
+        approachAngle(r.rArm->localRot.z,        -d * 30.0f,  dt, 14.0f);
+    }
+    if (r.torso) approachAngle(r.torso->localRot.y, -d * 14.0f, dt, 10.0f);  // shoulder into the draw
 }
 
 // Right arm raised to hold the lantern out in front. Only kicks in
@@ -305,7 +384,7 @@ void applyBowStringPose(BipedalRig& r) {
     if (!r.bowString || !r.bowString->volume || !r.offHand || !r.lArm) return;
     r.offHand->localRot.x = -r.lArm->localRot.x;
     r.offHand->localRot.y = -r.lArm->localRot.y;
-    r.bowString->localPos.z = -r.bowDrawAmount * 4.0f;
+    r.bowString->localPos.z = -r.bowDrawAmount * 7.0f;   // a deeper, clearer draw
 }
 
 // Per-clip pose: each ClipKind expresses its own animation as a
@@ -356,10 +435,76 @@ void applyClipPose(BipedalRig& r, const AnimationClip& clip) {
             if (r.head)  r.head->localRot.x = 14.0f;
             break;
         }
+        case ClipKind::Slam: {
+            // A heavy two-handed overhead smash: both arms rear up over the head
+            // during the wind-up, then drive down past vertical as the torso
+            // folds forward. Used by the Tank's Slam ability.
+            float raise = std::min(1.0f, t / 0.30f);                 // rear up (first 30%)
+            float chop  = (t > 0.30f) ? (t - 0.30f) / 0.70f : 0.0f;  // then crash down
+            chop *= chop;                                            // accelerate into the ground
+            float armUp = glm::mix(-30.0f, -178.0f, raise);
+            float armX  = glm::mix(armUp,  62.0f,   chop);
+            float trX   = glm::mix(glm::mix(0.0f, -14.0f, raise), 30.0f, chop);
+            if (r.rArm)  { r.rArm->localRot.x = armX; r.rArm->localRot.y =  8.0f; r.rArm->localRot.z = 0.0f; }
+            if (r.lArm)  { r.lArm->localRot.x = armX; r.lArm->localRot.y = -8.0f; r.lArm->localRot.z = 0.0f; }
+            if (r.torso) r.torso->localRot.x = trX;
+            if (r.head)  r.head->localRot.x  = chop * 20.0f - raise * 6.0f;
+            break;
+        }
+        case ClipKind::Spin: {
+            // A whirling pirouette with the arms thrown out like blades. Spins the
+            // upper body a couple of full turns, wrapped with fmod so it lands back
+            // at neutral (no backward unwind when the clip ends). Used by Whirlwind
+            // and the healer's Holy Nova.
+            float spin = std::fmod(t * 720.0f, 360.0f);
+            if (r.torso) { r.torso->localRot.y = spin; r.torso->localRot.x = 8.0f; }
+            if (r.rArm)  { r.rArm->localRot.x = -95.0f; r.rArm->localRot.z =  14.0f; }
+            if (r.lArm)  { r.lArm->localRot.x = -95.0f; r.lArm->localRot.z = -14.0f; }
+            break;
+        }
+        case ClipKind::Roar: {
+            // A defiant battle roar: chest thrown back, both arms flung down and
+            // out behind with fists clenched, head tipped up. A short, sharp
+            // lunge in (a beat at ~25%) then hold the bellow. Used by Taunt and
+            // Battle Shout — unmistakably "I'm shouting at you".
+            float in    = std::min(1.0f, t / 0.18f);                 // snap into the pose
+            float bell  = std::sin(std::min(1.0f, t * 1.4f) * 3.14159f); // chest pump
+            if (r.torso) { r.torso->localRot.x = -16.0f * in - bell * 6.0f;  // lean back, chest out
+                           r.torso->localRot.y = 0.0f; }
+            if (r.rArm)  { r.rArm->localRot.x =  42.0f * in;   r.rArm->localRot.z =  28.0f * in; }  // arms back/out
+            if (r.lArm)  { r.lArm->localRot.x =  42.0f * in;   r.lArm->localRot.z = -28.0f * in; }
+            if (r.head)  r.head->localRot.x = -22.0f * in;     // head tipped up to bellow
+            break;
+        }
+        case ClipKind::Brace: {
+            // Plant and brace behind the shield: drop into a slight crouch, lean
+            // forward into the guard, and drive both arms up in front to form a
+            // wall (the off-hand shield leads). Used while channelling / casting
+            // Shield Wall, Last Stand and Barrier. Holds steady (no oscillation).
+            float in = std::min(1.0f, t / 0.16f);
+            if (r.torso) { r.torso->localRot.x = 14.0f * in; r.torso->localRot.y = 0.0f; }  // hunch forward
+            if (r.lLeg)  r.lLeg->localRot.x = -18.0f * in;    // settle the stance
+            if (r.rLeg)  r.rLeg->localRot.x = -18.0f * in;
+            if (r.lArm)  { r.lArm->localRot.x = -104.0f * in; r.lArm->localRot.y =  16.0f * in; r.lArm->localRot.z = 0.0f; }  // shield up
+            if (r.rArm)  { r.rArm->localRot.x =  -78.0f * in; r.rArm->localRot.y = -14.0f * in; r.rArm->localRot.z = 0.0f; }  // fist braced behind
+            if (r.head)  r.head->localRot.x = 10.0f * in;     // chin down behind the guard
+            break;
+        }
     }
 }
 
 }  // namespace
+
+void BipedalRig::updateLean(float fwdSpeed, float rightSpeed, float dt) {
+    const float K = 0.016f;                  // radians of lean per unit/sec of speed
+    const float MAXP = 0.20f, MAXR = 0.18f;  // ~11 deg pitch, ~10 deg bank
+    float tp = std::clamp(fwdSpeed   * K, -MAXP, MAXP);  // pitch forward when advancing
+    float tr = std::clamp(rightSpeed * K, -MAXR, MAXR);  // bank right when moving right (W+D)
+    if (pose != PlayerPose::Standing) { tp = 0.0f; tr = 0.0f; }
+    float a = std::min(1.0f, dt * 9.0f);     // smoothing — fluid, not snappy
+    leanPitch += (tp - leanPitch) * a;
+    leanRoll  += (tr - leanRoll)  * a;
+}
 
 void BipedalRig::update(float dt, float velocity) {
     animTime += dt;

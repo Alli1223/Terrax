@@ -68,11 +68,17 @@ static void serverThreadMain(unsigned short port) {
         while (accumulator >= SERVER_TICK_DT) {
             auto tickT0 = std::chrono::high_resolution_clock::now();
             auto players = g_server->getPlayerStates();
+            // Keep chunks loaded around ALL players at once. Calling update() per
+            // player would make each player's call evict every other player's
+            // chunks, thrashing generation (heap corruption / crash on join).
+            std::vector<ChunkPos> centers;
+            centers.reserve(players.size());
             for (auto& p : players) {
                 int pcx = (int)floorf(p.pos.x / (float)CHUNK_SIZE);
                 int pcz = (int)floorf(p.pos.z / (float)CHUNK_SIZE);
-                serverWorld.update(pcx, pcz);
+                centers.push_back({ pcx, pcz });
             }
+            serverWorld.updateForPlayers(centers);
             g_server->update(serverWorld);
 
             for (auto& f : ferries) {

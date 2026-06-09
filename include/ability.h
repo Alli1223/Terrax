@@ -32,7 +32,28 @@ enum class AbilityId : uint16_t {
     GreaterHeal,       // Healer — stronger chain heal
     Whirlwind,         // DPS    — wide melee AoE around self
     PiercingShot,      // DPS    — piercing ranged bolt
-    // Append-only: ids are serialised into skill-tree progress.
+    // --- second wave of unlocks ---
+    Slam,              // Tank   — heavy frontal earth slam (AoE)
+    BattleShout,       // Tank   — party-style attack-power buff
+    LastStand,         // Tank   — strong, longer defence buff
+    Renew,             // Healer — quick self heal-over-time zone
+    HolyNova,          // Healer — burst that damages foes + heals allies
+    Barrier,           // Healer — defensive absorb buff
+    Frostbolt,         // DPS    — ranged ice bolt
+    Inferno,           // DPS    — aimed fire AoE
+    Rend,              // DPS    — heavy single-target melee
+    // --- tier-3 capstones ---
+    Earthshatter,      // Tank   — wide ground quake (AoE)
+    Avatar,            // Tank   — strong attack-power buff
+    Bulwark,           // Tank   — top-tier defence buff
+    DivineStorm,       // Healer — Holy Nova capstone (damage + heal)
+    Tranquility,       // Healer — strong heal-over-time zone
+    GuardianSpirit,    // Healer — emergency defence buff
+    Meteor,            // DPS    — large fire AoE
+    GlacialSpike,      // DPS    — heavy ice bolt
+    Execute,           // DPS    — massive single-target melee
+    // Append-only: ids are serialised into skill-tree progress (and the
+    // character-save unlock bitmask — keep the ordinal count under 64).
 };
 
 enum class AbilityKind  : uint8_t { Melee, Ranged, Aoe, Buff, Heal };
@@ -40,12 +61,44 @@ enum class ResourceType : uint8_t { Mana, Energy, Rage };
 
 // A timed buff applied to the local player by a BuffAbility. Kept light — the
 // magnitude feeds the existing combat multipliers while ttl > 0.
-enum class BuffKind : uint8_t { Defense };
+//  Defense → added to defenceMult (less damage taken)
+//  Power   → added to abilityPowerMult (more outgoing damage), via
+//            AppContext::buffedAbilityPower()
+enum class BuffKind : uint8_t { Defense, Power };
+
+// A small RGB tint for an ability's hotbar / skill-tree glyph. Kept as a plain
+// trio (not Voxel) so ability.h needn't pull in the GL-heavy voxel headers.
+struct IconColor { uint8_t r, g, b; };
+
+// The procedurally-drawn glyph shown for an ability on the hotbar and in the
+// skill tree. Each value maps to a shape drawn by drawAbilityIcon() (ui_play.cpp)
+// from ImGui draw-list primitives — no texture assets. Append-only.
+enum class AbilityIcon : uint8_t {
+    Sword,       // a single diagonal blade
+    Swords,      // two crossed blades
+    Slash,       // a sweeping crescent arc
+    Whirl,       // a spiral / cyclone
+    Hammer,      // a maul head on a haft
+    Shield,      // a heater shield
+    ShieldBash,  // shield with an impact spark
+    Chevrons,    // three stacked upward chevrons (a shout)
+    Shockwave,   // concentric expanding rings
+    Flame,       // a teardrop flame
+    Frost,       // a six-spoke snowflake
+    Holy,        // a radiant sun-burst
+    Nova,        // a filled multi-point star
+    Cross,       // a thick plus (a heal)
+    Sanctuary,   // a plus inside a ring
+    Leaf,        // a leaf
+    Arrow,       // an upward arrow
+    Claw,        // three raking claw marks
+};
 struct ActiveBuff {
     AbilityId id        = AbilityId::None;
     BuffKind  kind      = BuffKind::Defense;
     float     magnitude = 0.0f;   // added to the relevant multiplier while active
-    float     ttl       = 0.0f;
+    float     ttl       = 0.0f;   // seconds remaining
+    float     total     = 0.0f;   // full duration, for the HUD countdown bar
 };
 
 class Ability {
@@ -59,6 +112,12 @@ public:
     PlayerRole  role()         const { return role_; }
     float       cooldown()     const { return cooldown_; }
     float       resourceCost() const { return cost_; }
+    // Seconds the player must channel before the effect fires (0 = instant).
+    // While casting the player moves slowly; the effect happens on completion.
+    float       castTime()     const { return castTime_; }
+    // Procedural glyph + tint for the hotbar / skill-tree icon.
+    AbilityIcon icon()         const { return icon_; }
+    IconColor   iconColor()    const { return iconColor_; }
 
     // The single override point. The hotbar harness has already checked and
     // spent the cooldown + resource; this just performs the effect: pick a
@@ -73,6 +132,9 @@ protected:
     PlayerRole  role_     = PlayerRole::DPS;
     float       cooldown_ = 1.0f;
     float       cost_     = 0.0f;
+    float       castTime_ = 0.0f;
+    AbilityIcon icon_      = AbilityIcon::Sword;
+    IconColor   iconColor_ = {220, 220, 230};
 };
 
 // --- Reusable "core" intermediate bases ------------------------------------
@@ -125,6 +187,8 @@ protected:
     BuffKind buffKind_  = BuffKind::Defense;
     float    magnitude_ = 0.5f;
     float    duration_  = 6.0f;
+    uint8_t  fxKind_    = 5;      // SpellEffectPacket.kind for the aura burst
+    float    fxRadius_  = 1.5f;   // burst radius (a shout uses a big ring)
 };
 
 // --- Factory + role kits ----------------------------------------------------

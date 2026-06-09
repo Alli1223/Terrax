@@ -383,7 +383,7 @@ void NetworkServer::doAccept() {
             
             std::cout << "Client connected: ID " << conn->id << std::endl;
             
-            HandshakePacket hp { conn->id };
+            HandshakePacket hp { conn->id, worldSeed() };
             conn->send(PacketType::Handshake, &hp, sizeof(hp));
 
             DayTimePacket dt { getServerGameTime() };
@@ -867,7 +867,9 @@ void NetworkClient::update(World& world, std::unordered_map<uint32_t, RemotePlay
         if (msg.type == PacketType::Handshake) {
             if (msg.data.size() == sizeof(HandshakePacket)) {
                 HandshakePacket* p = (HandshakePacket*)msg.data.data();
-                clientID = p->clientID;
+                clientID        = p->clientID;
+                serverWorldSeed = p->worldSeed;
+                hasWorldSeed    = true;
             }
         } else if (msg.type == PacketType::ChunkData) {
             if (msg.data.size() >= sizeof(ChunkPos)) {

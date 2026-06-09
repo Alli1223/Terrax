@@ -114,6 +114,10 @@ struct BlockUpdatePacket {
 
 struct HandshakePacket {
     uint32_t clientID;
+    uint32_t worldSeed;   // server's world seed. The client adopts it so every
+                          // seed-derived thing it builds locally (terrain oracle,
+                          // town plan, props, vegetation, NPC placement, the map)
+                          // matches the server's authoritative world.
 };
 
 struct PlayerDisconnectPacket {
@@ -476,6 +480,8 @@ public:
     
     uint32_t clientID = 0;
     bool connected = false;
+    uint32_t serverWorldSeed = 0;     // world seed from the Handshake (server-authoritative)
+    bool     hasWorldSeed    = false; // set once the Handshake delivered the seed
     float serverGameTime = 0.3f;
     bool hasServerGameTime = false;
     bool dayTimeUpdated = false;

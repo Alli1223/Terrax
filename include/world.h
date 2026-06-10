@@ -87,6 +87,15 @@ struct ChunkPosHash {
 
 class World;
 
+// View-frustum for chunk culling. Six planes in world space (Gribb–Hartmann
+// extraction from a projection*view matrix). intersectsAABB() does a fast
+// positive-vertex test so off-screen chunks are skipped before any GL call.
+struct Frustum {
+    glm::vec4 planes[6];   // (a,b,c,d): a*x + b*y + c*z + d >= 0 means inside
+    void fromMatrix(const glm::mat4& m);
+    bool intersectsAABB(const glm::vec3& mn, const glm::vec3& mx) const;
+};
+
 class Chunk {
 public:
     ChunkPos pos;
@@ -156,10 +165,12 @@ public:
     // generation and corrupting the heap under load. This loads the union of all
     // players' regions and only unloads a chunk when it's far from ALL of them.
     void updateForPlayers(std::vector<ChunkPos> centers);
-    void drawAll() const;
-    void drawAllWater() const;
-    void drawAllFoliage() const;
-    void drawAllGlass() const;
+    // A null frustum draws every loaded chunk; a non-null one culls chunks
+    // whose AABB lies fully outside it (camera / reflection / shadow passes).
+    void drawAll(const Frustum* fr = nullptr) const;
+    void drawAllWater(const Frustum* fr = nullptr) const;
+    void drawAllFoliage(const Frustum* fr = nullptr) const;
+    void drawAllGlass(const Frustum* fr = nullptr) const;
 
     BlockType getBlock(int wx, int wy, int wz) const;
     BlockType getBlockInternal(int wx, int wy, int wz) const;
@@ -193,6 +204,12 @@ private:
     std::vector<ChunkPos> lastServerCenters;   // last player-chunk set (updateForPlayers)
 
     void workerThread();
+
+    // Gather pointers to all loaded chunks (optionally frustum-culled) under a
+    // brief lock, so the GL draw loop runs without holding chunksMutex and the
+    // generation/meshing workers aren't stalled mid-frame. Safe because chunk
+    // erasure happens only on this (render) thread, in update().
+    void collectVisible(const Frustum* fr, std::vector<Chunk*>& out) const;
 };
 
 void setWorldSeed(unsigned int seed);

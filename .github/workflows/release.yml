@@ -154,6 +154,7 @@ jobs:
       - name: Stage + tar.gz
         run: |
           ver="${GITHUB_REF_NAME:-dev}"
+          ver="${ver//\//-}"            # strip path separators (branch dry-runs) for the filename
           stage="dist/Terrax"
           mkdir -p "$stage"
           cp terrax "$stage/"

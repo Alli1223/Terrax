@@ -52,6 +52,30 @@ make clean
 - `Terrax.exe --server` runs a headless dedicated server.
 - Default server port: `12345` (`DEFAULT_SERVER_PORT`).
 
+## Launcher
+
+`launcher/` holds a **separate** standalone app, `TerraxLauncher.exe`, that checks
+the GitHub Releases page, installs/updates the game to the latest version, and
+launches it — with an animated voxel cover-art scene and a frosted "liquid glass"
+theme. It is **Windows-only** (WinHTTP for the GitHub API, DWM for the acrylic
+window) and reuses the same vendored ImGui + vcpkg GLFW as the game.
+
+- It is its own MSBuild project, **`TerraxLauncher.vcxproj`** (also in
+  `Terrax.sln`), because it has its own `main()` and must not collide with the
+  game's. Build it separately:
+  ```powershell
+  MSBuild.exe TerraxLauncher.vcxproj /p:Configuration=Debug /p:Platform=x64 /m
+  ```
+  Output: `build\windows\<Configuration>\launcher\TerraxLauncher.exe`.
+- New launcher sources go in `launcher/` and are registered in
+  `TerraxLauncher.vcxproj` (+ `.filters`) — **not** the game's project or the
+  `Makefile` (the launcher does not build on Linux).
+- Installs to `%LOCALAPPDATA%\Terrax\current\`; records the tag in
+  `installed_version.txt`; logs to `launcher.log`. `--install` does a silent
+  (no-window) install. `TERRAX_REPO_OWNER`/`TERRAX_REPO_NAME` env vars override
+  the target repo. **The repo/releases must be public** — unauthenticated GitHub
+  calls 404 on a private repo. See `launcher/README.md`.
+
 ## Testing
 
 A small headless test suite lives in `tests/` and runs without GL/GLFW:
@@ -75,12 +99,14 @@ counts, and server stats).
 ```
 src/            engine + game implementation (.cpp)
 include/         public headers (.h)   — exception: src/noise.h
+launcher/        standalone GitHub-release launcher (own exe, Windows-only)
 shaders/         GLSL shader pairs (chunk, water, sky, char, shadow, glass)
 tests/           headless test harness
 third_party/     vendored ImGui
 vcpkg_installed/ vcpkg-resolved dependencies
 build/           build output (build/windows/ for MSBuild)
-Terrax.vcxproj   MSBuild project (Windows, primary)
+Terrax.vcxproj          MSBuild project (game; Windows, primary)
+TerraxLauncher.vcxproj  MSBuild project (launcher; Windows)
 Makefile         g++ build (Linux)
 vcpkg.json       dependency manifest
 ```

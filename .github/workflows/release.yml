@@ -1,10 +1,11 @@
 name: Release
 
 # Tag a release (e.g. `git tag v1.0.0 && git push origin v1.0.0`) and this builds
-# Windows x64 and Linux x64 packages and attaches both to the GitHub Release, so
-# they can be downloaded from the Releases tab. workflow_dispatch does a dry run:
-# both packages are produced as downloadable Actions artifacts, but no release is
-# published (the publish job only runs for tags).
+# the Windows x64 game package, the standalone Windows launcher, and the Linux x64
+# package, and attaches them all to the GitHub Release so they can be downloaded
+# from the Releases tab. workflow_dispatch does a dry run: the packages are
+# produced as downloadable Actions artifacts, but no release is published (the
+# publish job only runs for tags).
 
 on:
   push:
@@ -64,6 +65,21 @@ jobs:
             /m /v:minimal /clp:Summary
           if ($LASTEXITCODE -ne 0) { throw "MSBuild failed ($LASTEXITCODE)" }
 
+      - name: Build Terrax Launcher (Release | x64)
+        shell: pwsh
+        # The launcher is its own MSBuild project (separate exe). Same toolset
+        # override + vcpkg manifest restore as the game; this also copies glfw3.dll
+        # next to TerraxLauncher.exe via the vcpkg applocal step.
+        env:
+          TOOLSET: ${{ github.event.inputs.toolset || 'v143' }}
+        run: |
+          msbuild TerraxLauncher.vcxproj `
+            /p:Configuration=Release /p:Platform=x64 `
+            /p:PlatformToolset=$env:TOOLSET `
+            /p:VcpkgEnableManifest=true `
+            /m /v:minimal /clp:Summary
+          if ($LASTEXITCODE -ne 0) { throw "Launcher MSBuild failed ($LASTEXITCODE)" }
+
       - name: Stage + zip
         shell: pwsh
         run: |
@@ -87,11 +103,32 @@ jobs:
           if (-not $ver) { $ver = "dev" }
           Compress-Archive -Path "dist/Terrax/*" -DestinationPath "Terrax-$ver-win64.zip" -Force
 
+          # --- Launcher: standalone auto-updater (downloads the game itself) ---
+          $lrel   = "build/windows/Release/launcher"
+          $lstage = "dist/TerraxLauncher"
+          New-Item -ItemType Directory -Force -Path $lstage | Out-Null
+          Copy-Item "$lrel/TerraxLauncher.exe" $lstage
+          Copy-Item "$lrel/*.dll" $lstage            # glfw3.dll
+          $lreadme = @(
+            'Terrax Launcher - Windows x64',
+            '',
+            'Run TerraxLauncher.exe to install, update, and play Terrax. It downloads',
+            'the latest GitHub release into %LOCALAPPDATA%\Terrax and launches it.',
+            'Keep glfw3.dll next to TerraxLauncher.exe.',
+            '',
+            'If it will not start, install the Microsoft Visual C++ Redistributable:',
+            'https://aka.ms/vs/17/release/vc_redist.x64.exe'
+          )
+          Set-Content -Path "$lstage/README.txt" -Value $lreadme -Encoding utf8
+          Compress-Archive -Path "dist/TerraxLauncher/*" -DestinationPath "TerraxLauncher-$ver-win64.zip" -Force
+
       - name: Upload package artifact
         uses: actions/upload-artifact@v6
         with:
           name: windows
-          path: Terrax-*-win64.zip
+          path: |
+            Terrax-*-win64.zip
+            TerraxLauncher-*-win64.zip
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------

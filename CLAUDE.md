@@ -251,6 +251,14 @@ entity type:
 - Keep client and server in sync: anything that affects gameplay state must go
   through packets, not shared memory.
 
+## Commits
+
+- Keep commit messages **short and simple** — a one-line summary of the feature
+  or change is enough. No long, multi-paragraph AI-generated commit bodies.
+- Do **not** add `Co-Authored-By` trailers or any AI/assistant attribution (in
+  commit messages or PR descriptions); commits are authored solely by the repo
+  owner.
+
 ## Gotchas
 
 - **MSBuild + Git Bash:** Git Bash mangles `/p:` switches (`MSB1008` error).

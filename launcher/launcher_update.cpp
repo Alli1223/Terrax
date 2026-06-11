@@ -47,6 +47,19 @@ static bool endsWithCI(const std::string& s, const std::string& suffix) {
     return true;
 }
 
+static bool containsCI(const std::string& s, const std::string& sub) {
+    if (sub.empty()) return true;
+    if (s.size() < sub.size()) return false;
+    for (size_t i = 0; i + sub.size() <= s.size(); ++i) {
+        size_t j = 0;
+        while (j < sub.size() &&
+               std::tolower((unsigned char)s[i + j]) == std::tolower((unsigned char)sub[j]))
+            ++j;
+        if (j == sub.size()) return true;
+    }
+    return false;
+}
+
 std::wstring Updater::baseDir() {
     wchar_t buf[MAX_PATH];
     DWORD n = GetEnvironmentVariableW(L"LOCALAPPDATA", buf, MAX_PATH);
@@ -195,7 +208,10 @@ static std::string findWinZipUrl(const std::string& body) {
         if (q == std::string::npos) break;
         std::string url = jsonReadStringAt(body, q);
         from = q + 1 + (url.empty() ? 1 : url.size());
-        if (endsWithCI(url, "win64.zip"))   // matches Terrax-*-win64.zip / *.WIN64.zip
+        // The game asset is Terrax-<tag>-win64.zip. A release also carries the
+        // launcher's own TerraxLauncher-<tag>-win64.zip, which likewise ends in
+        // win64.zip — exclude it so the launcher never downloads itself.
+        if (endsWithCI(url, "win64.zip") && !containsCI(url, "launcher"))
             return url;
     }
     return "";

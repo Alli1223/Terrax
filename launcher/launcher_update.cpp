@@ -5,6 +5,7 @@
 // flow (startInstall / launchGame) is filled in by Phase 3.
 
 #include "launcher_update.h"
+#include "launcher_version.h"
 
 #include <windows.h>
 #include <winhttp.h>
@@ -217,6 +218,21 @@ static std::string findWinZipUrl(const std::string& body) {
     return "";
 }
 
+// browser_download_url of the launcher's own installer (TerraxLauncherSetup.exe).
+static std::string findSetupUrl(const std::string& body) {
+    const std::string key = "browser_download_url";
+    size_t from = 0;
+    for (;;) {
+        size_t q = jsonFindValueQuote(body, key, from);
+        if (q == std::string::npos) break;
+        std::string url = jsonReadStringAt(body, q);
+        from = q + 1 + (url.empty() ? 1 : url.size());
+        if (endsWithCI(url, "setup.exe"))
+            return url;
+    }
+    return "";
+}
+
 // ---------------------------------------------------------------------------
 // GitHub release check
 // ---------------------------------------------------------------------------
@@ -231,6 +247,7 @@ bool fetchLatestRelease(ReleaseInfo& out, std::string& err) {
     }
     out.tag       = jsonString(body, "tag_name");
     out.winZipUrl = findWinZipUrl(body);
+    out.setupUrl  = findSetupUrl(body);
     if (out.tag.empty()) {
         err = "could not parse release tag";
         launcherLog(err);
@@ -299,7 +316,17 @@ void Updater::startCheck() {
         } else {
             latest_ = info.tag;
             downloadUrl_ = info.winZipUrl;
-            if (installed.empty()) {
+            setupUrl_ = info.setupUrl;
+
+            // A stamped (released) launcher whose own version differs from the
+            // latest tag offers to update itself first. "dev"/local builds skip
+            // this so they are not nagged to update.
+            std::string lver = TERRAX_LAUNCHER_VERSION;
+            bool launcherStamped = (lver != "dev" && !lver.empty());
+            if (launcherStamped && !info.setupUrl.empty() && lver != info.tag) {
+                status_ = Status::LauncherUpdate;
+                statusLine_ = "Launcher update available: " + lver + " -> " + info.tag + ".";
+            } else if (installed.empty()) {
                 if (info.winZipUrl.empty()) {
                     status_ = Status::Error;
                     statusLine_ = "Latest release has no Windows build.";
@@ -555,4 +582,59 @@ bool runInstall(std::string& tagOut, std::string& err) {
     writeInstalledVersion(info.tag);
     launcherLog("silent install complete: " + info.tag);
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// Launcher self-update: download the new installer, then hand its path to the UI
+// thread (takeLauncherSetupToRun) which runs it elevated and closes the launcher
+// so the installer can replace it in place.
+// ---------------------------------------------------------------------------
+void Updater::startLauncherUpdate() {
+    if (running_.load()) return;
+    joinWorker();
+
+    std::string url;
+    { std::lock_guard<std::mutex> lk(m_); url = setupUrl_; }
+    if (url.empty()) { publish(Status::Error, "No launcher installer in the release."); return; }
+
+    running_ = true;
+    {
+        std::lock_guard<std::mutex> lk(m_);
+        status_ = Status::Downloading;
+        statusLine_ = "Downloading launcher update\xE2\x80\xA6";
+        progress_ = 0.0f;
+    }
+
+    worker_ = std::thread([this, url] {
+        std::string err;
+        wchar_t tmp[MAX_PATH];
+        DWORD n = GetTempPathW(MAX_PATH, tmp);
+        std::wstring dest = (n > 0 && n < MAX_PATH)
+            ? std::wstring(tmp) + L"TerraxLauncherSetup.exe"
+            : Updater::baseDir() + L"\\TerraxLauncherSetup.exe";
+
+        launcherLog("download launcher installer <- " + url);
+        if (!downloadToFile(url, dest, this, err)) {
+            launcherLog("launcher update download failed: " + err);
+            publish(Status::Error, "Launcher update failed (" + err + ").");
+            running_ = false;
+            return;
+        }
+        {
+            std::lock_guard<std::mutex> lk(m_);
+            setupPath_ = dest;
+            status_ = Status::Installing;
+            statusLine_ = "Starting launcher update\xE2\x80\xA6";
+            progress_ = 1.0f;
+        }
+        setupReady_ = true;     // UI thread runs the installer + closes the launcher
+        running_ = false;
+    });
+}
+
+bool Updater::takeLauncherSetupToRun(std::wstring& pathOut) {
+    if (!setupReady_.exchange(false)) return false;
+    std::lock_guard<std::mutex> lk(m_);
+    pathOut = setupPath_;
+    return !pathOut.empty();
 }

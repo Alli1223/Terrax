@@ -106,6 +106,10 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="launcher\launcher_update.h" />
+    <ClInclude Include="launcher\launcher_version.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="installer\TerraxLauncher.iss" />
   </ItemGroup>
   <!-- ImGui core + GLFW/OpenGL3 backends (same vendored copy the game uses) -->
   <ItemGroup>

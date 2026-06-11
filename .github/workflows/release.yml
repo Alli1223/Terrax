@@ -73,12 +73,38 @@ jobs:
         env:
           TOOLSET: ${{ github.event.inputs.toolset || 'v143' }}
         run: |
+          # Stamp the launcher's own version so a released launcher can self-update
+          # (it compares its version to the latest tag). github.ref_name is the tag
+          # on a release; on a dispatch dry-run it's the branch name (harmless).
+          $lver = "${{ github.ref_name }}"
+          "#pragma once`n#define TERRAX_LAUNCHER_VERSION ""$lver""" |
+            Set-Content -Path launcher/launcher_version.h -Encoding utf8
           msbuild TerraxLauncher.vcxproj `
             /p:Configuration=Release /p:Platform=x64 `
             /p:PlatformToolset=$env:TOOLSET `
             /p:VcpkgEnableManifest=true `
             /m /v:minimal /clp:Summary
           if ($LASTEXITCODE -ne 0) { throw "Launcher MSBuild failed ($LASTEXITCODE)" }
+
+      - name: Build launcher installer (Inno Setup)
+        shell: pwsh
+        # Compile installer/TerraxLauncher.iss -> TerraxLauncherSetup.exe. Inno Setup
+        # is preinstalled on the runner; fall back to choco if it isn't.
+        run: |
+          $iscc = Get-ChildItem `
+            "C:\Program Files (x86)\Inno Setup 6\ISCC.exe", `
+            "C:\Program Files\Inno Setup 6\ISCC.exe" -ErrorAction SilentlyContinue |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $iscc) {
+            choco install innosetup --no-progress -y
+            $iscc = Get-ChildItem "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+              -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $iscc) { throw "Inno Setup (ISCC.exe) not found" }
+          $sver = "${{ github.ref_name }}" -replace '[\\/]', '-'
+          if (-not $sver) { $sver = "dev" }
+          & $iscc /DAppVersion=$sver "installer\TerraxLauncher.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup compile failed ($LASTEXITCODE)" }
 
       - name: Stage + zip
         shell: pwsh
@@ -124,6 +150,10 @@ jobs:
           Set-Content -Path "$lstage/README.txt" -Value $lreadme -Encoding utf8
           Compress-Archive -Path "dist/TerraxLauncher/*" -DestinationPath "TerraxLauncher-$ver-win64.zip" -Force
 
+          # Installer (setup.exe) -> versioned name. The launcher self-update finds
+          # this asset by its "...Setup.exe" suffix.
+          Copy-Item "installer/Output/TerraxLauncherSetup.exe" "TerraxLauncher-$ver-Setup.exe"
+
       - name: Upload package artifact
         uses: actions/upload-artifact@v6
         with:
@@ -131,6 +161,7 @@ jobs:
           path: |
             Terrax-*-win64.zip
             TerraxLauncher-*-win64.zip
+            TerraxLauncher-*-Setup.exe
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------

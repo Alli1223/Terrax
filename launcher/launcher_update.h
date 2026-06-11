@@ -21,7 +21,8 @@ enum class Status {
     UpToDate,          // installed == latest
     UpdateAvailable,   // installed != latest
     NotInstalled,      // nothing installed yet
-    Downloading,       // pulling the release zip
+    LauncherUpdate,    // a newer launcher version exists (offer to self-update)
+    Downloading,       // pulling the release zip / installer
     Installing,        // extracting / writing files
     Error              // network or install failure (statusLine has detail)
 };
@@ -29,7 +30,8 @@ enum class Status {
 // Parsed subset of the GitHub releases/latest payload.
 struct ReleaseInfo {
     std::string tag;         // e.g. "v0.1.0"
-    std::string winZipUrl;   // browser_download_url of the *-win64.zip asset
+    std::string winZipUrl;   // browser_download_url of the *-win64.zip asset (game)
+    std::string setupUrl;    // browser_download_url of TerraxLauncherSetup.exe (launcher)
 };
 
 class Updater {
@@ -48,6 +50,12 @@ public:
     void startCheck();      // kick a background GitHub release check
     void startInstall();    // kick a background download + extract + record version
     bool launchGame();      // run the installed Terrax.exe; true if it started
+    void startLauncherUpdate();   // download the installer to update the launcher itself
+
+    // If the launcher's own installer has finished downloading, returns true and
+    // its path; the UI thread should then run it (elevates via UAC) and close the
+    // launcher so the installer can replace it in place.
+    bool takeLauncherSetupToRun(std::wstring& pathOut);
 
     Snapshot snapshot();
     bool busy() const { return running_.load(); }
@@ -70,10 +78,13 @@ private:
     Status             status_ = Status::Checking;
     std::string        installed_;
     std::string        latest_;
-    std::string        downloadUrl_;
+    std::string        downloadUrl_;     // game zip
+    std::string        setupUrl_;        // launcher installer
     std::string        statusLine_ = "Checking for updates\xE2\x80\xA6";
     float              progress_ = 0.0f;
     std::atomic<bool>  running_{false};
+    std::atomic<bool>  setupReady_{false};   // launcher installer downloaded, ready to run
+    std::wstring       setupPath_;           // path to the downloaded installer
 };
 
 // Lower-level building blocks (also used by the install flow in Phase 3).

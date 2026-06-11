@@ -38,5 +38,13 @@
     <ClInclude Include="launcher\launcher_update.h">
       <Filter>Launcher</Filter>
     </ClInclude>
+    <ClInclude Include="launcher\launcher_version.h">
+      <Filter>Launcher</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="installer\TerraxLauncher.iss">
+      <Filter>Launcher</Filter>
+    </None>
   </ItemGroup>
 </Project>

@@ -12,6 +12,7 @@
 #define GLFW_INCLUDE_NONE
 #include <windows.h>
 #include <dwmapi.h>
+#include <shellapi.h>
 #include <GLFW/glfw3.h>
 #ifndef GLFW_EXPOSE_NATIVE_WIN32
 #define GLFW_EXPOSE_NATIVE_WIN32
@@ -28,6 +29,7 @@
 #include <string>
 #include <cmath>
 #include <cfloat>
+#include <algorithm>
 
 // ---------------------------------------------------------------------------
 // DWM constants. Define them ourselves so the build does not depend on a recent
@@ -449,18 +451,24 @@ static void renderLauncher(GLFWwindow* window, Updater& updater) {
         case Status::NotInstalled:    btnLabel = "INSTALL"; break;
         case Status::UpdateAvailable: btnLabel = "UPDATE";  break;
         case Status::UpToDate:        btnLabel = "PLAY";    break;
+        case Status::LauncherUpdate:  btnLabel = "UPDATE LAUNCHER"; break;
         case Status::Checking:        btnLabel = "CHECKING\xE2\x80\xA6"; btnEnabled = false; break;
         case Status::Downloading:     btnLabel = "DOWNLOADING\xE2\x80\xA6"; btnEnabled = false; break;
         case Status::Installing:      btnLabel = "INSTALLING\xE2\x80\xA6";  btnEnabled = false; break;
         case Status::Error:           btnLabel = "RETRY"; break;
     }
-    ImVec2 btnSize(180.0f, 52.0f);
+    // Size the button to fit the label (some, like "UPDATE LAUNCHER", are wide).
+    ImGui::PushFont(g_fontButton);
+    float btnTextW = ImGui::CalcTextSize(btnLabel).x;
+    ImGui::PopFont();
+    ImVec2 btnSize(std::max(180.0f, btnTextW + 52.0f), 52.0f);
     ImVec2 btnPos(barB.x - btnSize.x - 22.0f, barA.y + (barH - btnSize.y) * 0.5f);
     bool primary = (app.status != Status::UpToDate);
     if (glassButton("##primary", btnPos, btnSize, btnLabel, primary, btnEnabled, t)) {
         switch (app.status) {
             case Status::NotInstalled:
             case Status::UpdateAvailable: updater.startInstall(); break;
+            case Status::LauncherUpdate:  updater.startLauncherUpdate(); break;
             case Status::UpToDate:
                 if (updater.launchGame())   // close the launcher once the game starts
                     glfwSetWindowShouldClose(window, GLFW_TRUE);
@@ -550,6 +558,15 @@ int main(int argc, char** argv) {
         ImGui::NewFrame();
 
         renderLauncher(window, updater);
+
+        // If a launcher self-update finished downloading, run it (the installer's
+        // manifest triggers the UAC elevation) and close the launcher so it can be
+        // replaced in place.
+        std::wstring setupToRun;
+        if (updater.takeLauncherSetupToRun(setupToRun)) {
+            ShellExecuteW(nullptr, L"open", setupToRun.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            glfwSetWindowShouldClose(window, GLFW_TRUE);
+        }
 
         ImGui::Render();
         int fbW, fbH; glfwGetFramebufferSize(window, &fbW, &fbH);

@@ -227,7 +227,10 @@ static std::string findSetupUrl(const std::string& body) {
         if (q == std::string::npos) break;
         std::string url = jsonReadStringAt(body, q);
         from = q + 1 + (url.empty() ? 1 : url.size());
-        if (endsWithCI(url, "setup.exe"))
+        // The launcher installer is TerraxLauncher-<tag>-Setup.exe; match any
+        // installer-style exe (an .exe whose name contains "setup") so naming
+        // tweaks like "-setup-x64.exe" keep working.
+        if (endsWithCI(url, ".exe") && containsCI(url, "setup"))
             return url;
     }
     return "";
@@ -347,6 +350,7 @@ void Updater::startCheck() {
                 statusLine_ = "You're up to date - " + info.tag + ".";
             }
         }
+        launcherLog("check: " + statusLine_);
         running_ = false;
     });
 }

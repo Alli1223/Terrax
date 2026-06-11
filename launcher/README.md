@@ -11,6 +11,19 @@ WinHTTP for the GitHub API and DWM for the acrylic window).
 
 ![Launcher](.) <!-- run it to see the live, animated version -->
 
+## Installing the launcher
+
+Download **`TerraxLauncher-<ver>-Setup.exe`** from the
+[Releases](https://github.com/Alli1223/Terrax/releases) page and run it. The
+installer puts the launcher in `C:\Program Files\Terrax` by default (you can pick
+a different folder during setup), adds Start Menu + optional desktop shortcuts,
+and registers an uninstaller in **Add or remove programs**. Then just run
+**Terrax Launcher** — it installs and keeps the game up to date for you.
+
+The launcher also **updates itself**: when a newer launcher version is released,
+it shows an **UPDATE LAUNCHER** button that downloads and re-runs the installer
+(one UAC prompt, since it lives in Program Files) to update in place.
+
 ## Building
 
 ```powershell
@@ -23,6 +36,18 @@ WinHTTP for the GitHub API and DWM for the acrylic window).
 - `Debug|x64` / `Release|x64`, toolset `v145`, C++17 — same as the game.
 - It is also part of `Terrax.sln`, so opening the solution builds both.
 
+To build the installer (`TerraxLauncherSetup.exe`) you need
+[Inno Setup 6](https://jrsoftware.org/isinfo.php). Build the launcher in
+**Release** first, then compile `installer\TerraxLauncher.iss`:
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=dev installer\TerraxLauncher.iss
+# -> installer\Output\TerraxLauncherSetup.exe
+```
+
+The release CI does this automatically (stamping the tag as the version) and
+attaches the setup.exe to each release.
+
 ## What it does
 
 On launch it queries `https://api.github.com/repos/Alli1223/Terrax/releases/latest`
@@ -34,6 +59,7 @@ version:
 | Nothing installed | **INSTALL** | download + extract the latest release |
 | Installed < latest | **UPDATE** | re-download + replace |
 | Installed == latest | **PLAY** | launch the installed game |
+| Launcher out of date | **UPDATE LAUNCHER** | download + run the installer to self-update |
 | Network / 404 error | **RETRY** | check again |
 
 Installing downloads the release's `*-win64.zip` asset, extracts it with the

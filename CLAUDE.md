@@ -75,6 +75,13 @@ window) and reuses the same vendored ImGui + vcpkg GLFW as the game.
   (no-window) install. `TERRAX_REPO_OWNER`/`TERRAX_REPO_NAME` env vars override
   the target repo. **The repo/releases must be public** — unauthenticated GitHub
   calls 404 on a private repo. See `launcher/README.md`.
+- **Installer + self-update:** `installer/TerraxLauncher.iss` (Inno Setup) builds
+  `TerraxLauncherSetup.exe` — installs to `Program Files\Terrax` (choosable dir),
+  Start Menu / desktop shortcuts, uninstaller. The launcher knows its own version
+  via `launcher/launcher_version.h` (committed `"dev"`; CI overwrites it with the
+  tag). A released launcher behind the latest tag offers **UPDATE LAUNCHER**,
+  which downloads + re-runs the installer (UAC) to update in place. CI compiles
+  the `.iss` with ISCC and attaches `TerraxLauncher-<tag>-Setup.exe` to releases.
 
 ## Testing
 

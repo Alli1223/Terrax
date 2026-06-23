@@ -184,6 +184,7 @@ struct AppContext {
     int  questGiverTown       = -1;     // town index whose board is shown
     bool showVendor           = false;  // Vendor NPC window (buy/sell shop)
     int  vendorTown           = -1;     // town index whose shop is shown
+    bool showQuestLog         = false;  // J — quest journal panel
     std::vector<Quest> activeQuests;    // quests the player has accepted
     int  playerGold           = 0;      // currency earned from quests / kills (Track G)
 

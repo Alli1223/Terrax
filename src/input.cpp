@@ -19,7 +19,7 @@ static void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
     AppContext& ctx = *static_cast<AppContext*>(glfwGetWindowUserPointer(window));
     if (ImGui::GetIO().WantCaptureMouse) return;
     if (ctx.state == GameState::Paused || ctx.chatOpen || ctx.showMap) return;
-    if (ctx.showInventory || ctx.showCharacterLoadout || ctx.showTrainer || ctx.showQuestGiver || ctx.showVendor) return;
+    if (ctx.showInventory || ctx.showCharacterLoadout || ctx.showTrainer || ctx.showQuestGiver || ctx.showVendor || ctx.showQuestLog) return;
     if (ctx.state != GameState::Playing && ctx.state != GameState::CharacterEditor) return;
     if (ctx.firstMouse) { ctx.lastMouseX = xpos; ctx.lastMouseY = ypos; ctx.firstMouse = false; }
     float xoff = (float)(xpos - ctx.lastMouseX);
@@ -33,7 +33,7 @@ static void mouse_button_callback(GLFWwindow* window, int button, int action, in
     AppContext& ctx = *static_cast<AppContext*>(glfwGetWindowUserPointer(window));
     if (ImGui::GetIO().WantCaptureMouse) return;
     if (ctx.state != GameState::Playing || ctx.paused || ctx.chatOpen) return;
-    if (ctx.showInventory || ctx.showCharacterLoadout || ctx.showTrainer || ctx.showQuestGiver || ctx.showVendor) return;
+    if (ctx.showInventory || ctx.showCharacterLoadout || ctx.showTrainer || ctx.showQuestGiver || ctx.showVendor || ctx.showQuestLog) return;
     if (!ctx.client || ctx.showMap) return;
 
     // Right mouse with a shield equipped raises the shield instead of
@@ -97,12 +97,13 @@ static void key_callback(GLFWwindow* window, int key, int, int action, int) {
                 ctx.firstMouse = true;
                 return;
             }
-            if (ctx.showInventory || ctx.showCharacterLoadout || ctx.showTrainer || ctx.showQuestGiver || ctx.showVendor) {
+            if (ctx.showInventory || ctx.showCharacterLoadout || ctx.showTrainer || ctx.showQuestGiver || ctx.showVendor || ctx.showQuestLog) {
                 ctx.showInventory = false;
                 ctx.showCharacterLoadout = false;
                 ctx.showTrainer = false;
                 ctx.showQuestGiver = false;
                 ctx.showVendor = false;
+                ctx.showQuestLog = false;
                 glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
                 ctx.firstMouse = true;
                 return;
@@ -150,7 +151,7 @@ static void key_callback(GLFWwindow* window, int key, int, int action, int) {
             bool open = !(ctx.showInventory || ctx.showCharacterLoadout);
             ctx.showInventory        = open;
             ctx.showCharacterLoadout = open;
-            if (open) ctx.showSkillTree = false;   // one overlay at a time
+            if (open) { ctx.showSkillTree = false; ctx.showQuestLog = false; }   // one overlay at a time
             glfwSetInputMode(window, GLFW_CURSOR, open ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
             if (open) clearMovement(); else ctx.firstMouse = true;
             return;
@@ -159,9 +160,17 @@ static void key_callback(GLFWwindow* window, int key, int, int action, int) {
         // the equipment screen so the cursor state stays consistent.
         if (key == GLFW_KEY_K && action == GLFW_PRESS) {
             ctx.showSkillTree = !ctx.showSkillTree;
-            if (ctx.showSkillTree) { ctx.showInventory = false; ctx.showCharacterLoadout = false; }
+            if (ctx.showSkillTree) { ctx.showInventory = false; ctx.showCharacterLoadout = false; ctx.showQuestLog = false; }
             glfwSetInputMode(window, GLFW_CURSOR, ctx.showSkillTree ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
             if (ctx.showSkillTree) clearMovement(); else ctx.firstMouse = true;
+            return;
+        }
+        // J opens the quest journal (and closes it again).
+        if (key == GLFW_KEY_J && action == GLFW_PRESS) {
+            ctx.showQuestLog = !ctx.showQuestLog;
+            if (ctx.showQuestLog) { ctx.showInventory = false; ctx.showCharacterLoadout = false; ctx.showSkillTree = false; }
+            glfwSetInputMode(window, GLFW_CURSOR, ctx.showQuestLog ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
+            if (ctx.showQuestLog) clearMovement(); else ctx.firstMouse = true;
             return;
         }
     }

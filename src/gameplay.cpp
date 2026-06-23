@@ -70,6 +70,7 @@ void disconnectFromGame(AppContext& ctx) {
     ctx.showTrainer       = false;
     ctx.showQuestGiver    = false;
     ctx.showVendor        = false;
+    ctx.showQuestLog      = false;
     ctx.spawnedOnGround   = false;
     ctx.keyFwd = ctx.keyBack = ctx.keyLeft = ctx.keyRight = ctx.keyJump = 0;
     ctx.housePreviewActive = false;
@@ -181,7 +182,7 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
     const bool gameplayActive = (ctx.state == GameState::Playing && !ctx.chatOpen
                                  && !ctx.showInventory && !ctx.showCharacterLoadout
                                  && !ctx.showMap && !ctx.showTrainer && !ctx.showQuestGiver
-                                 && !ctx.showVendor);
+                                 && !ctx.showVendor && !ctx.showQuestLog);
 
     // Combat input — branches by equipped main-hand weapon.
     //   * Bow: left mouse held charges the shot (rig.bowDrawAmount), and

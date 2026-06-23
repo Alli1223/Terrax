@@ -210,7 +210,7 @@ static void renderDebugOverlay(AppContext& ctx) {
 static bool shouldShowCrosshair(const AppContext& ctx) {
     if (ctx.showInventory || ctx.showCharacterLoadout || ctx.showMap ||
         ctx.paused || ctx.chatOpen || ctx.showTrainer || ctx.showQuestGiver ||
-        ctx.showVendor) return false;
+        ctx.showVendor || ctx.showQuestLog) return false;
     if (ctx.playerPose != PlayerPose::Standing) return false;
     Item* mh = ctx.inventory.equipped(EquipSlot::MainHand);
     if (!mh || mh->getKind() != ItemKind::Weapon) return false;
@@ -609,6 +609,48 @@ static void drawQuestGiverWindow(AppContext& ctx) {
 
     ImGui::Text("Active quests: %d", (int)ctx.activeQuests.size());
     if (ImGui::Button("Close", ImVec2(-1, 0))) ctx.showQuestGiver = false;
+    ImGui::End();
+}
+
+// Quest journal (J) — a full panel listing every active/complete quest with its
+// objective progress, target region, recommended level and rewards.
+static void drawQuestLog(AppContext& ctx) {
+    if (!ctx.showQuestLog) return;
+    ImVec2 vp = vpPos(), vs = vpSize();
+    const float W = 520.0f, H = 460.0f;
+    ImGui::SetNextWindowPos(ImVec2(vp.x + (vs.x - W) * 0.5f, vp.y + (vs.y - H) * 0.5f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(W, H), ImGuiCond_Always);
+    ImGui::Begin("Quest Journal", &ctx.showQuestLog,
+                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+
+    int active = 0;
+    for (const Quest& q : ctx.activeQuests)
+        if (q.status != QuestStatus::TurnedIn) ++active;
+    ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.5f, 1.0f), "Active quests (%d)", active);
+    ImGui::Separator();
+    if (ctx.activeQuests.empty())
+        ImGui::TextDisabled("No active quests. Find a Quest Giver in a town.");
+
+    ImGui::BeginChild("questlogscroll", ImVec2(0, H - 90.0f), false);
+    for (const Quest& q : ctx.activeQuests) {
+        if (q.status == QuestStatus::TurnedIn) continue;
+        ImGui::PushID((int)q.id);
+        bool done = (q.status == QuestStatus::Complete);
+        ImGui::TextColored(done ? ImVec4(0.55f, 0.95f, 0.6f, 1.0f) : ImVec4(0.88f, 0.92f, 1.0f, 1.0f),
+                           "%s%s", q.title.c_str(), done ? "  [COMPLETE]" : "");
+        ImGui::TextWrapped("%s", q.text.c_str());
+        const char* what = (q.kind == QuestKind::KillEnemies)
+                         ? questEnemyLabel(q.targetNpcType) : q.collectName.c_str();
+        ImGui::Text("   Progress: %s %d / %d", what, q.progress, q.requiredCount);
+        ImGui::TextDisabled("   Region: %s (tier %d, rec. level %d)",
+                            q.targetName.c_str(), q.targetTier, q.recommendedLevel);
+        ImGui::TextDisabled("   Reward: %d XP, %d gold%s", q.rewardXp, q.rewardGold,
+                            q.rewardItem ? ", + an item" : "");
+        ImGui::Separator();
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+    if (ImGui::Button("Close", ImVec2(-1, 0))) ctx.showQuestLog = false;
     ImGui::End();
 }
 
@@ -1073,6 +1115,8 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
     drawQuestTracker(ctx);
     // Target frame + in-world selection marker (top-centre).
     drawTargetFrame(ctx, renderer);
+    // Quest journal (J).
+    drawQuestLog(ctx);
 
     // Toast queue — XP / level-up / loot notifications stacked top-right.
     // Newest at the bottom of the stack so the eye lands on the latest

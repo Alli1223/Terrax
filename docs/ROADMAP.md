@@ -119,8 +119,10 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
   the collectible (~70% drop) toward the count via `questCollectCounts`, with a
   drop toast + the shared tracker/complete flow. _(Kill-drop proxy for now; ties
   to real droppable items later.)_
-- [ ] **E5. Quest log + tracker UI** — journal panel + on-screen objective tracker
-  with progress, and a map/compass marker to the target area.
+- [x] **E5. Quest log + tracker UI** — on-screen objective **tracker** (top-right,
+  done in E3) + a full **journal panel** (J key) listing every active/complete quest
+  with progress, target region/tier, recommended level and rewards. _(Map/compass
+  marker to the target still TODO.)_
 - [x] **E6. Rewards & turn-in** — returning to a quest-giver shows Complete
   quests with a "Turn in" button → grants `rewardXp` (shared `grantPlayerXp`),
   `rewardGold` (new `ctx.playerGold`), and a rolled item at `recommendedLevel`

@@ -174,14 +174,10 @@ static void spawnDeathParticles(AppContext& ctx, const NPC* npc) {
 // processed by syncLootDrops below. Simple attribution — any nearby
 // observer awards themselves XP — good enough for single-player and
 // small-coop play.
-void awardEnemyKill(AppContext& ctx, const NPC* npc) {
-    int enemyLevel = std::max(1, (int)npc->level);
-    int xp = xpForEnemyKill(enemyLevel);
-    // Con-based scaling: trivial (far-below) kills give a fraction; equal-or-above
-    // foes give full XP. Keeps low-tier grinding from out-pacing venturing out.
-    int diff = enemyLevel - ctx.playerLevel;
-    if (diff < -8)     xp = std::max(1, xp / 5);
-    else if (diff < 0) xp = std::max(1, (int)(xp * (1.0f + 0.06f * (float)diff)));
+// Add XP to the player, running the level-up loop (skill point per level, HUD
+// toasts, role-stat recompute + model resend). Shared by kills and quest turn-in.
+static void grantPlayerXp(AppContext& ctx, int xp) {
+    if (xp <= 0) return;
     ctx.playerXp += float(xp);
     pushToast(ctx, std::string("+") + std::to_string(xp) + " XP",
               Voxel{160, 210, 255, 255}, 2.5f);
@@ -196,13 +192,53 @@ void awardEnemyKill(AppContext& ctx, const NPC* npc) {
                        + std::to_string(ctx.playerLevel) + "  (+1 skill point)",
                   Voxel{255, 220, 80, 255}, 5.5f);
     }
-    // Resend the PlayerModel so the server knows our new level — future
-    // loot rolls for our kills will scale to the new level. Refresh the cached
-    // role stats so the larger HP pool takes effect immediately.
+    // Resend the PlayerModel so the server knows our new level — future loot rolls
+    // scale to it. Refresh cached role stats so the larger HP pool takes effect.
     if (leveledUp) {
         ctx.recomputeRoleStats();
         sendPlayerModelUpdate(ctx);
     }
+}
+
+void turnInQuest(AppContext& ctx, int activeIndex) {
+    if (activeIndex < 0 || activeIndex >= (int)ctx.activeQuests.size()) return;
+    Quest& q = ctx.activeQuests[(size_t)activeIndex];
+    if (q.status != QuestStatus::Complete) return;
+
+    std::string title = q.title;
+    grantPlayerXp(ctx, q.rewardXp);
+    if (q.rewardGold > 0) {
+        ctx.playerGold += q.rewardGold;
+        pushToast(ctx, std::string("+") + std::to_string(q.rewardGold) + " gold",
+                  Voxel{235, 205, 90, 255}, 2.5f);
+    }
+    if (q.rewardItem) {
+        auto item = generateRandomItem((uint32_t)(q.id * 2654435761u + 0x9981u),
+                                       q.recommendedLevel);
+        if (item) {
+            std::string nm = item->getName();
+            if (ctx.inventory.addItem(std::move(item)))
+                pushToast(ctx, "Reward: " + nm, Voxel{205, 180, 255, 255}, 3.5f);
+        }
+    }
+    q.status = QuestStatus::TurnedIn;
+    pushToast(ctx, "Quest turned in: " + title, Voxel{120, 230, 140, 255}, 4.0f);
+
+    ctx.activeQuests.erase(
+        std::remove_if(ctx.activeQuests.begin(), ctx.activeQuests.end(),
+                       [](const Quest& x) { return x.status == QuestStatus::TurnedIn; }),
+        ctx.activeQuests.end());
+}
+
+void awardEnemyKill(AppContext& ctx, const NPC* npc) {
+    int enemyLevel = std::max(1, (int)npc->level);
+    int xp = xpForEnemyKill(enemyLevel);
+    // Con-based scaling: trivial (far-below) kills give a fraction; equal-or-above
+    // foes give full XP. Keeps low-tier grinding from out-pacing venturing out.
+    int diff = enemyLevel - ctx.playerLevel;
+    if (diff < -8)     xp = std::max(1, xp / 5);
+    else if (diff < 0) xp = std::max(1, (int)(xp * (1.0f + 0.06f * (float)diff)));
+    grantPlayerXp(ctx, xp);
 
     // Kill-quest progress: credit any active KillEnemies quest whose foe + region
     // match this kill (region = within one danger tier of the kill location).

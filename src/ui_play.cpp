@@ -552,8 +552,26 @@ static void drawQuestGiverWindow(AppContext& ctx) {
                  ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
 
     ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.5f, 1.0f), "Tasks for an able adventurer");
+    ImGui::SameLine(ImGui::GetWindowWidth() - 130.0f);
+    ImGui::TextColored(ImVec4(0.93f, 0.82f, 0.35f, 1.0f), "Gold: %d", ctx.playerGold);
     ImGui::TextWrapped("There's work to be done out in the wilds. Take what suits you.");
     ImGui::Separator();
+
+    // Completed quests ready to hand in (grant rewards on turn-in).
+    int turnIn = -1;
+    bool anyComplete = false;
+    for (size_t i = 0; i < ctx.activeQuests.size(); ++i) {
+        const Quest& aq = ctx.activeQuests[i];
+        if (aq.status != QuestStatus::Complete) continue;
+        anyComplete = true;
+        ImGui::PushID(1000 + (int)i);
+        ImGui::TextColored(ImVec4(0.55f, 0.95f, 0.6f, 1.0f), "[Done] %s", aq.title.c_str());
+        ImGui::SameLine();
+        if (ImGui::Button("Turn in", ImVec2(90, 0))) turnIn = (int)i;
+        ImGui::PopID();
+    }
+    if (anyComplete) ImGui::Separator();
+    if (turnIn >= 0) { turnInQuest(ctx, turnIn); ImGui::End(); return; }  // list mutated; redraw next frame
 
     const std::vector<Quest>& board = getTownQuests(ctx.questGiverTown);
     if (board.empty()) ImGui::TextDisabled("No work available right now.");

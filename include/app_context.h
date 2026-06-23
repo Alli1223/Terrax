@@ -183,6 +183,7 @@ struct AppContext {
     bool showQuestGiver       = false;  // Quest Giver NPC window (town quest board)
     int  questGiverTown       = -1;     // town index whose board is shown
     std::vector<Quest> activeQuests;    // quests the player has accepted
+    int  playerGold           = 0;      // currency earned from quests / kills (Track G)
 
     // --- Progression ---
     int   playerLevel = 1;

@@ -113,8 +113,11 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
   to real droppable items later.)_
 - [ ] **E5. Quest log + tracker UI** — journal panel + on-screen objective tracker
   with progress, and a map/compass marker to the target area.
-- [ ] **E6. Rewards & turn-in** — XP, gold, and a rolled item on turn-in; level
-  scales the reward; quest chains unlock the next quest.
+- [x] **E6. Rewards & turn-in** — returning to a quest-giver shows Complete
+  quests with a "Turn in" button → grants `rewardXp` (shared `grantPlayerXp`),
+  `rewardGold` (new `ctx.playerGold`), and a rolled item at `recommendedLevel`
+  into the inventory; marks TurnedIn + drops from the active list. Giver window
+  shows the player's gold. _(Quest chains TBD; rewards client-side for now.)_
 - [ ] **E7. Quest variety** — escort, boss-kill, exploration ("discover X"),
   delivery between towns.
 

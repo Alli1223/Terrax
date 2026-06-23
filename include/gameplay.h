@@ -14,6 +14,11 @@ void sendHousePlacement(AppContext& ctx);
 // the current loadout. Cheap; safe to call any time equipment changes.
 void sendPlayerModelUpdate(AppContext& ctx);
 
+// Turn in a Complete quest (index into ctx.activeQuests): grants XP / gold / a
+// rolled item, marks it TurnedIn and drops it from the active list. No-op if the
+// index is out of range or the quest isn't Complete.
+void turnInQuest(AppContext& ctx, int activeIndex);
+
 // --- Healing staff abilities ----------------------------------------------
 // Invoked by HealingStaffItem's primary / secondary attacks. They own the
 // heal targeting, particle visuals and heal/effect packets so the item class

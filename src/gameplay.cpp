@@ -624,6 +624,22 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
     updateNpcInteraction(ctx);
     updateTargeting(ctx);
 
+    // Region danger warning: when the local foes far outlevel the player, warn
+    // them periodically — reinforcing "level up before venturing further out".
+    {
+        static float dangerWarnTimer = 0.0f;
+        dangerWarnTimer -= ctx.deltaTime;
+        int foeLvl = enemyLevelForTier(dangerTierAt(ctx.camera.position.x,
+                                                    ctx.camera.position.z));
+        if (foeLvl - ctx.playerLevel >= 8 && dangerWarnTimer <= 0.0f) {
+            AppContext::HudToast t{ "WARNING: foes here are around level "
+                + std::to_string(foeLvl) + " - far above you",
+                Voxel{255, 90, 70, 255}, 4.0f };
+            ctx.toasts.push_back(std::move(t));
+            dangerWarnTimer = 18.0f;   // don't nag more than ~every 18s
+        }
+    }
+
     // The Class Trainer window opens by pressing E near a trainer (above), not
     // via a key toggle, so reconcile the cursor with its state here: free it when
     // the window opens, recapture it when it closes (Close button / X / Esc).

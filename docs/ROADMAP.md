@@ -64,8 +64,10 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
   max(player, enemy) level; XP uses con-based scaling (grey kills give less).
 - [ ] **B4. Biome-tier mapping** — bias biome placement so harsher biomes
   (volcanic, frozen, blighted) sit in the outer tiers; lush/temperate near spawn.
-- [ ] **B5. Level-up rewards & feel** — level-up FX, stat recompute, "you must be
-  level N" gating hints when entering a higher-tier region.
+- [x] **B5. Level-up rewards & feel** — level-up grants a skill point + HUD toast and
+  recomputes role stats (existing), and a periodic **region danger warning** fires when
+  local foes far out-level the player (≥8), nudging them to gear up / turn back. _(A
+  level-up particle burst could still be added.)_
 
 ## Track C — Bestiary & animals (variety)
 

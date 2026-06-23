@@ -34,8 +34,9 @@ TEST_CASE(Quest_BoardIsNonEmptyAndAnchored) {
             if (t.anchor == q.targetXZ && t.tier == q.targetTier) anchored = true;
         CHECK(anchored);
         // Objective fields match the kind.
-        if (q.kind == QuestKind::KillEnemies) CHECK(q.targetNpcType != 0);
-        else                                  CHECK(!q.collectName.empty());
+        if (q.kind == QuestKind::KillEnemies)        CHECK(q.targetNpcType != 0);
+        else if (q.kind == QuestKind::CollectItems)  CHECK(!q.collectName.empty());
+        else if (q.kind == QuestKind::SlayBoss)      CHECK_EQ(q.requiredCount, 1);
         CHECK(!q.title.empty());
         CHECK(!q.text.empty());
     }
@@ -115,4 +116,18 @@ TEST_CASE(Quest_CollectCountingRule) {
     // Kill quests are never collect-credited.
     q.status = QuestStatus::Active; q.kind = QuestKind::KillEnemies;
     CHECK(!questCollectCounts(q, 3));
+}
+
+TEST_CASE(Quest_BossKillCountingRule) {
+    Quest q;
+    q.kind = QuestKind::SlayBoss;
+    q.targetTier = 4;
+    q.status = QuestStatus::Active;
+    CHECK(questBossKillCounts(q, 4));
+    CHECK(questBossKillCounts(q, 5));
+    CHECK(!questBossKillCounts(q, 1));      // out of region
+    q.status = QuestStatus::Complete; CHECK(!questBossKillCounts(q, 4));
+    // Non-boss quest kinds are never boss-credited.
+    q.status = QuestStatus::Active; q.kind = QuestKind::KillEnemies;
+    CHECK(!questBossKillCounts(q, 4));
 }

@@ -250,6 +250,8 @@ void awardEnemyKill(AppContext& ctx, const NPC* npc) {
         bool credit = false;
         if (questKillCounts(q, (uint8_t)npc->type, killTier)) {
             credit = true;
+        } else if (npc->boss && questBossKillCounts(q, killTier)) {
+            credit = true;   // slew the dungeon's master
         } else if (questCollectCounts(q, killTier)) {
             // The slain foe yields the quest collectible ~70% of the time.
             if ((questDropRng() % 100u) < 70u) {

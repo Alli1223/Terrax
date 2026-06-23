@@ -129,8 +129,11 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
   `rewardGold` (new `ctx.playerGold`), and a rolled item at `recommendedLevel`
   into the inventory; marks TurnedIn + drops from the active list. Giver window
   shows the player's gold. _(Quest chains TBD; rewards client-side for now.)_
-- [ ] **E7. Quest variety** — escort, boss-kill, exploration ("discover X"),
-  delivery between towns.
+- [~] **E7. Quest variety** — escort, boss-kill, exploration ("discover X"),
+  delivery between towns. _(Added: **boss-kill** quests — `QuestKind::SlayBoss`,
+  "Slay the master of <dungeon>", credited on a boss kill in-region via
+  `questBossKillCounts`, with a boosted guaranteed-item reward. Escort/explore/
+  delivery to come.)_
 
 ## Track F — Dungeons & boss loop
 

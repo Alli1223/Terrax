@@ -67,10 +67,17 @@ std::vector<Quest> buildTownQuests(uint32_t seed, int townIndex,
         q.targetTier      = tgt.tier;
         q.recommendedLevel = enemyLevelForTier(tgt.tier);
 
-        // Dungeons lean toward slaying their denizens; the wilds split kill/collect.
-        bool kill = tgt.isDungeon ? (pick(4) != 0) : (((s + pick(2)) & 1) == 0);
+        // A dungeon sometimes asks for its master's head — a marquee boss hunt.
+        bool boss = tgt.isDungeon && (pick(3) == 0);
+        // Otherwise dungeons lean toward slaying denizens; wilds split kill/collect.
+        bool kill = !boss && (tgt.isDungeon ? (pick(4) != 0) : (((s + pick(2)) & 1) == 0));
 
-        if (kill) {
+        if (boss) {
+            q.kind          = QuestKind::SlayBoss;
+            q.requiredCount = 1;
+            q.title = std::string("Slay the master of ") + tgt.name;
+            q.text  = "Hunt down and defeat the boss that lords over " + tgt.name + ".";
+        } else if (kill) {
             q.kind          = QuestKind::KillEnemies;
             q.targetNpcType = HOSTILES[pick((int)(sizeof(HOSTILES) / sizeof(HOSTILES[0])))];
             q.requiredCount = 6 + tgt.tier * 2 + pick(5);
@@ -91,6 +98,11 @@ std::vector<Quest> buildTownQuests(uint32_t seed, int townIndex,
         q.rewardXp   = (15 + 5 * q.recommendedLevel) * std::max(1, q.requiredCount / 2);
         q.rewardGold = 10 * tgt.tier + q.requiredCount + pick(20);
         q.rewardItem = tgt.isDungeon || pick(100) < 45;
+        if (boss) {                                   // a boss hunt pays handsomely
+            q.rewardXp   = (40 + 12 * q.recommendedLevel);
+            q.rewardGold = 60 + 20 * tgt.tier + pick(40);
+            q.rewardItem = true;                      // always a reward item
+        }
 
         out.push_back(std::move(q));
     }

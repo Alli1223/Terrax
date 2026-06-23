@@ -639,8 +639,9 @@ static void drawQuestLog(AppContext& ctx) {
         ImGui::TextColored(done ? ImVec4(0.55f, 0.95f, 0.6f, 1.0f) : ImVec4(0.88f, 0.92f, 1.0f, 1.0f),
                            "%s%s", q.title.c_str(), done ? "  [COMPLETE]" : "");
         ImGui::TextWrapped("%s", q.text.c_str());
-        const char* what = (q.kind == QuestKind::KillEnemies)
-                         ? questEnemyLabel(q.targetNpcType) : q.collectName.c_str();
+        const char* what = (q.kind == QuestKind::KillEnemies) ? questEnemyLabel(q.targetNpcType)
+                         : (q.kind == QuestKind::SlayBoss)     ? "Boss"
+                         : q.collectName.c_str();
         ImGui::Text("   Progress: %s %d / %d", what, q.progress, q.requiredCount);
         ImGui::TextDisabled("   Region: %s (tier %d, rec. level %d)",
                             q.targetName.c_str(), q.targetTier, q.recommendedLevel);
@@ -813,8 +814,9 @@ static void drawQuestTracker(AppContext& ctx) {
         if (done) {
             ImGui::TextDisabled("   Complete - return to a giver");
         } else {
-            const char* what = (q.kind == QuestKind::KillEnemies)
-                             ? questEnemyLabel(q.targetNpcType) : q.collectName.c_str();
+            const char* what = (q.kind == QuestKind::KillEnemies) ? questEnemyLabel(q.targetNpcType)
+                             : (q.kind == QuestKind::SlayBoss)     ? "Boss"
+                             : q.collectName.c_str();
             ImGui::TextDisabled("   %s  %d/%d", what, q.progress, q.requiredCount);
         }
     }

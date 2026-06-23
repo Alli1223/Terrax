@@ -14,7 +14,7 @@
 // like the town / dungeon plans). E2+ wires givers, progress tracking, the log
 // UI and rewards on top of this model.
 
-enum class QuestKind   : uint8_t { KillEnemies = 0, CollectItems = 1 };
+enum class QuestKind   : uint8_t { KillEnemies = 0, CollectItems = 1, SlayBoss = 2 };
 enum class QuestStatus : uint8_t { Available = 0, Active = 1, Complete = 2, TurnedIn = 3 };
 
 // A place a quest sends the player: a named dungeon or a wilderness region.
@@ -69,6 +69,13 @@ inline bool questKillCounts(const Quest& q, uint8_t npcType, int killTier) {
 // caller still rolls the per-kill drop chance.
 inline bool questCollectCounts(const Quest& q, int killTier) {
     return q.status == QuestStatus::Active && q.kind == QuestKind::CollectItems
+        && (killTier >= q.targetTier - 1) && (killTier <= q.targetTier + 1);
+}
+
+// True when killing a *boss* in the quest's region advances a SlayBoss quest.
+// The caller checks the slain NPC's boss flag.
+inline bool questBossKillCounts(const Quest& q, int killTier) {
+    return q.status == QuestStatus::Active && q.kind == QuestKind::SlayBoss
         && (killTier >= q.targetTier - 1) && (killTier <= q.targetTier + 1);
 }
 

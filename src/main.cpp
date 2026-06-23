@@ -71,6 +71,19 @@ int main(int argc, char** argv) {
     double      tourStageT  = 0.0;    // time the current stage began
     bool        tourShot    = false;  // captured the current stage yet?
     const double TOUR_SETTLE = 4.0;   // seconds to let chunks stream in per stop
+    // Nudge a target XZ to the nearest land column (surface above sea level) so
+    // tour shots land on terrain, not open ocean. Searches outward rings.
+    auto findLand = [](int x, int z, int& ox, int& oz) {
+        ox = x; oz = z;
+        if (sampleSurfaceSolid(x, z) > WORLD_SEA_LEVEL + 1) return;
+        const int dx[8] = { 1,-1,0,0, 1,1,-1,-1 };
+        const int dz[8] = { 0,0,1,-1, 1,-1,1,-1 };
+        for (int r = 300; r <= 8000; r += 300)
+            for (int k = 0; k < 8; ++k) {
+                int tx = x + dx[k] * r, tz = z + dz[k] * r;
+                if (sampleSurfaceSolid(tx, tz) > WORLD_SEA_LEVEL + 1) { ox = tx; oz = tz; return; }
+            }
+    };
     if (tourMode) {
         ctx.sessionMode = SessionMode::Singleplayer;
         ctx.connectHost = "127.0.0.1";
@@ -176,12 +189,19 @@ int main(int argc, char** argv) {
                 if (next >= tourCount) { glfwSetWindowShouldClose(window, 1); }
                 else {
                     tourStage = next; tourStageT = now; tourShot = false;
-                    ctx.spawnX = tourDist[tourStage]; ctx.spawnZ = 0;
-                    int gy = sampleSurfaceSolid(ctx.spawnX, ctx.spawnZ);
-                    ctx.camera.position = glm::vec3((float)ctx.spawnX + 0.5f,
-                                                    (float)(gy + 8), (float)ctx.spawnZ + 0.5f);
+                    int lx, lz; findLand(tourDist[tourStage], 0, lx, lz);
+                    int gy = sampleSurfaceSolid(lx, lz);
+                    // Elevated, angled vista (noclip keeps the free camera aloft
+                    // without gravity while distant chunks stream in).
+                    ctx.noclip          = true;
+                    ctx.spawnedOnGround = true;       // don't snap back to ground
+                    ctx.spawnX = lx; ctx.spawnZ = lz;
+                    ctx.camera.position = glm::vec3((float)lx + 0.5f,
+                                                    (float)(gy + 16), (float)lz + 0.5f);
                     ctx.camera.velocity = glm::vec3(0.0f);
-                    ctx.spawnedOnGround = false;     // re-grounds when the chunk loads
+                    ctx.camera.yaw   = 35.0f + (float)tourStage * 57.0f;
+                    ctx.camera.pitch = -24.0f;
+                    ctx.camera.updateVectors();
                 }
             }
         }

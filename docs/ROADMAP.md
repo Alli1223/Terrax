@@ -149,7 +149,9 @@ scoped as actionable items:
 - [ ] **R1. Voxel ambient occlusion** — block faces read flat; there's no
   darkening in concave corners/edges. Add classic per-vertex voxel AO in the
   chunk mesher (darken vertices by adjacent-solid-neighbour count). Biggest
-  single depth/quality win.
+  single depth/quality win. _(CONFIRMED top priority by review #2's land vistas —
+  the existing sun/shadow/water shaders are already strong; AO is the gap. Needs
+  mesher + chunk.vert/frag changes — dedicate an iteration.)_
 - [ ] **R2. Stronger directional shading** — lit vs shadowed faces look nearly
   equal (ambient too high). Lower ambient, raise sun contribution / face-normal
   shading so terrain has form.
@@ -161,9 +163,9 @@ scoped as actionable items:
   exposure + filmic-ish tonemap and slight desaturation in `post.frag` for mood.
 - [ ] **R6. Distance fog blend** — far terrain fades to a flat band; blend fog
   colour toward the sky gradient so the horizon reads cleanly.
-- [ ] **R7. Tour land waypoints** — the 20000m stop landed in open ocean; bias
-  tour waypoints toward land (sample surface, nudge to nearest solid) for more
-  representative scenes, and add a couple of elevated "vista" angles.
+- [x] **R7. Tour land waypoints** — waypoints now nudge to the nearest land
+  column (`findLand`) and shoot elevated, angled vistas (noclip + raised camera
+  + downward pitch), so reviews see terrain, not ocean. One clean shot per stage.
 
 ---
 

@@ -158,12 +158,11 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
 From the first `--screenshot-tour` (spawn savanna town; tier-9 ocean). Findings,
 scoped as actionable items:
 
-- [ ] **R1. Voxel ambient occlusion** — block faces read flat; there's no
-  darkening in concave corners/edges. Add classic per-vertex voxel AO in the
-  chunk mesher (darken vertices by adjacent-solid-neighbour count). Biggest
-  single depth/quality win. _(CONFIRMED top priority by review #2's land vistas —
-  the existing sun/shadow/water shaders are already strong; AO is the gap. Needs
-  mesher + chunk.vert/frag changes — dedicate an iteration.)_
+- [x] **R1. Voxel ambient occlusion** — classic per-vertex AO baked in the chunk
+  mesher (`vertexAO`: 2 edge + 1 corner neighbour solidity → 4-level darkening
+  table), carried on a new `Vertex.ao` attribute (loc 9) through chunk.vert →
+  chunk.frag where it multiplies the lighting. Concave corners/joints now read 3D
+  (verified in review #3's town shot). No per-frame cost (baked at mesh time).
 - [ ] **R2. Stronger directional shading** — lit vs shadowed faces look nearly
   equal (ambient too high). Lower ambient, raise sun contribution / face-normal
   shading so terrain has form.

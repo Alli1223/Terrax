@@ -8,6 +8,7 @@ in vec3  FragNormal;
 in vec4  FragPosLightSpace;
 in float Snowable;
 in float MaterialID;
+in float AO;
 
 out vec4 FragColor;
 
@@ -175,6 +176,10 @@ void main() {
     light = max(light, blockContrib);
     light = max(light, lanternContrib);
     light = max(light, vec3(0.013, 0.011, 0.016));
+
+    // Ambient occlusion: darken concave corners/edges so the voxel terrain reads
+    // as 3D rather than flat-lit. Baked per-vertex at mesh time (1 = open).
+    light *= AO;
 
     vec3 result = base * light;
 

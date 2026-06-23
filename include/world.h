@@ -72,6 +72,8 @@ struct Vertex {
                          // proportion to u_snowAmount so roofs go white when snowing.
     float waterDepth;    // [0,1] sea-surface→floor depth, water top faces only. The
                          // water shader fades deep ocean to opaque so its floor is hidden.
+    float ao;            // [0,1] per-vertex ambient occlusion (1 = open, <1 darkened in
+                         // concave corners); baked from neighbour solidity at mesh time.
 };
 
 struct ChunkPos {

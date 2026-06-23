@@ -79,6 +79,11 @@ const Palette KNIGHT_PALETTES[] = {
     { { 58,  60,  70, 255}, {120, 120, 140, 255} },   // blackened steel
     { { 80,  82,  92, 255}, {200, 180,  90, 255} },   // tarnished gilt
 };
+const Palette VENDOR_PALETTES[] = {
+    { {120,  70,  45, 255}, {210, 175,  80, 255} },   // merchant brown + gold trim
+    { { 70,  95,  80, 255}, {200, 170, 110, 255} },   // travelling-trader green
+    { {110,  60,  80, 255}, {225, 200, 150, 255} },   // wine-red bolt of cloth
+};
 
 template <typename T, size_t N>
 constexpr int arrLen(T (&)[N]) { return (int)N; }
@@ -122,6 +127,8 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
             palettes = ZOMBIE_PALETTES;   palCount = arrLen(ZOMBIE_PALETTES);   break;
         case NPCType::Knight:
             palettes = KNIGHT_PALETTES;   palCount = arrLen(KNIGHT_PALETTES);   break;
+        case NPCType::Vendor:
+            palettes = VENDOR_PALETTES;   palCount = arrLen(VENDOR_PALETTES);   break;
         default: break;
     }
     const Palette& pal = palettes[pick(palCount)];
@@ -148,10 +155,10 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
         wear[2] = true;             // overalls / shirt
         wear[3] = true;             // trousers
         wear[4] = true;             // work boots
-    } else if (type == NPCType::Trainer) {
+    } else if (type == NPCType::Trainer || type == NPCType::Vendor) {
         wear[0] = false;            // no helm — face visible
-        wear[1] = true;             // hooded mantle
-        wear[2] = true;             // robe
+        wear[1] = true;             // hooded mantle / shopkeeper's shawl
+        wear[2] = true;             // robe / apron
         wear[3] = true;             // robe skirt
         wear[4] = true;             // boots
     } else {

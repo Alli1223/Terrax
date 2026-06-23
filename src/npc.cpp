@@ -358,7 +358,8 @@ void NpcDirector::update(float dt, const std::vector<DirectorPlayer>& players,
         else if (n->type == NPCType::Guard)   stepGuard(*n, dt, world, players);
         else if (n->type == NPCType::Farmer)  stepFarmer(*n, dt, world, gameTime);
         else if (n->type == NPCType::Trainer ||
-                 n->type == NPCType::Questgiver) n->velocity = glm::vec3(0.0f);  // static — never wanders
+                 n->type == NPCType::Questgiver ||
+                 n->type == NPCType::Vendor)   n->velocity = glm::vec3(0.0f);  // static — never wanders
         else                                  stepVillager(*n, dt, world, gameTime);
     }
 
@@ -711,6 +712,23 @@ void NpcDirector::populateTown(int ti) {
         qg->position = glm::vec3(sp.x, qg->groundY, sp.y);
         qg->idleTimer = 0.0f;
         active.push_back(std::move(qg));
+        local++;
+    }
+
+    // One static "Vendor" merchant near the town centre. Talking to it opens a
+    // buy/sell shop (gear for gold).
+    {
+        auto vn = std::make_unique<NPC>();
+        vn->id             = 0x40000000u + (uint32_t)ti * 128u + (uint32_t)local;
+        vn->type           = NPCType::Vendor;
+        vn->appearanceSeed = hashU32((uint32_t)ti * 5113u, 0x5E11u);
+        vn->townIndex      = ti;
+        vn->groundY        = (float)t.baseY + 1.0f;
+        glm::vec2 sp = nav.nearestWalkable(centre + glm::vec2(2.5f, -2.5f));
+        vn->homePos  = sp;
+        vn->position = glm::vec3(sp.x, vn->groundY, sp.y);
+        vn->idleTimer = 0.0f;
+        active.push_back(std::move(vn));
         local++;
     }
 

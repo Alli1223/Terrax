@@ -22,7 +22,8 @@ enum class NPCType : uint8_t { Villager = 0, Enemy = 1, Guard = 2, Farmer = 3,
                               Trainer = 7,      // static town "Class Trainer" — role swap
                               Questgiver = 8,   // static town quest-giver
                               Zombie = 9,       // shambling undead melee (crypts/ruins)
-                              Knight = 10 };    // fallen plate knight — sword + shield (castles)
+                              Knight = 10,      // fallen plate knight — sword + shield (castles)
+                              Vendor = 11 };    // static town merchant — buy/sell gear
 
 // True for hostile NPC types — the town watch fights them and the player can
 // kill them for loot/XP. Extended as new enemy types are added.

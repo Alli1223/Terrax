@@ -139,8 +139,13 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
 
 ## Track G — Town economy
 
-- [ ] **G1. Currency (gold)** — earned from kills/quests; shown in HUD; saved.
-- [ ] **G2. Vendor NPCs** — buy/sell UI; vendors stock tier-appropriate gear.
+- [x] **G1. Currency (gold)** — `ctx.playerGold`, earned from quest turn-ins,
+  spent at vendors; shown in a bottom-left HUD chip + the giver/vendor windows.
+  _(Not yet persisted in character_save — needs a save-version bump; deferred.)_
+- [x] **G2. Vendor NPCs** — `NPCType::Vendor`, one merchant per town; pressing E
+  opens a buy/sell shop. Stock is deterministic, tier-scaled generated gear
+  (`vendorStock` cache); buy deducts gold + adds a fresh copy, sell removes an
+  item for ~35% of value. `vendorBuy`/`vendorSell`/`itemSellPrice` in gameplay.
 - [ ] **G3. Repair / consumables** — potions (heal/mana), food, basic upgrades.
 - [ ] **G4. Bank/stash** — per-character persistent storage in town.
 

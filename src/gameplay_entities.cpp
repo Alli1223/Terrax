@@ -24,6 +24,8 @@
 #include <cmath>
 #include <cstring>
 #include <mutex>
+#include <atomic>
+#include <unordered_map>
 #include <random>
 #include <memory>
 #include "gameplay_internal.h"
@@ -634,7 +636,7 @@ void updateNpcInteraction(AppContext& ctx) {
         if (o->dead || o->kind != ObjectKind::NPC) continue;
         NPC* n = static_cast<NPC*>(o.get());
         if (n->type != NPCType::Villager && n->type != NPCType::Trainer &&
-            n->type != NPCType::Questgiver) continue;
+            n->type != NPCType::Questgiver && n->type != NPCType::Vendor) continue;
         glm::vec3 to = n->position - eye; to.y = 0.0f;
         float d2 = to.x * to.x + to.z * to.z;
         if (d2 > bestD2) continue;
@@ -646,6 +648,7 @@ void updateNpcInteraction(AppContext& ctx) {
     if (best) {
         ctx.talkTargetName = (best->type == NPCType::Trainer)    ? "Class Trainer"
                            : (best->type == NPCType::Questgiver) ? "Quest Giver"
+                           : (best->type == NPCType::Vendor)     ? "Merchant"
                            : npcName(best->appearanceSeed);
         ctx.talkTargetSeed = best->appearanceSeed;
         ctx.talkTargetPos  = best->position;
@@ -657,10 +660,9 @@ void updateNpcInteraction(AppContext& ctx) {
         if (best->type == NPCType::Trainer) {
             // Open the class-change window instead of a flavour line.
             ctx.showTrainer = true;
-        } else if (best->type == NPCType::Questgiver) {
-            // Open the town quest board. The client object doesn't carry the
-            // town index, so map the giver's position to the nearest town in
-            // the (deterministic) plan.
+        } else if (best->type == NPCType::Questgiver || best->type == NPCType::Vendor) {
+            // Open the town board/shop. Client NPCs don't carry the town index,
+            // so map the NPC's position to the nearest town in the plan.
             const TownPlan& tp = getTownPlan();
             int bestT = -1; long long bestTD = -1;
             for (size_t i = 0; i < tp.towns.size(); ++i) {
@@ -669,8 +671,8 @@ void updateNpcInteraction(AppContext& ctx) {
                 long long d2 = dx * dx + dz * dz;
                 if (bestTD < 0 || d2 < bestTD) { bestTD = d2; bestT = (int)i; }
             }
-            ctx.questGiverTown = bestT;
-            ctx.showQuestGiver = true;
+            if (best->type == NPCType::Questgiver) { ctx.questGiverTown = bestT; ctx.showQuestGiver = true; }
+            else                                   { ctx.vendorTown = bestT;     ctx.showVendor = true; }
         } else {
             ctx.talkName  = npcName(best->appearanceSeed);
             ctx.talkLine  = npcFlavorLine(best->appearanceSeed, ctx.talkCount);
@@ -756,6 +758,98 @@ NPC* findMeleeTargetNpc(AppContext& ctx) {
 
 NPC* findRangedTargetNpc(AppContext& ctx) {
     return findTargetNpc(ctx, 28.0f, 0.95f);   // tight cone for bow aim
+}
+
+// --- Town vendor economy (Track G) -----------------------------------------
+namespace {
+int itemValue(const Item& it) {
+    int   base = 12 + 9 * std::max(1, it.level);
+    float rar  = (it.rarity == ItemRarity::Legendary) ? 6.0f
+               : (it.rarity == ItemRarity::Rare)      ? 2.5f : 1.0f;
+    float stat = 1.0f + 0.05f * (it.attackPower + it.defenseValue);
+    return std::max(1, (int)(base * rar * stat));
+}
+struct VendorSlot { std::unique_ptr<Item> item; uint32_t seed; int level; int price; };
+std::unordered_map<int, std::vector<VendorSlot>> g_vendorCache;
+std::atomic<uint64_t> g_vendorSeed{ ~0ull };
+std::mutex g_vendorMtx;
+
+const std::vector<VendorSlot>& vendorStock(int townIndex) {
+    static const std::vector<VendorSlot> empty;
+    std::lock_guard<std::mutex> lock(g_vendorMtx);
+    if (g_vendorSeed.load() != worldSeed()) { g_vendorCache.clear(); g_vendorSeed.store(worldSeed()); }
+    auto it = g_vendorCache.find(townIndex);
+    if (it != g_vendorCache.end()) return it->second;
+
+    const TownPlan& tp = getTownPlan();
+    if (townIndex < 0 || townIndex >= (int)tp.towns.size()) return empty;
+    glm::ivec2 c = tp.towns[townIndex].center;
+    int tier  = dangerTierAt((float)c.x, (float)c.y);
+    int baseLv = enemyLevelForTier(tier);
+
+    std::vector<VendorSlot> stock;
+    for (int i = 0; i < 8; ++i) {
+        uint32_t seed = (uint32_t)((townIndex * 2654435761u) ^ (uint32_t)(i * 40503u) ^ 0x5E11D00Du);
+        int lv = std::max(1, baseLv + (int)(seed % 4u) - 1);
+        auto item = generateRandomItem(seed, lv);
+        if (!item) continue;
+        VendorSlot s;
+        s.price = itemValue(*item);
+        s.seed = seed; s.level = lv;
+        s.item = std::move(item);
+        stock.push_back(std::move(s));
+    }
+    g_vendorCache[townIndex] = std::move(stock);
+    return g_vendorCache[townIndex];
+}
+}  // namespace
+
+int vendorStockCount(int townIndex) { return (int)vendorStock(townIndex).size(); }
+
+const Item* vendorStockItem(int townIndex, int i) {
+    const auto& s = vendorStock(townIndex);
+    return (i >= 0 && i < (int)s.size()) ? s[(size_t)i].item.get() : nullptr;
+}
+
+int vendorStockPrice(int townIndex, int i) {
+    const auto& s = vendorStock(townIndex);
+    return (i >= 0 && i < (int)s.size()) ? s[(size_t)i].price : 0;
+}
+
+bool vendorBuy(AppContext& ctx, int townIndex, int i) {
+    uint32_t seed; int lv, price;
+    {
+        std::lock_guard<std::mutex> lock(g_vendorMtx);
+        auto it = g_vendorCache.find(townIndex);
+        if (it == g_vendorCache.end() || i < 0 || i >= (int)it->second.size()) return false;
+        seed = it->second[(size_t)i].seed; lv = it->second[(size_t)i].level;
+        price = it->second[(size_t)i].price;
+    }
+    if (ctx.playerGold < price) return false;
+    auto fresh = generateRandomItem(seed, lv);   // deterministic — matches the display
+    if (!fresh) return false;
+    std::string nm = fresh->getName();
+    if (!ctx.inventory.addItem(std::move(fresh))) return false;   // bags full
+    ctx.playerGold -= price;
+    pushToast(ctx, "Bought " + nm + " (-" + std::to_string(price) + "g)",
+              Voxel{235, 205, 90, 255}, 2.5f);
+    return true;
+}
+
+int itemSellPrice(const Item& it) { return std::max(1, (int)(itemValue(it) * 0.35f)); }
+
+bool vendorSell(AppContext& ctx, int inventoryIndex) {
+    const auto& bag = ctx.inventory.items();
+    if (inventoryIndex < 0 || inventoryIndex >= (int)bag.size()) return false;
+    Item* it = bag[(size_t)inventoryIndex].get();
+    if (!it) return false;
+    int gold = itemSellPrice(*it);
+    std::string nm = it->getName();
+    if (!ctx.inventory.removeItem(it)) return false;
+    ctx.playerGold += gold;
+    pushToast(ctx, "Sold " + nm + " (+" + std::to_string(gold) + "g)",
+              Voxel{235, 205, 90, 255}, 2.5f);
+    return true;
 }
 
 // Applies incoming damage to the player, regenerates health out of combat,

@@ -69,6 +69,7 @@ void disconnectFromGame(AppContext& ctx) {
     ctx.showPlayerList    = false;
     ctx.showTrainer       = false;
     ctx.showQuestGiver    = false;
+    ctx.showVendor        = false;
     ctx.spawnedOnGround   = false;
     ctx.keyFwd = ctx.keyBack = ctx.keyLeft = ctx.keyRight = ctx.keyJump = 0;
     ctx.housePreviewActive = false;
@@ -179,7 +180,8 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
     // screens from leaking into combat (swings, casts, heal-zone drops).
     const bool gameplayActive = (ctx.state == GameState::Playing && !ctx.chatOpen
                                  && !ctx.showInventory && !ctx.showCharacterLoadout
-                                 && !ctx.showMap && !ctx.showTrainer && !ctx.showQuestGiver);
+                                 && !ctx.showMap && !ctx.showTrainer && !ctx.showQuestGiver
+                                 && !ctx.showVendor);
 
     // Combat input — branches by equipped main-hand weapon.
     //   * Bow: left mouse held charges the shot (rig.bowDrawAmount), and
@@ -640,6 +642,14 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
             if (ctx.showQuestGiver) ctx.keyFwd = ctx.keyBack = ctx.keyLeft = ctx.keyRight = ctx.keyJump = 0;
             else                    ctx.firstMouse = true;
             prevShowQuestGiver = ctx.showQuestGiver;
+        }
+        static bool prevShowVendor = false;
+        if (ctx.showVendor != prevShowVendor) {
+            glfwSetInputMode(window, GLFW_CURSOR,
+                             ctx.showVendor ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
+            if (ctx.showVendor) ctx.keyFwd = ctx.keyBack = ctx.keyLeft = ctx.keyRight = ctx.keyJump = 0;
+            else                ctx.firstMouse = true;
+            prevShowVendor = ctx.showVendor;
         }
     }
 

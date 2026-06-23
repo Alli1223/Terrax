@@ -28,6 +28,21 @@ NPC* currentTargetNpc(AppContext& ctx);
 // and auto-drop the target if it dies or gets too far away.
 void updateTargeting(AppContext& ctx);
 
+// --- Town vendor (Track G) -------------------------------------------------
+class Item;
+// A town's deterministic shop stock (lazy + cached per town, rebuilt on seed
+// change). Stock scales with the town's danger tier.
+int         vendorStockCount(int townIndex);
+const Item* vendorStockItem(int townIndex, int i);   // display only (nullptr if oob)
+int         vendorStockPrice(int townIndex, int i);  // gold cost to buy
+// Buy stock item `i`: if the player can afford it, deduct gold and add a fresh
+// copy to the inventory. Returns true on success.
+bool        vendorBuy(AppContext& ctx, int townIndex, int i);
+// Gold a vendor pays for an inventory item (a fraction of its buy value).
+int         itemSellPrice(const Item& it);
+// Sell inventory item `i` to the vendor: removes it and credits gold. Returns true.
+bool        vendorSell(AppContext& ctx, int inventoryIndex);
+
 // --- Healing staff abilities ----------------------------------------------
 // Invoked by HealingStaffItem's primary / secondary attacks. They own the
 // heal targeting, particle visuals and heal/effect packets so the item class

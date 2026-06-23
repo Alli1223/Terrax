@@ -182,6 +182,8 @@ struct AppContext {
     bool showTrainer          = false;  // Class Trainer NPC window (role swap)
     bool showQuestGiver       = false;  // Quest Giver NPC window (town quest board)
     int  questGiverTown       = -1;     // town index whose board is shown
+    bool showVendor           = false;  // Vendor NPC window (buy/sell shop)
+    int  vendorTown           = -1;     // town index whose shop is shown
     std::vector<Quest> activeQuests;    // quests the player has accepted
     int  playerGold           = 0;      // currency earned from quests / kills (Track G)
 

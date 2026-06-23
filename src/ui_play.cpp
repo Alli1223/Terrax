@@ -209,7 +209,8 @@ static void renderDebugOverlay(AppContext& ctx) {
 // the attack, not while idle. Hidden during any menu/overlay or while sitting.
 static bool shouldShowCrosshair(const AppContext& ctx) {
     if (ctx.showInventory || ctx.showCharacterLoadout || ctx.showMap ||
-        ctx.paused || ctx.chatOpen || ctx.showTrainer || ctx.showQuestGiver) return false;
+        ctx.paused || ctx.chatOpen || ctx.showTrainer || ctx.showQuestGiver ||
+        ctx.showVendor) return false;
     if (ctx.playerPose != PlayerPose::Standing) return false;
     Item* mh = ctx.inventory.equipped(EquipSlot::MainHand);
     if (!mh || mh->getKind() != ItemKind::Weapon) return false;
@@ -661,6 +662,88 @@ static void drawTargetFrame(AppContext& ctx, const Renderer& renderer) {
     }
 }
 
+// The Vendor window — opened by pressing E at a town merchant. Buy generated,
+// tier-appropriate gear for gold; sell items from your bags. Client-side.
+static void drawVendorWindow(AppContext& ctx) {
+    if (!ctx.showVendor) return;
+    ImVec2 vp = vpPos(), vs = vpSize();
+    const float W = 560.0f, H = 460.0f;
+    ImGui::SetNextWindowPos(ImVec2(vp.x + (vs.x - W) * 0.5f, vp.y + (vs.y - H) * 0.5f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(W, H), ImGuiCond_Always);
+    ImGui::Begin("Merchant", &ctx.showVendor,
+                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+
+    ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.5f, 1.0f), "Wares & trade");
+    ImGui::SameLine(ImGui::GetWindowWidth() - 130.0f);
+    ImGui::TextColored(ImVec4(0.93f, 0.82f, 0.35f, 1.0f), "Gold: %d", ctx.playerGold);
+    ImGui::Separator();
+
+    ImGui::Columns(2, "vendorcols", true);
+
+    // --- For sale ---------------------------------------------------------
+    ImGui::TextColored(ImVec4(0.85f, 0.92f, 1.0f, 1.0f), "For sale");
+    ImGui::BeginChild("buy", ImVec2(0, H - 120.0f), false);
+    int n = vendorStockCount(ctx.vendorTown);
+    for (int i = 0; i < n; ++i) {
+        const Item* it = vendorStockItem(ctx.vendorTown, i);
+        if (!it) continue;
+        int price = vendorStockPrice(ctx.vendorTown, i);
+        ImGui::PushID(i);
+        Voxel rc = rarityUiColor(it->rarity);
+        ImGui::TextColored(ImVec4(rc.r / 255.f, rc.g / 255.f, rc.b / 255.f, 1.f),
+                           "%s", it->getName().c_str());
+        ImGui::TextDisabled("iLvl %d   %dg", it->level, price);
+        bool afford = ctx.playerGold >= price;
+        if (!afford) ImGui::BeginDisabled();
+        if (ImGui::Button("Buy", ImVec2(70, 0))) vendorBuy(ctx, ctx.vendorTown, i);
+        if (!afford) ImGui::EndDisabled();
+        ImGui::Separator();
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+
+    ImGui::NextColumn();
+
+    // --- Your bags (sell) -------------------------------------------------
+    ImGui::TextColored(ImVec4(0.85f, 0.92f, 1.0f, 1.0f), "Your bags");
+    ImGui::BeginChild("sell", ImVec2(0, H - 120.0f), false);
+    const auto& bag = ctx.inventory.items();
+    int sellIdx = -1;
+    for (int i = 0; i < (int)bag.size(); ++i) {
+        Item* it = bag[(size_t)i].get();
+        if (!it) continue;
+        ImGui::PushID(10000 + i);
+        Voxel rc = rarityUiColor(it->rarity);
+        ImGui::TextColored(ImVec4(rc.r / 255.f, rc.g / 255.f, rc.b / 255.f, 1.f),
+                           "%s", it->getName().c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Sell")) sellIdx = i;
+        ImGui::SameLine();
+        ImGui::TextDisabled("%dg", itemSellPrice(*it));
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+    if (sellIdx >= 0) vendorSell(ctx, sellIdx);
+
+    ImGui::Columns(1);
+    if (ImGui::Button("Close", ImVec2(-1, 0))) ctx.showVendor = false;
+    ImGui::End();
+}
+
+// A small always-on gold readout (bottom-left of the viewport).
+static void drawGoldChip(AppContext& ctx) {
+    if (ctx.paused) return;
+    ImVec2 vp = vpPos(), vs = vpSize();
+    ImGui::SetNextWindowPos(ImVec2(vp.x + 14.0f, vp.y + vs.y - 40.0f), ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.40f);
+    ImGui::Begin("##goldchip", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                 ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoFocusOnAppearing |
+                 ImGuiWindowFlags_NoNav | ImGuiWindowFlags_AlwaysAutoResize);
+    ImGui::TextColored(ImVec4(0.95f, 0.84f, 0.38f, 1.0f), "Gold: %d", ctx.playerGold);
+    ImGui::End();
+}
+
 // On-screen quest tracker (top-right) — lists active quests + live progress.
 static void drawQuestTracker(AppContext& ctx) {
     if (ctx.activeQuests.empty()) return;
@@ -982,6 +1065,10 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
     drawTrainerWindow(ctx);
     // Quest Giver window (E at a town quest-giver) — accept town quests.
     drawQuestGiverWindow(ctx);
+    // Vendor shop window (E at a town merchant) — buy/sell gear for gold.
+    drawVendorWindow(ctx);
+    // Always-on gold readout.
+    drawGoldChip(ctx);
     // Active-quest tracker (top-right HUD).
     drawQuestTracker(ctx);
     // Target frame + in-world selection marker (top-centre).

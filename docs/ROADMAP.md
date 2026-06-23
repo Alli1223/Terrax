@@ -121,8 +121,9 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
   to real droppable items later.)_
 - [x] **E5. Quest log + tracker UI** — on-screen objective **tracker** (top-right,
   done in E3) + a full **journal panel** (J key) listing every active/complete quest
-  with progress, target region/tier, recommended level and rewards. _(Map/compass
-  marker to the target still TODO.)_
+  with progress, target region/tier, recommended level and rewards. Active quest
+  objectives also show as gold diamond markers (green when complete) on the world
+  map (M), with the quest title — so "go to <dungeon/region>" has clear direction.
 - [x] **E6. Rewards & turn-in** — returning to a quest-giver shows Complete
   quests with a "Turn in" button → grants `rewardXp` (shared `grantPlayerXp`),
   `rewardGold` (new `ctx.playerGold`), and a rolled item at `recommendedLevel`

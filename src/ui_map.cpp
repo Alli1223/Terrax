@@ -358,6 +358,26 @@ void renderMapUI(AppContext& ctx) {
         }
     }
 
+    // ── Active quest targets: gold diamonds pointing to objectives ───────────
+    {
+        for (const Quest& q : ctx.activeQuests) {
+            if (q.status == QuestStatus::TurnedIn) continue;
+            ImVec2 sp = worldToMap((float)q.targetXZ.x, (float)q.targetXZ.y);
+            float  d2 = (sp.x - mc.x) * (sp.x - mc.x) + (sp.y - mc.y) * (sp.y - mc.y);
+            if (d2 >= h * h) continue;
+            ImU32 col = (q.status == QuestStatus::Complete) ? IM_COL32(120, 235, 140, 255)
+                                                            : IM_COL32(255, 210, 70, 255);
+            dl->AddNgonFilled(sp, 7.0f, col, 4);                 // a diamond
+            dl->AddNgon(sp, 7.0f, IM_COL32(0, 0, 0, 200), 4, 1.5f);
+            if (worldRadius < 1400.0f && !q.title.empty()) {
+                ImVec2 ts = ImGui::CalcTextSize(q.title.c_str());
+                ImVec2 tp = { sp.x - ts.x * 0.5f, sp.y - 22.0f };
+                dl->AddText({ tp.x + 1, tp.y + 1 }, IM_COL32(0, 0, 0, 210), q.title.c_str());
+                dl->AddText(tp, col, q.title.c_str());
+            }
+        }
+    }
+
     // ── Nearest graveyard: a tombstone marking the respawn point ─────────────
     {
         glm::ivec2 gc; int gby;

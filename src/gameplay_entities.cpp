@@ -85,10 +85,10 @@ static int xpForNextLevel(int level) {
     return 100 + 50 * (level - 1);
 }
 
-// XP awarded per enemy kill, slightly scaling with the player's level so
-// kills don't feel devalued at the top of the curve.
-static int xpForEnemyKill(int playerLevel) {
-    return 20 + 5 * playerLevel;
+// Base XP for an enemy of the given level — higher-level foes (found further
+// from spawn) are worth more, so venturing out pays off.
+static int xpForEnemyKill(int enemyLevel) {
+    return 20 + 5 * enemyLevel;
 }
 
 // Push a transient HUD message. UI renders the queue in renderPlayUI;
@@ -175,7 +175,13 @@ static void spawnDeathParticles(AppContext& ctx, const NPC* npc) {
 // observer awards themselves XP — good enough for single-player and
 // small-coop play.
 void awardEnemyKill(AppContext& ctx, const NPC* npc) {
-    int xp = xpForEnemyKill(ctx.playerLevel);
+    int enemyLevel = std::max(1, (int)npc->level);
+    int xp = xpForEnemyKill(enemyLevel);
+    // Con-based scaling: trivial (far-below) kills give a fraction; equal-or-above
+    // foes give full XP. Keeps low-tier grinding from out-pacing venturing out.
+    int diff = enemyLevel - ctx.playerLevel;
+    if (diff < -8)     xp = std::max(1, xp / 5);
+    else if (diff < 0) xp = std::max(1, (int)(xp * (1.0f + 0.06f * (float)diff)));
     ctx.playerXp += float(xp);
     pushToast(ctx, std::string("+") + std::to_string(xp) + " XP",
               Voxel{160, 210, 255, 255}, 2.5f);

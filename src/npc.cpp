@@ -1062,7 +1062,7 @@ void NpcDirector::applyPlayerDamageToNpc(NPC& n, uint32_t attackerId,
         // bandits (Enemy) drop loot — villagers and guards don't.
         if (!n.lootDropped && isHostileNpc(n.type) && g_server) {
             n.lootDropped = true;
-            g_server->spawnLootForKill(attackerId, n.position, n.boss);   // boss → legendary
+            g_server->spawnLootForKill(attackerId, n.position, n.boss, n.level);  // boss → legendary; loot scales with foe level
         }
     }
 }
@@ -1170,6 +1170,8 @@ void NpcDirector::stepBandit(NPC& n, float dt, World& world,
     float chaseSpeed = 3.4f, dmgPlayer = 7.0f, dmgGuard = 8.0f, atkCd = 1.5f;
     if (n.type == NPCType::Brute)         { chaseSpeed = 2.6f; dmgPlayer = 18.0f; dmgGuard = 16.0f; atkCd = 2.2f; }
     else if (n.type == NPCType::Skeleton) { chaseSpeed = 3.8f; dmgPlayer = 6.0f;  dmgGuard = 7.0f;  atkCd = 1.3f; }
+    // Higher-level foes (further from spawn) hit harder.
+    dmgPlayer *= npcDamageScaleForLevel(n.level);
 
     // Acquire a target: the nearest aggro-range player outside a town, or a town
     // guard that has closed within striking distance — so a raiding or cornered
@@ -1372,7 +1374,8 @@ void NpcDirector::stepRangedEnemy(NPC& n, float dt, World& world,
                 glm::vec3 dir3   = aim - origin;
                 float len = glm::length(dir3);
                 if (len > 0.001f)
-                    spawnEnemyProjectile(origin, (dir3 / len) * 16.0f, 9.0f);
+                    spawnEnemyProjectile(origin, (dir3 / len) * 16.0f,
+                                         9.0f * npcDamageScaleForLevel(n.level));
             }
         }
         n.path.clear(); n.pathIndex = 0;
@@ -1469,7 +1472,7 @@ void NpcDirector::stepGuard(NPC& n, float dt, World& world,
                         banditTgt->dyingTimer = 2.0f;
                     }
                 } else {
-                    pendingDamage.push_back({ playerTgt, 6.0f });
+                    pendingDamage.push_back({ playerTgt, 6.0f * npcDamageScaleForLevel(n.level) });
                 }
             }
         }

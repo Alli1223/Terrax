@@ -59,8 +59,9 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
 - [x] **B2. Enemy levels** — every hostile NPC carries a `level` derived from the
   danger tier of its spawn point; serialize it in `NPCState`. (HP also scales at
   spawn; bosses are +3 levels above their pack.)
-- [ ] **B3. Level-scaled enemy stats** — HP/damage/XP-reward/loot-level scale
-  with enemy level (re-use the item-generator `targetLevel`).
+- [x] **B3. Level-scaled enemy stats** — HP/damage/XP-reward/loot-level scale
+  with enemy level (re-use the item-generator `targetLevel`). Loot rolls at
+  max(player, enemy) level; XP uses con-based scaling (grey kills give less).
 - [ ] **B4. Biome-tier mapping** — bias biome placement so harsher biomes
   (volcanic, frozen, blighted) sit in the outer tiers; lush/temperate near spawn.
 - [ ] **B5. Level-up rewards & feel** — level-up FX, stat recompute, "you must be

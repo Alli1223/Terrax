@@ -218,8 +218,9 @@ static void itemToLootPacket(const Item* item, LootSpawnPacket& pkt) {
     }
 }
 
-void NetworkServer::spawnLootForKill(uint32_t attackerId, const glm::vec3& pos, bool legendary) {
-    int level = getPlayerLevel(attackerId);
+void NetworkServer::spawnLootForKill(uint32_t attackerId, const glm::vec3& pos,
+                                     bool legendary, int enemyLevel) {
+    int level = std::max(getPlayerLevel(attackerId), enemyLevel);
     static std::mt19937 rng((uint32_t)std::chrono::steady_clock::now()
                               .time_since_epoch().count());
     int dropCount = legendary ? std::uniform_int_distribution<int>(2, 4)(rng)

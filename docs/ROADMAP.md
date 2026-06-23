@@ -163,6 +163,21 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
 - [ ] **H6. Per-screenshot follow-ups** — each rendering review appends concrete,
   scoped items here for later iterations to work through.
 
+### Rendering review #2 (2026-06-23, clean tour — overlay now off)
+
+`--screenshot-tour` now disables the F3 debug overlay so review frames are
+unobstructed (the old shots hid ~40% of the frame). Reviewed clean vistas
+(snowy conifer coast, mountains, spawn town):
+
+- **Verdict: the renderer reads well.** AO (R1) gives terrain + stone steps +
+  building edges real depth; the post pass (shafts, fog, contrast, saturation,
+  vignette) is well-tuned. No urgent visual gaps.
+- [ ] **R8. Water saturation near snow** — the turquoise sea reads a touch neon
+  against muted snow/tundra; consider easing water saturation toward the shore
+  in cold biomes. _(Low priority — per the Sea-of-Thieves palette by design.)_
+- [ ] **R9. Foliage variety** — conifers are simple cones; more tree silhouettes
+  / size variation would enrich distance vistas. _(Ties into C/vegetation work.)_
+
 ### Rendering review #1 (2026-06-23, tour shots tier 1 & tier 9)
 
 From the first `--screenshot-tour` (spawn savanna town; tier-9 ocean). Findings,

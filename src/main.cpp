@@ -89,6 +89,7 @@ int main(int argc, char** argv) {
         ctx.connectHost = "127.0.0.1";
         ctx.connectPort = DEFAULT_SERVER_PORT;
         ctx.weOwnServer = true;
+        ctx.showDebugOverlay = false;   // clean frames for the rendering review
         beginLoading(ctx);            // spawns the world worker; state → Loading
     }
 

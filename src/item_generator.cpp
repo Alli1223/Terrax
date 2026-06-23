@@ -173,6 +173,26 @@ const ArmorSet KNOWN_SETS[] = {
         { 40,  75, 110, 255}, {200, 230, 220, 255} },
     { "Emberforge",  "Emberforge",  ClothingTier::Plate,
         { 70,  35,  35, 255}, {255, 110,  45, 255} },
+    { "Stormcaller", "Stormcaller", ClothingTier::Cloth,
+        { 60,  80, 120, 255}, {180, 230, 255, 255} },   // storm-blue + lightning white
+    { "Thornweave",  "Thornweave",  ClothingTier::Leather,
+        { 48,  78,  50, 255}, {150, 110,  70, 255} },   // bramble green + bark
+    { "Obsidian",    "Obsidian",    ClothingTier::Plate,
+        { 24,  24,  30, 255}, {200,  50,  40, 255} },   // black glass + ember red
+    { "Moonveil",    "Moonveil",    ClothingTier::Cloth,
+        {200, 205, 230, 255}, {120, 150, 220, 255} },   // pale silver + moonlit blue
+    { "Bloodforged", "Bloodforged", ClothingTier::Plate,
+        { 90,  30,  30, 255}, {200, 180, 190, 255} },   // dark blood + pale steel
+    { "Verdant",     "Verdant",     ClothingTier::Leather,
+        { 60, 100,  55, 255}, {220, 200, 110, 255} },   // living green + gold
+    { "Ashen",       "Ashen",       ClothingTier::Cloth,
+        { 90,  88,  92, 255}, {235, 120,  60, 255} },   // grey ash + smouldering ember
+    { "Aurelian",    "Aurelian",    ClothingTier::Plate,
+        {215, 180,  90, 255}, {255, 245, 220, 255} },   // gilded gold + ivory
+    { "Ravenfeather","Ravenfeather",ClothingTier::Leather,
+        { 34,  32,  44, 255}, {120,  80, 170, 255} },   // black feather + violet sheen
+    { "Glacial",     "Glacial",     ClothingTier::Cloth,
+        {200, 228, 240, 255}, { 70, 150, 200, 255} },   // ice white + deep glacier blue
 };
 
 // Slot noun pools. Common slots have more "plain" nouns; rare/legendary

@@ -129,8 +129,18 @@ piece). Source of truth: `KNOWN_SETS` in item_generator.cpp.
 | Stagstride | Leather | 115,82,52 | 225,205,130 |
 | Tideborn | Leather | 40,75,110 | 200,230,220 |
 | Emberforge | Plate | 70,35,35 | 255,110,45 |
+| Stormcaller | Cloth | 60,80,120 | 180,230,255 |
+| Thornweave | Leather | 48,78,50 | 150,110,70 |
+| Obsidian | Plate | 24,24,30 | 200,50,40 |
+| Moonveil | Cloth | 200,205,230 | 120,150,220 |
+| Bloodforged | Plate | 90,30,30 | 200,180,190 |
+| Verdant | Leather | 60,100,55 | 220,200,110 |
+| Ashen | Cloth | 90,88,92 | 235,120,60 |
+| Aurelian | Plate | 215,180,90 | 255,245,220 |
+| Ravenfeather | Leather | 34,32,44 | 120,80,170 |
+| Glacial | Cloth | 200,228,240 | 70,150,200 |
 
-**10 themed sets.**
+**20 themed sets.**
 
 ## Dungeons
 
@@ -142,21 +152,21 @@ underground. Each has exactly one boss room with legendary loot.
 
 | Kind | Tier | Footprint (W×D) | Rooms | Corridors | Lights | Spawns | Bosses |
 |------|:----:|:---------------:|------:|----------:|-------:|-------:|-------:|
-| Crypt | 0 | 135×130 | 10 | 10 | 300 | 20 | 1 |
+| Crypt | 0 | 135×130 | 10 | 10 | 300 | 21 | 1 |
 | Crypt | 1 | 189×186 | 24 | 26 | 679 | 56 | 1 |
-| Crypt | 2 | 258×254 | 38 | 40 | 1025 | 90 | 1 |
-| Crypt | 3 | 325×328 | 33 | 36 | 1183 | 74 | 1 |
-| Cave | 0 | 166×156 | 19 | 19 | 319 | 42 | 1 |
-| Cave | 1 | 189×208 | 33 | 37 | 583 | 75 | 1 |
-| Cave | 2 | 250×291 | 51 | 56 | 857 | 113 | 1 |
-| Cave | 3 | 295×346 | 71 | 82 | 1420 | 164 | 1 |
-| Ruins | 0 | 121×120 | 11 | 10 | 245 | 26 | 1 |
-| Ruins | 1 | 181×174 | 17 | 17 | 439 | 38 | 1 |
-| Ruins | 2 | 253×260 | 28 | 30 | 752 | 68 | 1 |
-| Ruins | 3 | 323×302 | 42 | 46 | 1326 | 96 | 1 |
-| Castle | 0 | 60×33 | 5 | 0 | 16 | 17 | 1 |
+| Crypt | 2 | 258×254 | 38 | 40 | 1025 | 91 | 1 |
+| Crypt | 3 | 325×328 | 33 | 36 | 1183 | 75 | 1 |
+| Cave | 0 | 166×156 | 19 | 19 | 319 | 43 | 1 |
+| Cave | 1 | 189×208 | 33 | 37 | 583 | 78 | 1 |
+| Cave | 2 | 250×291 | 51 | 56 | 857 | 120 | 1 |
+| Cave | 3 | 295×346 | 71 | 82 | 1420 | 167 | 1 |
+| Ruins | 0 | 121×120 | 11 | 10 | 245 | 23 | 1 |
+| Ruins | 1 | 181×174 | 17 | 17 | 439 | 40 | 1 |
+| Ruins | 2 | 253×260 | 28 | 30 | 752 | 69 | 1 |
+| Ruins | 3 | 323×302 | 42 | 46 | 1326 | 94 | 1 |
+| Castle | 0 | 60×33 | 5 | 0 | 16 | 16 | 1 |
 | Castle | 1 | 72×45 | 7 | 0 | 20 | 21 | 1 |
-| Castle | 2 | 84×57 | 9 | 0 | 24 | 29 | 1 |
+| Castle | 2 | 84×57 | 9 | 0 | 24 | 27 | 1 |
 | Castle | 3 | 96×69 | 11 | 0 | 28 | 36 | 1 |
 
 Room purposes (DungeonRoom.purpose): 0 hall · 1 entrance · 2 boss · 3 throne · 4 library · 5 ornament · 6 vault/treasure · 7 prison.

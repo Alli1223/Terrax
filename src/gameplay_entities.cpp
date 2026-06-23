@@ -204,6 +204,20 @@ void awardEnemyKill(AppContext& ctx, const NPC* npc) {
         sendPlayerModelUpdate(ctx);
     }
 
+    // Kill-quest progress: credit any active KillEnemies quest whose foe + region
+    // match this kill (region = within one danger tier of the kill location).
+    int killTier = dangerTierAt(npc->position.x, npc->position.z);
+    for (Quest& q : ctx.activeQuests) {
+        if (!questKillCounts(q, (uint8_t)npc->type, killTier)) continue;
+        if (q.progress < q.requiredCount) q.progress++;
+        if (q.progress >= q.requiredCount && q.status == QuestStatus::Active) {
+            q.status = QuestStatus::Complete;
+            pushToast(ctx, std::string("Quest complete: ") + q.title
+                           + " - return to a quest giver",
+                      Voxel{120, 230, 140, 255}, 5.0f);
+        }
+    }
+
     spawnDeathParticles(ctx, npc);
 }
 

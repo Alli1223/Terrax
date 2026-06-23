@@ -575,7 +575,10 @@ static void drawQuestGiverWindow(AppContext& ctx) {
         if (isActive(q.id)) {
             ImGui::TextColored(ImVec4(0.55f, 0.95f, 0.6f, 1.0f), "Accepted");
         } else if (ImGui::Button("Accept", ImVec2(110, 0))) {
-            ctx.activeQuests.push_back(q);
+            Quest accepted = q;
+            accepted.status   = QuestStatus::Active;
+            accepted.progress = 0;
+            ctx.activeQuests.push_back(std::move(accepted));
             AppContext::HudToast t{ std::string("Quest accepted: ") + q.title,
                                     Voxel{255, 220, 120, 255}, 3.0f };
             ctx.toasts.push_back(std::move(t));
@@ -587,6 +590,41 @@ static void drawQuestGiverWindow(AppContext& ctx) {
 
     ImGui::Text("Active quests: %d", (int)ctx.activeQuests.size());
     if (ImGui::Button("Close", ImVec2(-1, 0))) ctx.showQuestGiver = false;
+    ImGui::End();
+}
+
+// On-screen quest tracker (top-right) — lists active quests + live progress.
+static void drawQuestTracker(AppContext& ctx) {
+    if (ctx.activeQuests.empty()) return;
+    if (ctx.paused || ctx.showMap || ctx.showInventory || ctx.showCharacterLoadout ||
+        ctx.showQuestGiver || ctx.showTrainer) return;
+    ImVec2 vp = vpPos(), vs = vpSize();
+    const float W = 268.0f;
+    ImGui::SetNextWindowPos(ImVec2(vp.x + vs.x - W - 14.0f, vp.y + 70.0f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(W, 0), ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.42f);
+    ImGui::Begin("##questtracker", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                 ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoFocusOnAppearing |
+                 ImGuiWindowFlags_NoNav | ImGuiWindowFlags_AlwaysAutoResize);
+    ImGui::TextColored(ImVec4(1.0f, 0.82f, 0.35f, 1.0f), "Quests");
+    ImGui::Separator();
+    int shown = 0;
+    for (const Quest& q : ctx.activeQuests) {
+        if (q.status == QuestStatus::TurnedIn) continue;
+        if (++shown > 6) break;
+        bool done = (q.status == QuestStatus::Complete);
+        ImGui::TextColored(done ? ImVec4(0.55f, 0.95f, 0.6f, 1.0f)
+                                : ImVec4(0.90f, 0.92f, 1.0f, 1.0f),
+                           "%s", q.title.c_str());
+        if (done) {
+            ImGui::TextDisabled("   Complete - return to a giver");
+        } else {
+            const char* what = (q.kind == QuestKind::KillEnemies)
+                             ? questEnemyLabel(q.targetNpcType) : q.collectName.c_str();
+            ImGui::TextDisabled("   %s  %d/%d", what, q.progress, q.requiredCount);
+        }
+    }
     ImGui::End();
 }
 
@@ -876,6 +914,8 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
     drawTrainerWindow(ctx);
     // Quest Giver window (E at a town quest-giver) — accept town quests.
     drawQuestGiverWindow(ctx);
+    // Active-quest tracker (top-right HUD).
+    drawQuestTracker(ctx);
 
     // Toast queue — XP / level-up / loot notifications stacked top-right.
     // Newest at the bottom of the stack so the eye lands on the latest

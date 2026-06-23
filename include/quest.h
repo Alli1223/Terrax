@@ -48,7 +48,21 @@ struct Quest {
     int         rewardGold = 0;
     bool        rewardItem = false;     // rolls an item at recommendedLevel
     int         giverTownIndex = -1;
+
+    // Runtime progress (set once a player accepts the quest) -------------
+    int         progress = 0;           // objective count so far
+    QuestStatus status   = QuestStatus::Available;
 };
+
+// True when a kill of `npcType` at `killTier` (the danger tier of the kill
+// location) counts toward `q` — the foe type matches and the kill happened in
+// the quest's region (within one danger tier of its target). Shared by the
+// gameplay kill hook so the rule lives next to the data model.
+inline bool questKillCounts(const Quest& q, uint8_t npcType, int killTier) {
+    return q.status == QuestStatus::Active && q.kind == QuestKind::KillEnemies
+        && q.targetNpcType == npcType
+        && (killTier >= q.targetTier - 1) && (killTier <= q.targetTier + 1);
+}
 
 // Pure, deterministic generator: build a giver town's quest board from its
 // centre + seed + a set of candidate targets. No world-plan survey, no GL — so

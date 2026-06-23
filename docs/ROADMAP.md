@@ -102,8 +102,11 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
   per town; pressing E opens a quest-board dialog (lists `getTownQuests`, maps the
   giver to its town via nearest-in-plan); Accept adds to `ctx.activeQuests`.
   _(Assignment is client-side for now; networked turn-in lands with E6.)_
-- [ ] **E3. Kill quests** — "slay N <enemy> in <region/dungeon>"; objective
-  progress tracked server-side from kill events.
+- [x] **E3. Kill quests** — accepted `KillEnemies` quests track progress on each
+  matching kill (foe type + kill within one danger tier of the target region; see
+  `questKillCounts`), flip to Complete at the required count, and show live in a
+  top-right **quest tracker** HUD. _(Tracked client-side via awardEnemyKill; the
+  networked/server-authoritative path comes with E6.)_
 - [ ] **E4. Collection quests** — "gather N <item>"; counts inventory / loot.
 - [ ] **E5. Quest log + tracker UI** — journal panel + on-screen objective tracker
   with progress, and a map/compass marker to the target area.

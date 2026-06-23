@@ -76,3 +76,27 @@ TEST_CASE(Quest_EmptyTargetsYieldsNoQuests) {
     auto board = buildTownQuests(1u, 0, glm::ivec2(0, 0), {});
     CHECK(board.empty());
 }
+
+TEST_CASE(Quest_KillCountingRule) {
+    Quest q;
+    q.kind = QuestKind::KillEnemies;
+    q.targetNpcType = 4;     // e.g. Skeleton
+    q.targetTier = 5;
+    q.status = QuestStatus::Active;
+
+    // Right foe, in-region (within one tier band) → counts.
+    CHECK(questKillCounts(q, 4, 5));
+    CHECK(questKillCounts(q, 4, 4));
+    CHECK(questKillCounts(q, 4, 6));
+    // Wrong foe type → no.
+    CHECK(!questKillCounts(q, 1, 5));
+    // Out of region (tier too far) → no.
+    CHECK(!questKillCounts(q, 4, 2));
+    CHECK(!questKillCounts(q, 4, 8));
+    // Not active (still available / already complete) → no.
+    q.status = QuestStatus::Available; CHECK(!questKillCounts(q, 4, 5));
+    q.status = QuestStatus::Complete;  CHECK(!questKillCounts(q, 4, 5));
+    // Collection quests never count kills.
+    q.status = QuestStatus::Active; q.kind = QuestKind::CollectItems;
+    CHECK(!questKillCounts(q, 4, 5));
+}

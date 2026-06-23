@@ -137,6 +137,13 @@ static void renderDebugOverlay(AppContext& ctx) {
     ImGui::Text("Pos    %.1f, %.1f, %.1f", cp.x, cp.y, cp.z);
     ImGui::Text("Chunk  %d, %d   loaded %d", cx, cz, (int)ctx.world.chunks.size());
     ImGui::Text("Biome  %s   render dist %d", biome, ctx.world.renderDistance);
+    int dangerTier = dangerTierAt(cp.x, cp.z);
+    float spawnDist = distanceFromSpawn(cp.x, cp.z);
+    // Warm the colour as the tier climbs: green (safe) → amber → red (deadly).
+    float dt01 = (float)(dangerTier - 1) / (float)(DANGER_MAX_TIER - 1);
+    ImVec4 tierCol(0.45f + 0.55f * dt01, 0.95f - 0.65f * dt01, 0.35f, 1.0f);
+    ImGui::TextColored(tierCol, "Danger tier %d / %d   (%.0fm from spawn)",
+                       dangerTier, DANGER_MAX_TIER, spawnDist);
     ImGui::Text("Time   %.2f  (%s)", gt, phase);
 
     ImGui::TextColored(head, "Rendered objects (%d)", totalObj);

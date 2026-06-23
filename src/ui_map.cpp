@@ -446,6 +446,18 @@ void renderMapUI(AppContext& ctx) {
         }
     }
 
+    // ── Danger tier readout ───────────────────────────────────────────────────
+    {
+        int   tier = dangerTierAt(ctx.camera.position.x, ctx.camera.position.z);
+        float dist = distanceFromSpawn(ctx.camera.position.x, ctx.camera.position.z);
+        float dt01 = (float)(tier - 1) / (float)(DANGER_MAX_TIER - 1);
+        ImVec4 col(0.45f + 0.55f * dt01, 0.95f - 0.65f * dt01, 0.35f, 1.0f);
+        ImGui::Spacing();
+        ImGui::TextColored(col, "Danger tier %d / %d", tier, DANGER_MAX_TIER);
+        ImGui::SameLine();
+        ImGui::TextDisabled("(%.0fm from spawn — venture out for higher-level foes & loot)", dist);
+    }
+
     // ── Controls hint ─────────────────────────────────────────────────────────
     ImGui::Spacing();
     ImGui::TextDisabled("LMB drag: Pan   |   RMB drag: Rotate   |   RMB click: Teleport   |   Scroll: Zoom   |   M / Esc: Close");

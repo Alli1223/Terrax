@@ -54,7 +54,7 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
 
 ## Track B — World scaling & progression
 
-- [ ] **B1. Danger tiers** — `dangerTierAt(worldXZ)` = f(distance from spawn),
+- [x] **B1. Danger tiers** — `dangerTierAt(worldXZ)` = f(distance from spawn),
   surfaced in the F3 overlay and on the map. Spawn is a safe tier-1 zone.
 - [ ] **B2. Enemy levels** — every hostile NPC carries a `level` derived from the
   danger tier of its spawn point; serialize it in `NPCState`.

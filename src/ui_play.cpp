@@ -67,6 +67,36 @@ static void drawHealthBar(const glm::vec3& worldPos, float frac,
                       ImVec2(sx - W * 0.5f + W * frac, sy + H), IM_COL32(200, 45, 40, 255));
 }
 
+// WoW-style "con" colour for an enemy `level` relative to the player: red/orange
+// (above), yellow (even), green/grey (below — trivial). Drives the level tag.
+static ImU32 conColor(int enemyLevel, int playerLevel) {
+    int d = enemyLevel - playerLevel;
+    if (d >= 5)  return IM_COL32(210,  60,  50, 255);   // much higher — deadly
+    if (d >= 3)  return IM_COL32(230, 140,  40, 255);   // higher — tough
+    if (d >= -2) return IM_COL32(228, 214,  70, 255);   // even — fair fight
+    if (d >= -7) return IM_COL32( 95, 200,  85, 255);   // lower — easy
+    return IM_COL32(165, 165, 165, 255);                // trivial — grey
+}
+
+// Floating "Lv N" tag centred at a world position (above an enemy's head).
+static void drawLevelTag(const glm::vec3& worldPos, int level, ImU32 col,
+                         const glm::mat4& view, const glm::mat4& proj,
+                         int fbW, int fbH) {
+    glm::vec4 clip = proj * view * glm::vec4(worldPos, 1.0f);
+    if (clip.w <= 0.01f) return;
+    glm::vec3 ndc = glm::vec3(clip) / clip.w;
+    if (ndc.z < -1.0f || ndc.z > 1.0f) return;
+    float sx = (ndc.x * 0.5f + 0.5f) * (float)fbW;
+    float sy = (1.0f - (ndc.y * 0.5f + 0.5f)) * (float)fbH;
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "Lv %d", level);
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    ImVec2 ts = ImGui::CalcTextSize(buf);
+    ImVec2 p(sx - ts.x * 0.5f, sy - ts.y * 0.5f);
+    dl->AddText(ImVec2(p.x + 1, p.y + 1), IM_COL32(0, 0, 0, 200), buf);   // shadow
+    dl->AddText(p, col, buf);
+}
+
 // F3 debug / session overlay — performance, world, rendered objects, server.
 static void renderDebugOverlay(AppContext& ctx) {
     // Tally the live client-side objects by kind.
@@ -693,13 +723,25 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
         ImGui::End();
     }
 
-    // NPC health bars over damaged NPCs.
+    // NPC health bars over damaged NPCs, and a level tag over nearby hostiles
+    // (shown even at full health so the player can size up a fight before
+    // engaging — coloured by level relative to the player).
     for (auto& o : ctx.objectManager.objects()) {
         if (o->dead || o->kind != ObjectKind::NPC) continue;
         NPC* n = static_cast<NPC*>(o.get());
         if (n->dyingFlag) continue;
-        float maxHp = defaultNpcHealth(n->type);          // per-type max (Skeleton 60, Brute 220, ...)
+        // Max HP must mirror the server's level-scaled spawn HP, else a leveled
+        // foe's bar would read past full.
+        float maxHp = defaultNpcHealth(n->type) * npcHpScaleForLevel(n->level);
         float frac  = (maxHp > 0.0f) ? (n->health / maxHp) : 1.0f;
+        bool hostile = isHostileNpc(n->type);
+        float dist   = glm::distance(n->position, ctx.camera.position);
+        if (hostile && dist < 45.0f) {
+            drawLevelTag(n->position + glm::vec3(0.0f, 2.65f, 0.0f),
+                         (int)n->level, conColor((int)n->level, ctx.playerLevel),
+                         renderer.frameView, renderer.frameProj,
+                         renderer.frameFbW, renderer.frameFbH);
+        }
         if (frac >= 0.995f) continue;                     // hide the bar at full health
         drawHealthBar(n->position + glm::vec3(0.0f, 2.3f, 0.0f), frac,
                       renderer.frameView, renderer.frameProj,

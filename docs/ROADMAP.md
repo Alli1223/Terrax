@@ -86,8 +86,10 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
   persists; abilities use it instead of re-coning each cast.
 - [ ] **D2. Target frame UI** — selected enemy's name, level, health bar, and a
   cast bar; colour by hostility and level delta.
-- [ ] **D3. Nameplates** — floating name + level + health over nearby enemies,
-  with a selection highlight ring on the target.
+- [~] **D3. Nameplates** — floating name + level + health over nearby enemies,
+  with a selection highlight ring on the target. _(Done: con-coloured "Lv N" tag
+  over hostiles within 45m + level-aware health bars. Pending: enemy name label
+  and the target selection ring — needs D1.)_
 - [ ] **D4. Threat/aggro polish** — show aggro state; tab cycles nearest hostiles.
 
 ## Track E — Quests & quest-givers  *(the core loop)*

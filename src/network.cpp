@@ -230,13 +230,11 @@ void NetworkServer::spawnLootForKill(uint32_t attackerId, const glm::vec3& pos,
     };
 
     std::vector<LootSpawnPacket> toBroadcast;
-    toBroadcast.reserve(dropCount);
+    toBroadcast.reserve(dropCount + 1);
     {
         std::lock_guard<std::mutex> lock(lootMutex);
-        for (int i = 0; i < dropCount; i++) {
-            auto item = legendary ? generateLegendaryItem(rng(), level + 2)
-                                  : generateRandomItem(rng(), level);
-            if (!item) continue;
+        auto pushDrop = [&](std::unique_ptr<Item> item) {
+            if (!item) return;
             LootSpawnPacket pkt {};
             pkt.dropId = nextLootId++;
             pkt.x = pos.x + frand(-0.4f, 0.4f);
@@ -249,7 +247,13 @@ void NetworkServer::spawnLootForKill(uint32_t attackerId, const glm::vec3& pos,
                 std::chrono::steady_clock::now().time_since_epoch()).count();
             activeLoot.push_back(entry);
             toBroadcast.push_back(pkt);
-        }
+        };
+        for (int i = 0; i < dropCount; i++)
+            pushDrop(legendary ? generateLegendaryItem(rng(), level + 2)
+                               : generateRandomItem(rng(), level));
+        // Bosses (legendary drops) always also yield a themed armour-SET piece —
+        // a recognisable trophy you can only really earn by killing them.
+        if (legendary) pushDrop(generateSetClothing(rng(), level + 1));
     }
     for (auto& pkt : toBroadcast)
         broadcast(PacketType::LootSpawn, &pkt, sizeof(pkt));

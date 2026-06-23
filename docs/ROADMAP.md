@@ -139,8 +139,9 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
 
 - [ ] **F1. Boss mechanics** — telegraphs, special abilities, enrage; distinct
   from trash mobs.
-- [ ] **F2. Boss loot tables** — themed drops per dungeon kind + guaranteed
-  rare/legendary; tie into collection quests.
+- [x] **F2. Boss loot** — boss kills drop 2–4 guaranteed **legendaries** *plus* a
+  guaranteed themed **set piece** (`generateSetClothing`) — a recognisable trophy you
+  can only earn from bosses. _(Per-dungeon-kind themed tables still possible later.)_
 - [ ] **F3. Dungeon discovery & re-pop** — entrance markers, "dungeon cleared"
   state, timed re-population.
 - [ ] **F4. Dungeon difficulty by tier** — dungeon level follows its danger tier;

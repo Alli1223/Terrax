@@ -240,6 +240,8 @@ struct AppContext {
     char chatInput[MAX_CHAT_TEXT + 1] = {};
     bool showPlayerList   = false;
     bool showDebugOverlay = true;    // F3 — session/debug stats overlay
+    bool requestScreenshot = false;  // F2 — capture the next rendered frame to a PNG
+    std::string screenshotTag;       // folded into the screenshot filename
 
     // --- Character / house editor ---
     float editorRotX = 0.0f, editorRotY = 0.0f;

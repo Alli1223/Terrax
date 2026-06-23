@@ -3,6 +3,7 @@ build/
 terrax
 terrax_tests
 asset_catalog
+screenshots/
 .claude/
 
 # Visual Studio

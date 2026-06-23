@@ -9,6 +9,7 @@
 #include "game_session.h"
 #include "graphics_settings.h"
 #include "audio.h"
+#include "screenshot.h"
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
@@ -17,8 +18,11 @@
 #include <algorithm>
 
 int main(int argc, char** argv) {
-    for (int i = 1; i < argc; i++)
+    bool tourMode = false;   // --screenshot-tour: auto-fly the world and dump PNGs
+    for (int i = 1; i < argc; i++) {
         if (std::string(argv[i]) == "--server") { runDedicatedServer(); return 0; }
+        if (std::string(argv[i]) == "--screenshot-tour") tourMode = true;
+    }
 
     if (!glfwInit()) { std::cerr << "GLFW init failed\n"; return 1; }
 
@@ -57,6 +61,23 @@ int main(int argc, char** argv) {
     // Last framebuffer size the offscreen targets were sized to. Tracked so the
     // main loop can re-fit them whenever the window is resized by any means.
     int lastFbW = initW, lastFbH = initH;
+
+    // --screenshot-tour: kick straight into a singleplayer session, then the loop
+    // below flies the camera out through the danger tiers, dumping a PNG at each.
+    // Waypoints are distances (blocks) from spawn along +X — one per danger band.
+    const int   tourDist[]  = { 0, 1500, 4000, 9000, 20000 };
+    const int   tourCount   = (int)(sizeof(tourDist) / sizeof(tourDist[0]));
+    int         tourStage   = -1;     // -1 = waiting for the world to come up
+    double      tourStageT  = 0.0;    // time the current stage began
+    bool        tourShot    = false;  // captured the current stage yet?
+    const double TOUR_SETTLE = 4.0;   // seconds to let chunks stream in per stop
+    if (tourMode) {
+        ctx.sessionMode = SessionMode::Singleplayer;
+        ctx.connectHost = "127.0.0.1";
+        ctx.connectPort = DEFAULT_SERVER_PORT;
+        ctx.weOwnServer = true;
+        beginLoading(ctx);            // spawns the world worker; state → Loading
+    }
 
     while (!glfwWindowShouldClose(window)) {
         float currentFrame = (float)glfwGetTime();
@@ -137,8 +158,47 @@ int main(int argc, char** argv) {
             break;
         }
 
+        // Autonomous screenshot tour: once the world is up, settle at each
+        // waypoint, grab a frame, then teleport further out and repeat.
+        if (tourMode && ctx.state == GameState::Playing) {
+            double now = glfwGetTime();
+            if (tourStage < 0) { tourStage = 0; tourStageT = now; tourShot = false; }  // entered Playing
+            double elapsed = now - tourStageT;
+            if (elapsed > TOUR_SETTLE && !tourShot) {
+                int tier = dangerTierAt((float)tourDist[tourStage], 0.0f);
+                char tag[32]; std::snprintf(tag, sizeof(tag), "tier%d_%dm", tier, tourDist[tourStage]);
+                ctx.screenshotTag     = tag;
+                ctx.requestScreenshot = true;
+                tourShot              = true;
+            }
+            if (elapsed > TOUR_SETTLE + 0.4) {
+                int next = tourStage + 1;
+                if (next >= tourCount) { glfwSetWindowShouldClose(window, 1); }
+                else {
+                    tourStage = next; tourStageT = now; tourShot = false;
+                    ctx.spawnX = tourDist[tourStage]; ctx.spawnZ = 0;
+                    int gy = sampleSurfaceSolid(ctx.spawnX, ctx.spawnZ);
+                    ctx.camera.position = glm::vec3((float)ctx.spawnX + 0.5f,
+                                                    (float)(gy + 8), (float)ctx.spawnZ + 0.5f);
+                    ctx.camera.velocity = glm::vec3(0.0f);
+                    ctx.spawnedOnGround = false;     // re-grounds when the chunk loads
+                }
+            }
+        }
+
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+        // Capture the just-rendered frame (F2, or the tour) before the swap.
+        if (ctx.requestScreenshot) {
+            int fbW = 0, fbH = 0;
+            glfwGetFramebufferSize(window, &fbW, &fbH);
+            std::string p = saveFramebufferPNG(fbW, fbH, ctx.screenshotTag);
+            if (!p.empty()) std::cout << "[Screenshot] saved " << p << "\n";
+            else            std::cerr << "[Screenshot] capture failed\n";
+            ctx.requestScreenshot = false;
+        }
+
         glfwSwapBuffers(window);
     }
 

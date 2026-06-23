@@ -180,6 +180,7 @@ static void key_callback(GLFWwindow* window, int key, int, int action, int) {
         }
         if (key == GLFW_KEY_N && action == GLFW_PRESS) ctx.noclip = !ctx.noclip;
         if (key == GLFW_KEY_F3 && action == GLFW_PRESS) ctx.showDebugOverlay = !ctx.showDebugOverlay;
+        if (key == GLFW_KEY_F2 && action == GLFW_PRESS) { ctx.requestScreenshot = true; ctx.screenshotTag.clear(); }
         if (key == GLFW_KEY_H && action == GLFW_PRESS && ctx.houseModel && ctx.client) {
             if (!ctx.housePreviewActive) {
                 ctx.housePreviewActive = true;     // first press: show placement ghost

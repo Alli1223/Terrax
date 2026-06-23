@@ -110,7 +110,16 @@ void GL_APIENTRY glBlendFunc(GLenum sfactor, GLenum dfactor);
 void GL_APIENTRY glLineWidth(GLfloat width);
 void GL_APIENTRY glPolygonMode(GLenum face, GLenum mode);
 void GL_APIENTRY glScissor(GLint x, GLint y, GLsizei w, GLsizei h);
+// Core 1.0 readback (used by the screenshot capture) — exported directly by
+// libGL / opengl32, like the prototypes above.
+void GL_APIENTRY glReadPixels(GLint x, GLint y, GLsizei w, GLsizei h,
+                              GLenum format, GLenum type, void* pixels);
+void GL_APIENTRY glPixelStorei(GLenum pname, GLint param);
 }
+
+#ifndef GL_PACK_ALIGNMENT
+#define GL_PACK_ALIGNMENT 0x0D05
+#endif
 
 // --- GL 1.5+ function pointer typedefs (loaded at runtime) ---
 typedef void   (GL_APIENTRY *PFN_glGenBuffers)(GLsizei, GLuint*);

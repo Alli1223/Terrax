@@ -129,9 +129,10 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
 
 ## Track H — Rendering pass (screenshot-driven)
 
-- [ ] **H1. In-game screenshot capture** — key (e.g. F2) → `glReadPixels` → PNG
-  in a `screenshots/` dir, plus a `--screenshot-tour` headless-ish capture mode
-  that flies the camera through varied scenes for the loop to review.
+- [x] **H1. In-game screenshot capture** — **F2** → `glReadPixels` → PNG in
+  `screenshots/` (dependency-free PNG writer, no libpng/zlib), plus
+  `./terrax --screenshot-tour` which boots singleplayer and flies the camera out
+  through the danger tiers (0/1500/4000/9000/20000m), dropping a tagged PNG at each.
 - [ ] **H2. Lighting & tone** — review shots; improve ambient/sky/fog, exposure
   and colour grading in the post pass.
 - [ ] **H3. Water & reflections** — review and refine the water shader.
@@ -139,6 +140,30 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
 - [ ] **H5. Shadows & SSAO** — soften shadows, add contact shadowing if cheap.
 - [ ] **H6. Per-screenshot follow-ups** — each rendering review appends concrete,
   scoped items here for later iterations to work through.
+
+### Rendering review #1 (2026-06-23, tour shots tier 1 & tier 9)
+
+From the first `--screenshot-tour` (spawn savanna town; tier-9 ocean). Findings,
+scoped as actionable items:
+
+- [ ] **R1. Voxel ambient occlusion** — block faces read flat; there's no
+  darkening in concave corners/edges. Add classic per-vertex voxel AO in the
+  chunk mesher (darken vertices by adjacent-solid-neighbour count). Biggest
+  single depth/quality win.
+- [ ] **R2. Stronger directional shading** — lit vs shadowed faces look nearly
+  equal (ambient too high). Lower ambient, raise sun contribution / face-normal
+  shading so terrain has form.
+- [ ] **R3. Water material** — water is flat and near-opaque. Add transparency +
+  fresnel + a little specular/normal ripple in `water.frag`.
+- [ ] **R4. Weather particles** — vertical streaks are prominent even over open
+  ocean; review rain density/opacity and whether it should gate on biome/weather.
+- [ ] **R5. Tone & colour grade** — very bright/saturated; add a gentle
+  exposure + filmic-ish tonemap and slight desaturation in `post.frag` for mood.
+- [ ] **R6. Distance fog blend** — far terrain fades to a flat band; blend fog
+  colour toward the sky gradient so the horizon reads cleanly.
+- [ ] **R7. Tour land waypoints** — the 20000m stop landed in open ocean; bias
+  tour waypoints toward land (sample surface, nudge to nearest solid) for more
+  representative scenes, and add a couple of elevated "vista" angles.
 
 ---
 

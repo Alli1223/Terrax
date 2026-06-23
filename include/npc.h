@@ -20,13 +20,16 @@ struct Town;
 enum class NPCType : uint8_t { Villager = 0, Enemy = 1, Guard = 2, Farmer = 3,
                               Skeleton = 4, Brute = 5, Cultist = 6,
                               Trainer = 7,      // static town "Class Trainer" — role swap
-                              Questgiver = 8 }; // static town quest-giver
+                              Questgiver = 8,   // static town quest-giver
+                              Zombie = 9,       // shambling undead melee (crypts/ruins)
+                              Knight = 10 };    // fallen plate knight — sword + shield (castles)
 
 // True for hostile NPC types — the town watch fights them and the player can
 // kill them for loot/XP. Extended as new enemy types are added.
 inline bool isHostileNpc(NPCType t) {
     return t == NPCType::Enemy || t == NPCType::Skeleton ||
-           t == NPCType::Brute || t == NPCType::Cultist;
+           t == NPCType::Brute || t == NPCType::Cultist ||
+           t == NPCType::Zombie || t == NPCType::Knight;
 }
 
 // Spawn health by type — brutes are tanky, skeletons brittle.
@@ -35,6 +38,8 @@ inline float defaultNpcHealth(NPCType t) {
         case NPCType::Brute:    return 220.0f;
         case NPCType::Skeleton: return 60.0f;
         case NPCType::Cultist:  return 90.0f;
+        case NPCType::Zombie:   return 130.0f;   // slow but soaks hits
+        case NPCType::Knight:   return 200.0f;   // armoured, near-boss durability
         default:                return 100.0f;   // bandits and the rest
     }
 }

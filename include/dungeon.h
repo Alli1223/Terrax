@@ -99,9 +99,12 @@ protected:
     void buildLayout(uint32_t seed, glm::ivec2 anchorXZ, int surfaceY,
                      int roomCount, int roomMin, int roomMax, bool wander);
     // Roster helper: `perRoom` minions in each room, a boss in the boss room,
-    // and a couple of guards around the surface mouth.
+    // and a champion in some chambers. Minions are drawn from `minionType` plus
+    // the optional `minionType2` (255 = none) so a dungeon is populated by a
+    // mix of two species instead of one.
     void rosterFill(std::vector<DungeonSpawn>& out, uint32_t seed,
-                    uint8_t minionType, uint8_t bossType, int perRoom) const;
+                    uint8_t minionType, uint8_t bossType, int perRoom,
+                    uint8_t minionType2 = 255) const;
 };
 
 // Factory — the only place that maps a DungeonKind to its concrete class.

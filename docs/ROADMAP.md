@@ -71,8 +71,12 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
 
 - [ ] **C1. Enemy archetype framework** — data-driven enemy defs (model palette,
   size, behaviour flags, ability set, tier band) so new enemies are table rows.
-- [ ] **C2. Humanoids** — Bandit, Brigand, Cultist, Necromancer, Knight, Warlord.
-- [ ] **C3. Undead** — Skeleton (warrior/archer/mage), Zombie, Ghoul, Wraith, Lich.
+- [~] **C2. Humanoids** — Bandit, Brigand, Cultist, Necromancer, Knight, Warlord.
+  _(Added: `Knight` — plate, sword+shield, tanky; spawns as ruins/castle minions
+  & boss. Bandit/Cultist already existed. More humanoids to come.)_
+- [~] **C3. Undead** — Skeleton (warrior/archer/mage), Zombie, Ghoul, Wraith, Lich.
+  _(Added: `Zombie` — slow, heavy-hitting rotting melee; crypt/ruins minion.
+  Skeleton already existed. Ghoul/Wraith/Lich to come.)_
 - [ ] **C4. Beasts/monsters** — Wolf-pack, Bear, Spider, Slime, Golem, Troll, Ogre.
 - [ ] **C5. Elementals & exotics** — Fire/Ice/Earth elementals, Imp, Wisp, Drake.
 - [ ] **C6. Animal roster expansion** — deer, boar, fox, rabbit, sheep, cow,

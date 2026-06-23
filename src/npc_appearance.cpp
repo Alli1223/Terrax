@@ -69,6 +69,16 @@ const Palette CULTIST_PALETTES[] = {
     { { 48,  38,  62, 255}, {135,  75, 155, 255} },   // dusk violet
     { { 36,  34,  44, 255}, {120,  45,  45, 255} },   // black + crimson
 };
+const Palette ZOMBIE_PALETTES[] = {
+    { { 96, 120,  72, 255}, { 70,  88,  52, 255} },   // rotting moss-green
+    { { 82, 102,  78, 255}, { 58,  74,  56, 255} },   // sickly grey-green
+    { {110, 116,  80, 255}, { 78,  84,  56, 255} },   // jaundiced ochre
+};
+const Palette KNIGHT_PALETTES[] = {
+    { { 70,  74,  84, 255}, {150,  40,  40, 255} },   // dark iron + crimson sash
+    { { 58,  60,  70, 255}, {120, 120, 140, 255} },   // blackened steel
+    { { 80,  82,  92, 255}, {200, 180,  90, 255} },   // tarnished gilt
+};
 
 template <typename T, size_t N>
 constexpr int arrLen(T (&)[N]) { return (int)N; }
@@ -84,8 +94,10 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
     // armour (clothing_painter does the actual rendering) and how it
     // sits on the body.
     ClothingTier tier = ClothingTier::Cloth;
-    if (type == NPCType::Enemy || type == NPCType::Brute) tier = ClothingTier::Leather;
-    else if (type == NPCType::Guard) tier = ClothingTier::Plate;
+    if (type == NPCType::Enemy || type == NPCType::Brute || type == NPCType::Zombie)
+        tier = ClothingTier::Leather;
+    else if (type == NPCType::Guard || type == NPCType::Knight)
+        tier = ClothingTier::Plate;
 
     // Single palette picked once — used for every slot so the outfit
     // reads as one coherent set instead of five mismatched pieces.
@@ -106,6 +118,10 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
             palettes = CULTIST_PALETTES;  palCount = arrLen(CULTIST_PALETTES);  break;
         case NPCType::Trainer:
             palettes = CULTIST_PALETTES;  palCount = arrLen(CULTIST_PALETTES);  break;  // robed mentor
+        case NPCType::Zombie:
+            palettes = ZOMBIE_PALETTES;   palCount = arrLen(ZOMBIE_PALETTES);   break;
+        case NPCType::Knight:
+            palettes = KNIGHT_PALETTES;   palCount = arrLen(KNIGHT_PALETTES);   break;
         default: break;
     }
     const Palette& pal = palettes[pick(palCount)];
@@ -146,8 +162,9 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
         wear[4] = true;
     }
 
-    // A hood / helm is part of the silhouette for cultists and skeletons.
-    if (type == NPCType::Cultist || type == NPCType::Skeleton) wear[0] = true;
+    // A hood / helm is part of the silhouette for cultists, skeletons, knights.
+    if (type == NPCType::Cultist || type == NPCType::Skeleton ||
+        type == NPCType::Knight) wear[0] = true;
 
     // Wipe the rig back to bare skin then layer the chosen clothing
     // pieces in slot order so accents stack correctly.
@@ -207,6 +224,15 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
         mainW   = WeaponType::Staff;      // a mentor's staff of office
         mainPri = {120,  95,  60, 255};   // carved wood
         mainAcc = {210, 185, 110, 255};   // gilded tip
+    } else if (type == NPCType::Zombie) {
+        mainW   = (pick(2) == 0) ? WeaponType::Sword : WeaponType::None;  // a rusty blade, or bare claws
+        mainPri = {120, 118,  96, 255};   // corroded iron
+        mainAcc = { 70,  62,  44, 255};
+    } else if (type == NPCType::Knight) {
+        mainW   = (pick(3) == 0) ? WeaponType::Axe : WeaponType::Sword;
+        offW    = WeaponType::Shield;     // sword/axe + shield, shield in livery
+        mainPri = {200, 205, 215, 255};   // polished steel
+        mainAcc = { 80,  55,  30, 255};
     }
 
     applyWeaponsToRig(rig,
@@ -227,4 +253,6 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
 
     // A brute towers over everyone else (height scale is applied at draw time).
     if (type == NPCType::Brute) rig.heightScale = 1.4f;
+    else if (type == NPCType::Zombie) rig.heightScale = 0.95f;   // a slight shamble-hunch
+    else if (type == NPCType::Knight) rig.heightScale = 1.08f;   // an imposing, armoured frame
 }

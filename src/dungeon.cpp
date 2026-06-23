@@ -236,8 +236,14 @@ void Dungeon::buildLayout(uint32_t seed, glm::ivec2 a, int surf,
 }
 
 void Dungeon::rosterFill(std::vector<DungeonSpawn>& out, uint32_t seed,
-                         uint8_t minionType, uint8_t bossType, int perRoom) const {
+                         uint8_t minionType, uint8_t bossType, int perRoom,
+                         uint8_t minionType2) const {
     std::mt19937 r(seed ^ 0x00D0A6E0u);
+    // Each minion is the primary species, or the secondary one (if any) ~40% of
+    // the time, so chambers read as a believable mix rather than a clone army.
+    auto minionPick = [&]() -> uint8_t {
+        return (minionType2 != 255 && (r() % 100u) < 40u) ? minionType2 : minionType;
+    };
     for (const DungeonRoom& rm : rooms) {
         int ccx = (rm.mn.x + rm.mx.x) / 2, ccz = (rm.mn.z + rm.mx.z) / 2;
         // Spawn within the central ~50% of the room so enemies land inside the
@@ -254,7 +260,7 @@ void Dungeon::rosterFill(std::vector<DungeonSpawn>& out, uint32_t seed,
             out.push_back({ glm::ivec3(ccx, rm.mn.y, ccz), bossType, true });   // the main boss
             n = std::max(1, perRoom - 1);
         }
-        for (int k = 0; k < n; k++) spawnIn(minionType);
+        for (int k = 0; k < n; k++) spawnIn(minionPick());
         // A tougher "champion" (boss=false → a hard elite, not THE boss) stalks
         // some chambers: throne rooms always, other non-entrance rooms ~25%.
         if (rm.purpose != 1 && rm.purpose != 2 &&
@@ -275,7 +281,9 @@ public:
     BlockType wallBlock()  const override { return BlockType::Stone; }
     BlockType floorBlock() const override { return BlockType::Stone; }
     void fillSpawnTable(std::vector<DungeonSpawn>& out, uint32_t seed) const override {
-        rosterFill(out, seed, (uint8_t)NPCType::Skeleton, (uint8_t)NPCType::Brute, 2);
+        // Skeletons + shambling zombies, led by a hulking brute warden.
+        rosterFill(out, seed, (uint8_t)NPCType::Skeleton, (uint8_t)NPCType::Brute, 2,
+                   (uint8_t)NPCType::Zombie);
     }
 };
 
@@ -303,7 +311,9 @@ public:
     BlockType wallBlock()  const override { return BlockType::Sandstone; }
     BlockType floorBlock() const override { return BlockType::Sandstone; }
     void fillSpawnTable(std::vector<DungeonSpawn>& out, uint32_t seed) const override {
-        rosterFill(out, seed, (uint8_t)NPCType::Cultist, (uint8_t)NPCType::Brute, 2);
+        // Cultists + skeletal guardians, with a fallen knight lording over them.
+        rosterFill(out, seed, (uint8_t)NPCType::Cultist, (uint8_t)NPCType::Knight, 2,
+                   (uint8_t)NPCType::Skeleton);
     }
 };
 

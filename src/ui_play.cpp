@@ -209,7 +209,7 @@ static void renderDebugOverlay(AppContext& ctx) {
 // the attack, not while idle. Hidden during any menu/overlay or while sitting.
 static bool shouldShowCrosshair(const AppContext& ctx) {
     if (ctx.showInventory || ctx.showCharacterLoadout || ctx.showMap ||
-        ctx.paused || ctx.chatOpen || ctx.showTrainer) return false;
+        ctx.paused || ctx.chatOpen || ctx.showTrainer || ctx.showQuestGiver) return false;
     if (ctx.playerPose != PlayerPose::Standing) return false;
     Item* mh = ctx.inventory.equipped(EquipSlot::MainHand);
     if (!mh || mh->getKind() != ItemKind::Weapon) return false;
@@ -539,6 +539,57 @@ static void drawTrainerWindow(AppContext& ctx) {
     ImGui::End();
 }
 
+// The Quest Giver window — opened by pressing E at a town quest-giver NPC. Lists
+// the town's deterministic quest board (getTownQuests); Accept adds a quest to
+// the player's active list. Progress tracking + turn-in arrive in later phases.
+static void drawQuestGiverWindow(AppContext& ctx) {
+    if (!ctx.showQuestGiver) return;
+    ImVec2 vp = vpPos(), vs = vpSize();
+    const float W = 540.0f, H = 440.0f;
+    ImGui::SetNextWindowPos(ImVec2(vp.x + (vs.x - W) * 0.5f, vp.y + (vs.y - H) * 0.5f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(W, H), ImGuiCond_Always);
+    ImGui::Begin("Quest Giver", &ctx.showQuestGiver,
+                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+
+    ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.5f, 1.0f), "Tasks for an able adventurer");
+    ImGui::TextWrapped("There's work to be done out in the wilds. Take what suits you.");
+    ImGui::Separator();
+
+    const std::vector<Quest>& board = getTownQuests(ctx.questGiverTown);
+    if (board.empty()) ImGui::TextDisabled("No work available right now.");
+
+    auto isActive = [&](uint32_t id) {
+        for (const Quest& q : ctx.activeQuests) if (q.id == id) return true;
+        return false;
+    };
+
+    ImGui::BeginChild("questlist", ImVec2(0, H - 120.0f), false);
+    for (const Quest& q : board) {
+        ImGui::PushID((int)q.id);
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(0.85f, 0.92f, 1.0f, 1.0f), "%s", q.title.c_str());
+        ImGui::TextWrapped("%s", q.text.c_str());
+        ImGui::TextDisabled("Recommended level %d  -  Reward: %d XP, %d gold%s",
+                            q.recommendedLevel, q.rewardXp, q.rewardGold,
+                            q.rewardItem ? ", + an item" : "");
+        if (isActive(q.id)) {
+            ImGui::TextColored(ImVec4(0.55f, 0.95f, 0.6f, 1.0f), "Accepted");
+        } else if (ImGui::Button("Accept", ImVec2(110, 0))) {
+            ctx.activeQuests.push_back(q);
+            AppContext::HudToast t{ std::string("Quest accepted: ") + q.title,
+                                    Voxel{255, 220, 120, 255}, 3.0f };
+            ctx.toasts.push_back(std::move(t));
+        }
+        ImGui::Separator();
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+
+    ImGui::Text("Active quests: %d", (int)ctx.activeQuests.size());
+    if (ImGui::Button("Close", ImVec2(-1, 0))) ctx.showQuestGiver = false;
+    ImGui::End();
+}
+
 void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer) {
     (void)window;
 
@@ -823,6 +874,8 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
 
     // Class Trainer window (E at a town trainer) — change role mid-game.
     drawTrainerWindow(ctx);
+    // Quest Giver window (E at a town quest-giver) — accept town quests.
+    drawQuestGiverWindow(ctx);
 
     // Toast queue — XP / level-up / loot notifications stacked top-right.
     // Newest at the bottom of the stack so the eye lands on the latest

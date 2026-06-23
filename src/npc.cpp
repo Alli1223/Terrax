@@ -356,7 +356,8 @@ void NpcDirector::update(float dt, const std::vector<DirectorPlayer>& players,
         else if (n->type == NPCType::Cultist) stepRangedEnemy(*n, dt, world, players);
         else if (n->type == NPCType::Guard)   stepGuard(*n, dt, world, players);
         else if (n->type == NPCType::Farmer)  stepFarmer(*n, dt, world, gameTime);
-        else if (n->type == NPCType::Trainer) n->velocity = glm::vec3(0.0f);  // static — never wanders
+        else if (n->type == NPCType::Trainer ||
+                 n->type == NPCType::Questgiver) n->velocity = glm::vec3(0.0f);  // static — never wanders
         else                                  stepVillager(*n, dt, world, gameTime);
     }
 
@@ -692,6 +693,23 @@ void NpcDirector::populateTown(int ti) {
         tr->position = glm::vec3(sp.x, tr->groundY, sp.y);
         tr->idleTimer = 0.0f;
         active.push_back(std::move(tr));
+        local++;
+    }
+
+    // One static "Quest Giver" near the town centre (opposite the trainer).
+    // Talking to it opens the town's deterministic quest board.
+    {
+        auto qg = std::make_unique<NPC>();
+        qg->id             = 0x40000000u + (uint32_t)ti * 128u + (uint32_t)local;
+        qg->type           = NPCType::Questgiver;
+        qg->appearanceSeed = hashU32((uint32_t)ti * 6271u, 0x9E57u);
+        qg->townIndex      = ti;
+        qg->groundY        = (float)t.baseY + 1.0f;
+        glm::vec2 sp = nav.nearestWalkable(centre + glm::vec2(-2.5f, -2.5f));
+        qg->homePos  = sp;
+        qg->position = glm::vec3(sp.x, qg->groundY, sp.y);
+        qg->idleTimer = 0.0f;
+        active.push_back(std::move(qg));
         local++;
     }
 

@@ -568,7 +568,8 @@ void updateNpcInteraction(AppContext& ctx) {
     for (auto& o : ctx.objectManager.objects()) {
         if (o->dead || o->kind != ObjectKind::NPC) continue;
         NPC* n = static_cast<NPC*>(o.get());
-        if (n->type != NPCType::Villager && n->type != NPCType::Trainer) continue;
+        if (n->type != NPCType::Villager && n->type != NPCType::Trainer &&
+            n->type != NPCType::Questgiver) continue;
         glm::vec3 to = n->position - eye; to.y = 0.0f;
         float d2 = to.x * to.x + to.z * to.z;
         if (d2 > bestD2) continue;
@@ -578,8 +579,9 @@ void updateNpcInteraction(AppContext& ctx) {
     }
 
     if (best) {
-        bool trainer = (best->type == NPCType::Trainer);
-        ctx.talkTargetName = trainer ? "Class Trainer" : npcName(best->appearanceSeed);
+        ctx.talkTargetName = (best->type == NPCType::Trainer)    ? "Class Trainer"
+                           : (best->type == NPCType::Questgiver) ? "Quest Giver"
+                           : npcName(best->appearanceSeed);
         ctx.talkTargetSeed = best->appearanceSeed;
         ctx.talkTargetPos  = best->position;
     } else {
@@ -590,6 +592,20 @@ void updateNpcInteraction(AppContext& ctx) {
         if (best->type == NPCType::Trainer) {
             // Open the class-change window instead of a flavour line.
             ctx.showTrainer = true;
+        } else if (best->type == NPCType::Questgiver) {
+            // Open the town quest board. The client object doesn't carry the
+            // town index, so map the giver's position to the nearest town in
+            // the (deterministic) plan.
+            const TownPlan& tp = getTownPlan();
+            int bestT = -1; long long bestTD = -1;
+            for (size_t i = 0; i < tp.towns.size(); ++i) {
+                long long dx = (long long)tp.towns[i].center.x - (long long)best->position.x;
+                long long dz = (long long)tp.towns[i].center.y - (long long)best->position.z;
+                long long d2 = dx * dx + dz * dz;
+                if (bestTD < 0 || d2 < bestTD) { bestTD = d2; bestT = (int)i; }
+            }
+            ctx.questGiverTown = bestT;
+            ctx.showQuestGiver = true;
         } else {
             ctx.talkName  = npcName(best->appearanceSeed);
             ctx.talkLine  = npcFlavorLine(best->appearanceSeed, ctx.talkCount);

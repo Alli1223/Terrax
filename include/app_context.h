@@ -13,6 +13,7 @@
 #include "interactable.h"
 #include "role.h"
 #include "ability.h"
+#include "quest.h"
 #include <glm/glm.hpp>
 #include <string>
 #include <unordered_map>
@@ -179,6 +180,9 @@ struct AppContext {
     bool showInventory       = false;   // I key
     bool showCharacterLoadout = false;  // C key
     bool showTrainer          = false;  // Class Trainer NPC window (role swap)
+    bool showQuestGiver       = false;  // Quest Giver NPC window (town quest board)
+    int  questGiverTown       = -1;     // town index whose board is shown
+    std::vector<Quest> activeQuests;    // quests the player has accepted
 
     // --- Progression ---
     int   playerLevel = 1;

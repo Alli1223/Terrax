@@ -19,7 +19,8 @@ struct Town;
 // Append new values only — npcType is serialised by value in NPCState.
 enum class NPCType : uint8_t { Villager = 0, Enemy = 1, Guard = 2, Farmer = 3,
                               Skeleton = 4, Brute = 5, Cultist = 6,
-                              Trainer = 7 };   // static town "Class Trainer" — role swap
+                              Trainer = 7,      // static town "Class Trainer" — role swap
+                              Questgiver = 8 }; // static town quest-giver
 
 // True for hostile NPC types — the town watch fights them and the player can
 // kill them for loot/XP. Extended as new enemy types are added.

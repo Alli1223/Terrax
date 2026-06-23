@@ -98,8 +98,10 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
   rewards, giver) + `QuestStatus` + `QuestTarget`. Pure `buildTownQuests()`
   (deterministic, headless-tested) + `getTownQuests()` that pulls real nearby
   dungeons + a wilderness region from the world plans. quest.{h,cpp}, 4 tests.
-- [ ] **E2. Quest-giver NPCs** — a town NPC type that offers quests; interaction
-  opens a quest dialog. Server-authoritative quest assignment.
+- [x] **E2. Quest-giver NPCs** — `NPCType::Questgiver`, one static giver spawned
+  per town; pressing E opens a quest-board dialog (lists `getTownQuests`, maps the
+  giver to its town via nearest-in-plan); Accept adds to `ctx.activeQuests`.
+  _(Assignment is client-side for now; networked turn-in lands with E6.)_
 - [ ] **E3. Kill quests** — "slay N <enemy> in <region/dungeon>"; objective
   progress tracked server-side from kill events.
 - [ ] **E4. Collection quests** — "gather N <item>"; counts inventory / loot.

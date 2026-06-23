@@ -19,7 +19,7 @@ static void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
     AppContext& ctx = *static_cast<AppContext*>(glfwGetWindowUserPointer(window));
     if (ImGui::GetIO().WantCaptureMouse) return;
     if (ctx.state == GameState::Paused || ctx.chatOpen || ctx.showMap) return;
-    if (ctx.showInventory || ctx.showCharacterLoadout || ctx.showTrainer) return;
+    if (ctx.showInventory || ctx.showCharacterLoadout || ctx.showTrainer || ctx.showQuestGiver) return;
     if (ctx.state != GameState::Playing && ctx.state != GameState::CharacterEditor) return;
     if (ctx.firstMouse) { ctx.lastMouseX = xpos; ctx.lastMouseY = ypos; ctx.firstMouse = false; }
     float xoff = (float)(xpos - ctx.lastMouseX);
@@ -33,7 +33,7 @@ static void mouse_button_callback(GLFWwindow* window, int button, int action, in
     AppContext& ctx = *static_cast<AppContext*>(glfwGetWindowUserPointer(window));
     if (ImGui::GetIO().WantCaptureMouse) return;
     if (ctx.state != GameState::Playing || ctx.paused || ctx.chatOpen) return;
-    if (ctx.showInventory || ctx.showCharacterLoadout || ctx.showTrainer) return;
+    if (ctx.showInventory || ctx.showCharacterLoadout || ctx.showTrainer || ctx.showQuestGiver) return;
     if (!ctx.client || ctx.showMap) return;
 
     // Right mouse with a shield equipped raises the shield instead of
@@ -97,10 +97,11 @@ static void key_callback(GLFWwindow* window, int key, int, int action, int) {
                 ctx.firstMouse = true;
                 return;
             }
-            if (ctx.showInventory || ctx.showCharacterLoadout || ctx.showTrainer) {
+            if (ctx.showInventory || ctx.showCharacterLoadout || ctx.showTrainer || ctx.showQuestGiver) {
                 ctx.showInventory = false;
                 ctx.showCharacterLoadout = false;
                 ctx.showTrainer = false;
+                ctx.showQuestGiver = false;
                 glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
                 ctx.firstMouse = true;
                 return;

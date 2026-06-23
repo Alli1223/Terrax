@@ -551,7 +551,11 @@ void NpcDirector::spawnDungeon(size_t di) {
         n->position  = glm::vec3((float)s.pos.x + 0.5f, (float)s.pos.y, (float)s.pos.z + 0.5f);
         n->groundY   = (float)s.pos.y;
         n->homePos   = glm::vec2((float)s.pos.x, (float)s.pos.z);
-        n->health    = defaultNpcHealth((NPCType)s.npcType);
+        // Level scales with how far out the dungeon sits; the boss leads its pack.
+        int tier = dangerTierAt((float)s.pos.x, (float)s.pos.z);
+        int lvl  = enemyLevelForTier(tier) + (s.boss ? 3 : 0);
+        n->level     = (uint8_t)std::min(lvl, 60);
+        n->health    = defaultNpcHealth((NPCType)s.npcType) * npcHpScaleForLevel(n->level);
         active.push_back(std::move(n));
     }
 }
@@ -971,6 +975,10 @@ void NpcDirector::spawnCamp(uint64_t key, const Camp& camp) {
         n->campKey       = key;
         n->homePos       = camp.center;
         n->groundY       = gy;
+        // Bandit camps grow deadlier the further they sit from spawn.
+        int tier = dangerTierAt(camp.center.x, camp.center.y);
+        n->level    = (uint8_t)std::min(enemyLevelForTier(tier), 60);
+        n->health   = defaultNpcHealth(NPCType::Enemy) * npcHpScaleForLevel(n->level);
         float ang = frand01(rng) * 6.2831853f, r = frand01(rng) * 6.0f;
         n->position = glm::vec3(camp.center.x + cosf(ang) * r, gy,
                                 camp.center.y + sinf(ang) * r);

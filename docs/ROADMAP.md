@@ -56,8 +56,9 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
 
 - [x] **B1. Danger tiers** — `dangerTierAt(worldXZ)` = f(distance from spawn),
   surfaced in the F3 overlay and on the map. Spawn is a safe tier-1 zone.
-- [ ] **B2. Enemy levels** — every hostile NPC carries a `level` derived from the
-  danger tier of its spawn point; serialize it in `NPCState`.
+- [x] **B2. Enemy levels** — every hostile NPC carries a `level` derived from the
+  danger tier of its spawn point; serialize it in `NPCState`. (HP also scales at
+  spawn; bosses are +3 levels above their pack.)
 - [ ] **B3. Level-scaled enemy stats** — HP/damage/XP-reward/loot-level scale
   with enemy level (re-use the item-generator `targetLevel`).
 - [ ] **B4. Biome-tier mapping** — bias biome placement so harsher biomes

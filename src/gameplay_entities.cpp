@@ -273,6 +273,7 @@ void syncNPCObjects(AppContext& ctx) {
             auto nn = std::make_unique<NPC>();
             nn->id             = np.entityId;
             nn->type           = (NPCType)np.npcType;
+            nn->level          = np.level;
             nn->appearanceSeed = np.appearanceSeed;
             nn->position       = glm::vec3(np.x, np.y, np.z);
             nn->yaw            = np.yaw;
@@ -292,6 +293,7 @@ void syncNPCObjects(AppContext& ctx) {
             n->targetYaw  = np.yaw;
             n->velocity   = glm::vec3(np.vx, np.vy, np.vz);
             n->health     = np.health;
+            n->level      = np.level;
             n->walking    = (np.flags & 1) != 0;
             n->attackFlag = (np.flags & 2) != 0;
             n->sitting    = (np.flags & 8) != 0;

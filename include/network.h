@@ -163,6 +163,7 @@ struct NPCStatePacket {
     uint32_t entityId;
     uint8_t  npcType;        // NPCType value
     uint8_t  flags;          // bit 0 = walking
+    uint8_t  level;          // hostile-NPC level (from spawn danger tier); 0 for townsfolk
     uint32_t appearanceSeed; // seed for deterministic procedural appearance
     float    x, y, z;
     float    yaw;

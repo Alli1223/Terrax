@@ -38,6 +38,21 @@ inline float defaultNpcHealth(NPCType t) {
     }
 }
 
+// --- Level scaling (Track B) -------------------------------------------------
+// An enemy's level is derived from the danger tier of its spawn point (see
+// dangerTierAt in world.h): tier 1 (home) → level 1, each further tier adds 5,
+// so the outermost tier 12 fields ~level 56 foes. Bosses sit a few levels above
+// the trash around them.
+inline int enemyLevelForTier(int tier) {
+    int lv = 1 + (tier - 1) * 5;
+    return lv < 1 ? 1 : lv;
+}
+
+// HP / damage multipliers as a function of enemy level. Gentle linear ramps so a
+// level-50 foe is meaningfully tankier and hits harder, without being absurd.
+inline float npcHpScaleForLevel(int level)     { return 1.0f + 0.12f * (float)(level - 1); }
+inline float npcDamageScaleForLevel(int level) { return 1.0f + 0.08f * (float)(level - 1); }
+
 // A non-player character. Server-authoritative, exactly like Ferry: the server
 // owns motion / AI and broadcasts NPCState packets; each client creates one NPC
 // per network id and interpolates it (update).
@@ -56,6 +71,7 @@ public:
 
     NPCType  type           = NPCType::Villager;
     float    health         = 100.0f;
+    uint8_t  level          = 1;      // hostile-NPC level (from spawn danger tier)
     uint32_t appearanceSeed = 0;
     bool     walking        = false;
     bool     sitting        = false;  // server→client (flags bit 3): seated pose

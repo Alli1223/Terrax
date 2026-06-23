@@ -134,6 +134,7 @@ static void serverThreadMain(unsigned short port) {
                     NPCStatePacket np{};
                     np.entityId       = n->id;
                     np.npcType        = (uint8_t)n->type;
+                    np.level          = n->level;
                     np.flags          = (uint8_t)((n->walking ? 1 : 0)
                                        | (n->attackAnimTimer > 0.0f ? 2 : 0)
                                        | (n->dyingTimer > 0.0f ? 4 : 0)

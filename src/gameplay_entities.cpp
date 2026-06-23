@@ -207,8 +207,23 @@ void awardEnemyKill(AppContext& ctx, const NPC* npc) {
     // Kill-quest progress: credit any active KillEnemies quest whose foe + region
     // match this kill (region = within one danger tier of the kill location).
     int killTier = dangerTierAt(npc->position.x, npc->position.z);
+    static std::mt19937 questDropRng(0xC0FFEEu);
     for (Quest& q : ctx.activeQuests) {
-        if (!questKillCounts(q, (uint8_t)npc->type, killTier)) continue;
+        bool credit = false;
+        if (questKillCounts(q, (uint8_t)npc->type, killTier)) {
+            credit = true;
+        } else if (questCollectCounts(q, killTier)) {
+            // The slain foe yields the quest collectible ~70% of the time.
+            if ((questDropRng() % 100u) < 70u) {
+                credit = true;
+                if (q.progress + 1 < q.requiredCount)
+                    pushToast(ctx, "+1 " + q.collectName + " ("
+                                   + std::to_string(q.progress + 1) + "/"
+                                   + std::to_string(q.requiredCount) + ")",
+                              Voxel{200, 220, 160, 255}, 1.6f);
+            }
+        }
+        if (!credit) continue;
         if (q.progress < q.requiredCount) q.progress++;
         if (q.progress >= q.requiredCount && q.status == QuestStatus::Active) {
             q.status = QuestStatus::Complete;

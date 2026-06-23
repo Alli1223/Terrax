@@ -64,6 +64,14 @@ inline bool questKillCounts(const Quest& q, uint8_t npcType, int killTier) {
         && (killTier >= q.targetTier - 1) && (killTier <= q.targetTier + 1);
 }
 
+// True when a kill in the quest's region can yield a collectible toward `q` — a
+// CollectItems quest whose region (danger tier band) contains the kill. The
+// caller still rolls the per-kill drop chance.
+inline bool questCollectCounts(const Quest& q, int killTier) {
+    return q.status == QuestStatus::Active && q.kind == QuestKind::CollectItems
+        && (killTier >= q.targetTier - 1) && (killTier <= q.targetTier + 1);
+}
+
 // Pure, deterministic generator: build a giver town's quest board from its
 // centre + seed + a set of candidate targets. No world-plan survey, no GL — so
 // it is unit-testable headlessly. Returns 0 quests only if `targets` is empty.

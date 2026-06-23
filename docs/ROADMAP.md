@@ -107,7 +107,10 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
   `questKillCounts`), flip to Complete at the required count, and show live in a
   top-right **quest tracker** HUD. _(Tracked client-side via awardEnemyKill; the
   networked/server-authoritative path comes with E6.)_
-- [ ] **E4. Collection quests** — "gather N <item>"; counts inventory / loot.
+- [x] **E4. Collection quests** — "gather N <collectible>"; in-region kills yield
+  the collectible (~70% drop) toward the count via `questCollectCounts`, with a
+  drop toast + the shared tracker/complete flow. _(Kill-drop proxy for now; ties
+  to real droppable items later.)_
 - [ ] **E5. Quest log + tracker UI** — journal panel + on-screen objective tracker
   with progress, and a map/compass marker to the target area.
 - [ ] **E6. Rewards & turn-in** — XP, gold, and a rolled item on turn-in; level

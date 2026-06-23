@@ -100,3 +100,19 @@ TEST_CASE(Quest_KillCountingRule) {
     q.status = QuestStatus::Active; q.kind = QuestKind::CollectItems;
     CHECK(!questKillCounts(q, 4, 5));
 }
+
+TEST_CASE(Quest_CollectCountingRule) {
+    Quest q;
+    q.kind = QuestKind::CollectItems;
+    q.targetTier = 3;
+    q.status = QuestStatus::Active;
+    // In-region kills can yield the collectible (foe type irrelevant for collect).
+    CHECK(questCollectCounts(q, 3));
+    CHECK(questCollectCounts(q, 2));
+    CHECK(questCollectCounts(q, 4));
+    CHECK(!questCollectCounts(q, 6));     // out of region
+    q.status = QuestStatus::Complete; CHECK(!questCollectCounts(q, 3));
+    // Kill quests are never collect-credited.
+    q.status = QuestStatus::Active; q.kind = QuestKind::KillEnemies;
+    CHECK(!questCollectCounts(q, 3));
+}

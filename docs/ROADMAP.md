@@ -46,7 +46,7 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
   interaction/wind metadata. Emits a Markdown catalog. `make catalog` target.
 - [x] **A2. Item & weapon archetype catalog** — extend the tool to list weapon
   types, clothing slots/tiers, themed sets and their dimensions/palette.
-- [ ] **A3. Dungeon & building catalog** — list dungeon kinds, room purposes,
+- [x] **A3. Dungeon & building catalog** — list dungeon kinds, room purposes,
   building types and their footprints, as a placement reference.
 - [ ] **A4. Catalog-driven placement helpers** — small API so dungeon/house
   furnishing can query "props that fit a W×D×H slot / tagged `tavern`" from the

@@ -132,3 +132,57 @@ piece). Source of truth: `KNOWN_SETS` in item_generator.cpp.
 
 **10 themed sets.**
 
+## Dungeons
+
+Procedural dungeons are a pure function of the world seed, so these are
+*representative* layouts (one fixed seed per kind × size tier). Footprint
+is the world-XZ bounding box (W×D blocks); size tier 0 = small … 3 = massive.
+Castles are over-ground keeps (levels × floor height); the rest are carved
+underground. Each has exactly one boss room with legendary loot.
+
+| Kind | Tier | Footprint (W×D) | Rooms | Corridors | Lights | Spawns | Bosses |
+|------|:----:|:---------------:|------:|----------:|-------:|-------:|-------:|
+| Crypt | 0 | 135×130 | 10 | 10 | 300 | 20 | 1 |
+| Crypt | 1 | 189×186 | 24 | 26 | 679 | 56 | 1 |
+| Crypt | 2 | 258×254 | 38 | 40 | 1025 | 90 | 1 |
+| Crypt | 3 | 325×328 | 33 | 36 | 1183 | 74 | 1 |
+| Cave | 0 | 166×156 | 19 | 19 | 319 | 42 | 1 |
+| Cave | 1 | 189×208 | 33 | 37 | 583 | 75 | 1 |
+| Cave | 2 | 250×291 | 51 | 56 | 857 | 113 | 1 |
+| Cave | 3 | 295×346 | 71 | 82 | 1420 | 164 | 1 |
+| Ruins | 0 | 121×120 | 11 | 10 | 245 | 26 | 1 |
+| Ruins | 1 | 181×174 | 17 | 17 | 439 | 38 | 1 |
+| Ruins | 2 | 253×260 | 28 | 30 | 752 | 68 | 1 |
+| Ruins | 3 | 323×302 | 42 | 46 | 1326 | 96 | 1 |
+| Castle | 0 | 60×33 | 5 | 0 | 16 | 17 | 1 |
+| Castle | 1 | 72×45 | 7 | 0 | 20 | 21 | 1 |
+| Castle | 2 | 84×57 | 9 | 0 | 24 | 29 | 1 |
+| Castle | 3 | 96×69 | 11 | 0 | 28 | 36 | 1 |
+
+Room purposes (DungeonRoom.purpose): 0 hall · 1 entrance · 2 boss · 3 throne · 4 library · 5 ornament · 6 vault/treasure · 7 prison.
+Room shapes: Rect · Circle · Octagon · Cross.
+
+## Buildings
+
+Building kinds town generation can place, and the interior they furnish.
+Footprints are determined by the town layout (not fixed assets), so this
+is a taxonomy reference. Source: `BuildingKind` / `RoomType` in building.h.
+
+| # | Building | Interior / role |
+|--:|----------|-----------------|
+| 0 | Centerpiece | town focal point — well / market / statue / campfire |
+| 1 | House | residential — furnished living rooms, kitchen, bedroom(s) |
+| 2 | Farm | fenced crop plot worked by farmer NPCs |
+| 3 | Pub | tavern — bar area + dining hall + a guest bedroom |
+| 4 | Blacksmith | forge + workshop + small living quarters |
+| 5 | MageTower | multi-storey tower — alchemy lab, library, bedroom |
+| 6 | Stable | open barn — horse stalls, hay, trough, fenced paddock |
+| 7 | Chapel | tall single nave — pews facing a stone altar |
+| 8 | Apothecary | herbalist's shop — counter, shelves, living quarters |
+| 9 | Bakery | baker's shop — wood-fired oven, counters, bread shelves |
+| 10 | Watchtower | tall narrow stone guard tower with a flat lookout top |
+
+**Room types** (furniture placer): LivingRoom, Kitchen, Bedroom, Study,
+DiningHall, BarArea, Forge, Workshop, AlchemyLab, Library, Hallway, Stable,
+Chapel, Apothecary, Bakery.
+

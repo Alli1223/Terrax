@@ -14,10 +14,16 @@
 #include "items.h"            // WeaponType, ClothingTier, EquipSlot, ItemRarity
 #include "weapon_builder.h"   // buildWeaponVolume()
 #include "item_generator.h"   // armorSetCatalog()
+#include "dungeon.h"          // makeDungeon, DungeonKind, DungeonSpawn
+#include "castle.h"           // CastleDungeon (overground castle layout)
+#include "world.h"            // setWorldSeed, sampleSurfaceSolid
+#include "npc.h"              // NPCType (boss / spawn classification)
+#include "building.h"         // BuildingKind, RoomType (taxonomy reference)
 
 #include <algorithm>
 #include <cstdio>
 #include <memory>
+#include <vector>
 
 namespace {
 
@@ -159,6 +165,88 @@ void writeClothingAndSets(FILE* out) {
     std::fprintf(out, "\n**%d themed sets.**\n\n", (int)armorSetCatalog().size());
 }
 
+const char* dungeonName(DungeonKind k) {
+    switch (k) {
+        case DungeonKind::Crypt:  return "Crypt";
+        case DungeonKind::Cave:   return "Cave";
+        case DungeonKind::Ruins:  return "Ruins";
+        case DungeonKind::Castle: return "Castle";
+        default:                  return "?";
+    }
+}
+
+void writeDungeons(FILE* out) {
+    std::fprintf(out,
+        "## Dungeons\n\n"
+        "Procedural dungeons are a pure function of the world seed, so these are\n"
+        "*representative* layouts (one fixed seed per kind × size tier). Footprint\n"
+        "is the world-XZ bounding box (W×D blocks); size tier 0 = small … 3 = massive.\n"
+        "Castles are over-ground keeps (levels × floor height); the rest are carved\n"
+        "underground. Each has exactly one boss room with legendary loot.\n\n"
+        "| Kind | Tier | Footprint (W×D) | Rooms | Corridors | Lights | Spawns | Bosses |\n"
+        "|------|:----:|:---------------:|------:|----------:|-------:|-------:|-------:|\n");
+    const DungeonKind kinds[] = { DungeonKind::Crypt, DungeonKind::Cave,
+                                  DungeonKind::Ruins, DungeonKind::Castle };
+    for (DungeonKind k : kinds) {
+        for (int tier = 0; tier <= 3; ++tier) {
+            setWorldSeed(1234u);
+            auto d = makeDungeon(k);
+            d->sizeTier = tier;
+            glm::ivec2 anchor(5000 + tier * 800, -5000 - (int)k * 800);
+            int surf = sampleSurfaceSolid(anchor.x, anchor.y);
+            d->generateLayout(0xA1CE0000u + (uint32_t)k * 16 + tier, anchor, surf);
+            std::vector<DungeonSpawn> spawns;
+            d->fillSpawnTable(spawns, 0xA1CE0000u + (uint32_t)k * 16 + tier);
+            int bosses = 0;
+            for (const auto& s : spawns) if (s.boss) ++bosses;
+            int fw = d->bbMax.x - d->bbMin.x + 1;
+            int fd = d->bbMax.y - d->bbMin.y + 1;
+            std::fprintf(out, "| %s | %d | %d×%d | %d | %d | %d | %d | %d |\n",
+                         dungeonName(k), tier, fw, fd,
+                         (int)d->rooms.size(), (int)d->corridors.size(),
+                         (int)d->lights.size(), (int)spawns.size(), bosses);
+        }
+    }
+    std::fprintf(out, "\nRoom purposes (DungeonRoom.purpose): "
+                      "0 hall · 1 entrance · 2 boss · 3 throne · 4 library · "
+                      "5 ornament · 6 vault/treasure · 7 prison.\n"
+                      "Room shapes: Rect · Circle · Octagon · Cross.\n\n");
+}
+
+void writeBuildings(FILE* out) {
+    // Documented taxonomy — building footprints are town-layout dependent, so the
+    // useful reference is which kinds exist and what interior rooms they hold.
+    // Source of truth: BuildingKind / RoomType in building.h (append-only enums).
+    struct KindRow { const char* name; const char* role; };
+    const KindRow kinds[] = {
+        { "Centerpiece", "town focal point — well / market / statue / campfire" },
+        { "House",       "residential — furnished living rooms, kitchen, bedroom(s)" },
+        { "Farm",        "fenced crop plot worked by farmer NPCs" },
+        { "Pub",         "tavern — bar area + dining hall + a guest bedroom" },
+        { "Blacksmith",  "forge + workshop + small living quarters" },
+        { "MageTower",   "multi-storey tower — alchemy lab, library, bedroom" },
+        { "Stable",      "open barn — horse stalls, hay, trough, fenced paddock" },
+        { "Chapel",      "tall single nave — pews facing a stone altar" },
+        { "Apothecary",  "herbalist's shop — counter, shelves, living quarters" },
+        { "Bakery",      "baker's shop — wood-fired oven, counters, bread shelves" },
+        { "Watchtower",  "tall narrow stone guard tower with a flat lookout top" },
+    };
+    std::fprintf(out,
+        "## Buildings\n\n"
+        "Building kinds town generation can place, and the interior they furnish.\n"
+        "Footprints are determined by the town layout (not fixed assets), so this\n"
+        "is a taxonomy reference. Source: `BuildingKind` / `RoomType` in building.h.\n\n"
+        "| # | Building | Interior / role |\n"
+        "|--:|----------|-----------------|\n");
+    int i = 0;
+    for (const KindRow& r : kinds)
+        std::fprintf(out, "| %d | %s | %s |\n", i++, r.name, r.role);
+    std::fprintf(out,
+        "\n**Room types** (furniture placer): LivingRoom, Kitchen, Bedroom, Study,\n"
+        "DiningHall, BarArea, Forge, Workshop, AlchemyLab, Library, Hallway, Stable,\n"
+        "Chapel, Apothecary, Bakery.\n\n");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -179,8 +267,10 @@ int main(int argc, char** argv) {
     writeProps(out);
     writeWeapons(out);
     writeClothingAndSets(out);
+    writeDungeons(out);
+    writeBuildings(out);
 
     std::fclose(out);
-    std::printf("asset_catalog: wrote catalog (props + weapons + clothing) to %s\n", outPath);
+    std::printf("asset_catalog: wrote catalog (props + weapons + clothing + dungeons + buildings) to %s\n", outPath);
     return 0;
 }

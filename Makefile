@@ -72,10 +72,12 @@ TEST_FLAGS   := -std=c++17 -O0 -g -Wall -pthread -Iinclude -Isrc -Itests -DTERRA
 # Links the prop builders + voxel model against the GL stub and emits
 # docs/ASSET_CATALOG.md — a reference of every prop's dimensions + metadata.
 CATALOG_TARGET := asset_catalog
+# Reuse the proven headless engine set (TEST_ENGINE_SRCS provides voxel_model.cpp,
+# dungeon/castle/world/town/building generation) and add the prop/item builders.
 CATALOG_SRCS   := tools/asset_catalog.cpp src/prop_registry.cpp \
-                  src/furniture.cpp src/decorations.cpp src/voxel_model.cpp \
+                  src/furniture.cpp src/decorations.cpp \
                   src/weapon_builder.cpp src/item_generator.cpp \
-                  tests/gl_stub.cpp
+                  $(TEST_ENGINE_SRCS) tests/gl_stub.cpp
 # item_generator.cpp pulls in generators that reference the heavy items.cpp
 # closure; --gc-sections drops those unused sections so the tool stays headless.
 CATALOG_FLAGS  := -std=c++17 -O0 -g -Wall -pthread -Iinclude -Isrc -DTERRAX_TESTING \

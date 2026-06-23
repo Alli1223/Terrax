@@ -44,7 +44,7 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
   (links via `gl_stub` like the tests) that enumerates every prop in the registry,
   bakes its mesh, and records bounding-box **dimensions**, voxel count, light/
   interaction/wind metadata. Emits a Markdown catalog. `make catalog` target.
-- [ ] **A2. Item & weapon archetype catalog** — extend the tool to list weapon
+- [x] **A2. Item & weapon archetype catalog** — extend the tool to list weapon
   types, clothing slots/tiers, themed sets and their dimensions/palette.
 - [ ] **A3. Dungeon & building catalog** — list dungeon kinds, room purposes,
   building types and their footprints, as a placement reference.

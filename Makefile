@@ -74,8 +74,12 @@ TEST_FLAGS   := -std=c++17 -O0 -g -Wall -pthread -Iinclude -Isrc -Itests -DTERRA
 CATALOG_TARGET := asset_catalog
 CATALOG_SRCS   := tools/asset_catalog.cpp src/prop_registry.cpp \
                   src/furniture.cpp src/decorations.cpp src/voxel_model.cpp \
+                  src/weapon_builder.cpp src/item_generator.cpp \
                   tests/gl_stub.cpp
-CATALOG_FLAGS  := -std=c++17 -O0 -g -Wall -pthread -Iinclude -Isrc -DTERRAX_TESTING
+# item_generator.cpp pulls in generators that reference the heavy items.cpp
+# closure; --gc-sections drops those unused sections so the tool stays headless.
+CATALOG_FLAGS  := -std=c++17 -O0 -g -Wall -pthread -Iinclude -Isrc -DTERRAX_TESTING \
+                  -ffunction-sections -fdata-sections -Wl,--gc-sections
 
 $(shell mkdir -p build/imgui build/miniaudio)
 

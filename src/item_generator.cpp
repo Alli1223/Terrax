@@ -436,6 +436,19 @@ int colorPerturbForRarity(ItemRarity rarity) {
 
 }  // namespace
 
+// Public view of the themed-set table (anon-namespace symbols are visible
+// within this TU, so we can read KNOWN_SETS here). Built once on first use.
+const std::vector<ArmorSetInfo>& armorSetCatalog() {
+    static const std::vector<ArmorSetInfo> cat = [] {
+        std::vector<ArmorSetInfo> v;
+        for (int i = 0; i < arrLen(KNOWN_SETS); ++i)
+            v.push_back({ KNOWN_SETS[i].name, KNOWN_SETS[i].tier,
+                          KNOWN_SETS[i].primary, KNOWN_SETS[i].accent });
+        return v;
+    }();
+    return cat;
+}
+
 // =============================================================================
 // Public API
 // =============================================================================

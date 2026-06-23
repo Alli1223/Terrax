@@ -604,6 +604,11 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
 
     glm::mat4 view = glm::lookAt(eyePos, lookAt, ctx.camera.worldUp);
 
+    // Camera frustum for chunk culling this frame (shared by the main, foliage,
+    // glass and water passes — they all draw from this viewpoint).
+    Frustum camFrustum;
+    camFrustum.fromMatrix(proj * view);
+
     // Expose to UI for nametags
     frameView  = view;
     frameProj  = proj;
@@ -707,7 +712,9 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
         chunkShader.setFloat("u_snowAmount",
             (ctx.weatherKind == 1) ? weather : 0.0f);
         chunkShader.setVec4("u_clipPlane", glm::vec4(0.0f, 1.0f, 0.0f, -WATER_Y));
-        ctx.world.drawAll();
+        Frustum reflFrustum;
+        reflFrustum.fromMatrix(proj * reflView);
+        ctx.world.drawAll(&reflFrustum);
         glDisable(GL_CLIP_DISTANCE0); glCullFace(GL_BACK); glEnable(GL_CULL_FACE);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
@@ -727,7 +734,11 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     shadowShader.use();
     shadowShader.setMat4("lightSpaceMatrix", lightSpaceMat);
     shadowShader.setMat4("model", glm::mat4(1.0f));
-    ctx.world.drawAll();
+    // The shadow map's orthographic box only spans a few chunks around the
+    // player, so culling here skips the vast majority of loaded chunks.
+    Frustum lightFrustum;
+    lightFrustum.fromMatrix(lightSpaceMat);
+    ctx.world.drawAll(&lightFrustum);
     {
         GLuint sml = glGetUniformLocation(shadowShader.id, "model");
         if (ctx.localPlayer) ctx.localPlayer->draw(sml);
@@ -766,7 +777,7 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     chunkShader.setFloat("u_snowAmount",
         (ctx.weatherKind == 1) ? weather : 0.0f);
     chunkShader.setVec4("u_clipPlane", glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
-    ctx.world.drawAll();
+    ctx.world.drawAll(&camFrustum);
 
     // Characters
     charShader.use();
@@ -916,7 +927,7 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
             glUniform3fv(glGetUniformLocation(vegetationShader.id, "u_disturbPos"),
                          dn, &disturb[0][0]);
     }
-    ctx.world.drawAllFoliage();
+    ctx.world.drawAllFoliage(&camFrustum);
 
     // Leaf particles — tiny coloured cubes, drawn with the chunk shader
     if (!ctx.leafParticles.empty()) {
@@ -989,7 +1000,7 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     glassShader.setVec3("camPos",     eyePos);
     glassShader.setVec3("u_sunDir",   sunDir);
     glassShader.setFloat("u_weather", weather);
-    ctx.world.drawAllGlass();
+    ctx.world.drawAllGlass(&camFrustum);
     glDepthMask(GL_TRUE); glDisable(GL_BLEND); glEnable(GL_CULL_FACE);
 
     // Water
@@ -1011,7 +1022,7 @@ void Renderer::renderWorld(AppContext& ctx, GLFWwindow* window, float currentTim
     waterShader.setVec3("u_sunDir",    sunDir);
     waterShader.setFloat("u_weather",  weather);
     bindLanternLights(waterShader, lanternLights, lightVolOrigin, LIGHTVOL_SIZE, 3);
-    ctx.world.drawAllWater();
+    ctx.world.drawAllWater(&camFrustum);
     glDepthMask(GL_TRUE); glDisable(GL_BLEND); glEnable(GL_CULL_FACE);
 
     // --- Weather particles (rain / snow) ---

@@ -2,6 +2,7 @@
 #include "world.h"
 #include "town.h"
 #include <memory>
+#include <glm/gtc/matrix_transform.hpp>
 
 // Internal town.cpp helper (not in the public header) — stamps a town's
 // perimeter wall into a chunk. Declared here so the test can drive it directly
@@ -67,6 +68,37 @@ TEST_CASE(Chunk_LightNibblesIndependent) {
     c.setBlockLight(2, 3, 4, 15);
     CHECK_EQ((int)c.getSkyLight(2, 3, 4),   7);
     CHECK_EQ((int)c.getBlockLight(2, 3, 4), 15);
+}
+
+// --- Frustum culling math (Renderer chunk culling) ---
+// A perspective camera at the origin looking down +Z. fromMatrix() extracts the
+// six planes; intersectsAABB() must keep what's in front of the camera and
+// reject boxes behind it, off to the side, or beyond the far plane.
+
+TEST_CASE(Frustum_KeepsInFrontCullsElsewhere) {
+    glm::mat4 view = glm::lookAt(glm::vec3(0, 0, 0), glm::vec3(0, 0, 10), glm::vec3(0, 1, 0));
+    glm::mat4 proj = glm::perspective(glm::radians(70.0f), 1.0f, 0.1f, 100.0f);
+    Frustum fr;
+    fr.fromMatrix(proj * view);
+
+    // A small box straight ahead is visible.
+    CHECK(fr.intersectsAABB(glm::vec3(-1, -1, 19), glm::vec3(1, 1, 21)));
+    // Directly behind the camera — culled.
+    CHECK(!fr.intersectsAABB(glm::vec3(-1, -1, -21), glm::vec3(1, 1, -19)));
+    // Far off to the side, outside the horizontal FOV — culled.
+    CHECK(!fr.intersectsAABB(glm::vec3(199, -1, 19), glm::vec3(201, 1, 21)));
+    // Beyond the far plane (100) — culled.
+    CHECK(!fr.intersectsAABB(glm::vec3(-1, -1, 199), glm::vec3(1, 1, 201)));
+}
+
+TEST_CASE(Frustum_LargeBoxStraddlingCameraIsVisible) {
+    glm::mat4 view = glm::lookAt(glm::vec3(0, 0, 0), glm::vec3(0, 0, 10), glm::vec3(0, 1, 0));
+    glm::mat4 proj = glm::perspective(glm::radians(70.0f), 1.0f, 0.1f, 100.0f);
+    Frustum fr;
+    fr.fromMatrix(proj * view);
+    // A box enclosing the camera overlaps the frustum and must not be culled
+    // (a false cull here would pop the chunk the player stands in).
+    CHECK(fr.intersectsAABB(glm::vec3(-50, -50, -50), glm::vec3(50, 50, 50)));
 }
 
 // --- Terrain oracle: seed handling ---

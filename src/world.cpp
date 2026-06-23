@@ -65,16 +65,19 @@ void Chunk::computeLight() {
     }
 
     // ── Block light: seed emitters (Glowstone full, Lantern slightly softer) ──
-    for (int x = 0; x < CHUNK_SIZE; x++)
-    for (int y = 0; y < CHUNK_HEIGHT; y++)
-    for (int z = 0; z < CHUNK_SIZE; z++) {
-        BlockType b = get(x, y, z);
-        uint8_t emit = (b == BlockType::Glowstone) ? 15u
-                     : (b == BlockType::Lantern)   ? 14u : 0u;
-        if (emit) {
-            setBlockLight(x, y, z, emit);
-            q.push({(uint8_t)x, (uint8_t)y, (uint8_t)z, (uint8_t)(0x80 | emit)}); // block channel
-        }
+    // Linear scan of the raw block array: the vast majority of chunks contain no
+    // emitters, so an early-continue over a flat array is far cheaper than the
+    // old triple-nested get() (65k bounds-checked accessor calls per chunk).
+    const int CS2 = CHUNK_SIZE * CHUNK_SIZE;
+    for (int i = 0; i < (int)blocks.size(); i++) {
+        BlockType b = blocks[i];
+        if (b != BlockType::Glowstone && b != BlockType::Lantern) continue;
+        int y = i / CS2;
+        int z = (i - y * CS2) / CHUNK_SIZE;
+        int x = i - y * CS2 - z * CHUNK_SIZE;
+        uint8_t emit = (b == BlockType::Glowstone) ? 15u : 14u;
+        setBlockLight(x, y, z, emit);
+        q.push({(uint8_t)x, (uint8_t)y, (uint8_t)z, (uint8_t)(0x80 | emit)}); // block channel
     }
 
     // ── BFS flood fill ────────────────────────────────────────────────────
@@ -178,7 +181,8 @@ void Chunk::buildMesh(World* world) {
     std::vector<NeighborData> neighbors;
     {
         std::lock_guard<std::mutex> lock(world->chunksMutex);
-        for (auto& ncp : std::vector<ChunkPos>{{pos.x-1,pos.z},{pos.x+1,pos.z},{pos.x,pos.z-1},{pos.x,pos.z+1}}) {
+        const ChunkPos ncps[4] = {{pos.x-1,pos.z},{pos.x+1,pos.z},{pos.x,pos.z-1},{pos.x,pos.z+1}};
+        for (const auto& ncp : ncps) {
             auto it = world->chunks.find(ncp);
             if (it != world->chunks.end() && (it->second->state != ChunkState::Empty && it->second->state != ChunkState::Generating)) {
                 neighbors.push_back({ncp, &it->second->blocks, &it->second->lightMap});
@@ -905,24 +909,72 @@ void World::updateForPlayers(std::vector<ChunkPos> centers) {
     }
 }
 
-void World::drawAll() const {
-    std::lock_guard<std::mutex> lock(chunksMutex);
-    for (auto& [k, c] : chunks) c->draw();
+void Frustum::fromMatrix(const glm::mat4& m) {
+    // Rows of the matrix (glm is column-major, so row i = (m[0][i]..m[3][i])).
+    glm::vec4 r0(m[0][0], m[1][0], m[2][0], m[3][0]);
+    glm::vec4 r1(m[0][1], m[1][1], m[2][1], m[3][1]);
+    glm::vec4 r2(m[0][2], m[1][2], m[2][2], m[3][2]);
+    glm::vec4 r3(m[0][3], m[1][3], m[2][3], m[3][3]);
+    planes[0] = r3 + r0;   // left
+    planes[1] = r3 - r0;   // right
+    planes[2] = r3 + r1;   // bottom
+    planes[3] = r3 - r1;   // top
+    planes[4] = r3 + r2;   // near
+    planes[5] = r3 - r2;   // far
+    for (auto& p : planes) {
+        float len = glm::length(glm::vec3(p));
+        if (len > 0.0f) p /= len;
+    }
 }
 
-void World::drawAllWater() const {
-    std::lock_guard<std::mutex> lock(chunksMutex);
-    for (auto& [k, c] : chunks) c->drawWater();
+bool Frustum::intersectsAABB(const glm::vec3& mn, const glm::vec3& mx) const {
+    for (const glm::vec4& p : planes) {
+        // Positive vertex: the AABB corner furthest along the plane normal.
+        glm::vec3 pv(p.x >= 0.0f ? mx.x : mn.x,
+                     p.y >= 0.0f ? mx.y : mn.y,
+                     p.z >= 0.0f ? mx.z : mn.z);
+        if (p.x * pv.x + p.y * pv.y + p.z * pv.z + p.w < 0.0f)
+            return false;   // wholly outside this plane
+    }
+    return true;
 }
 
-void World::drawAllFoliage() const {
+void World::collectVisible(const Frustum* fr, std::vector<Chunk*>& out) const {
+    out.clear();
     std::lock_guard<std::mutex> lock(chunksMutex);
-    for (auto& [k, c] : chunks) c->drawFoliage();
+    out.reserve(chunks.size());
+    for (auto& [k, c] : chunks) {
+        if (fr) {
+            glm::vec3 mn((float)(k.x * CHUNK_SIZE), 0.0f, (float)(k.z * CHUNK_SIZE));
+            glm::vec3 mx(mn.x + CHUNK_SIZE, (float)CHUNK_HEIGHT, mn.z + CHUNK_SIZE);
+            if (!fr->intersectsAABB(mn, mx)) continue;
+        }
+        out.push_back(c.get());
+    }
 }
 
-void World::drawAllGlass() const {
-    std::lock_guard<std::mutex> lock(chunksMutex);
-    for (auto& [k, c] : chunks) c->drawGlass();
+void World::drawAll(const Frustum* fr) const {
+    static std::vector<Chunk*> vis;
+    collectVisible(fr, vis);
+    for (Chunk* c : vis) c->draw();
+}
+
+void World::drawAllWater(const Frustum* fr) const {
+    static std::vector<Chunk*> vis;
+    collectVisible(fr, vis);
+    for (Chunk* c : vis) c->drawWater();
+}
+
+void World::drawAllFoliage(const Frustum* fr) const {
+    static std::vector<Chunk*> vis;
+    collectVisible(fr, vis);
+    for (Chunk* c : vis) c->drawFoliage();
+}
+
+void World::drawAllGlass(const Frustum* fr) const {
+    static std::vector<Chunk*> vis;
+    collectVisible(fr, vis);
+    for (Chunk* c : vis) c->drawGlass();
 }
 
 BlockType World::getBlockInternal(int wx, int wy, int wz) const {

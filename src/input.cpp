@@ -198,6 +198,7 @@ static void key_callback(GLFWwindow* window, int key, int, int action, int) {
         if (key == GLFW_KEY_LEFT_SHIFT) { if(action==GLFW_PRESS) ctx.keySprint=1; else if(action==GLFW_RELEASE) ctx.keySprint=0; }
         if (key == GLFW_KEY_F && action == GLFW_PRESS) ctx.lanternHeld = !ctx.lanternHeld;
         if (key == GLFW_KEY_E && action == GLFW_PRESS) ctx.interactPressed = true;
+        if (key == GLFW_KEY_T && action == GLFW_PRESS) ctx.cycleTargetPressed = true;
         // V — one-shot wave animation. Easy template for any future
         // emote: pick a ClipKind, call playClip on the rig with a
         // duration. The animation system handles the rest.

@@ -611,6 +611,56 @@ static void drawQuestGiverWindow(AppContext& ctx) {
     ImGui::End();
 }
 
+// Target frame (top-centre) + an in-world selection marker over the locked
+// target. Shows the foe's name, level (con-coloured) and health.
+static void drawTargetFrame(AppContext& ctx, const Renderer& renderer) {
+    NPC* t = currentTargetNpc(ctx);
+    if (!t) return;
+    int   lvl   = (int)t->level;
+    float maxHp = defaultNpcHealth(t->type) * npcHpScaleForLevel(t->level);
+    float frac  = std::clamp(maxHp > 0.0f ? t->health / maxHp : 1.0f, 0.0f, 1.0f);
+    const char* name = isHostileNpc(t->type) ? questEnemyLabel((uint8_t)t->type) : "Target";
+    ImU32 con  = conColor(lvl, ctx.playerLevel);
+    ImVec4 conV = ImGui::ColorConvertU32ToFloat4(con);
+
+    ImVec2 vp = vpPos(), vs = vpSize();
+    const float W = 248.0f;
+    ImGui::SetNextWindowPos(ImVec2(vp.x + (vs.x - W) * 0.5f, vp.y + 16.0f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(W, 0), ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.55f);
+    ImGui::Begin("##targetframe", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                 ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoFocusOnAppearing |
+                 ImGuiWindowFlags_NoNav | ImGuiWindowFlags_AlwaysAutoResize);
+    ImGui::TextColored(conV, "%s", name);
+    ImGui::SameLine();
+    ImGui::TextColored(conV, "  Lv %d", lvl);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    float bw = W - 16.0f;
+    dl->AddRectFilled(p, ImVec2(p.x + bw, p.y + 12.0f), IM_COL32(20, 15, 12, 220));
+    dl->AddRectFilled(p, ImVec2(p.x + bw * frac, p.y + 12.0f), IM_COL32(200, 45, 40, 255));
+    ImGui::Dummy(ImVec2(bw, 14.0f));
+    ImGui::Text("%.0f / %.0f", t->health, maxHp);
+    ImGui::End();
+
+    // In-world selection marker: a con-coloured downward chevron above the head.
+    glm::vec4 clip = renderer.frameProj * renderer.frameView *
+                     glm::vec4(t->position + glm::vec3(0.0f, 3.0f, 0.0f), 1.0f);
+    if (clip.w > 0.01f) {
+        glm::vec3 ndc = glm::vec3(clip) / clip.w;
+        if (ndc.z >= -1.0f && ndc.z <= 1.0f) {
+            float sx = (ndc.x * 0.5f + 0.5f) * (float)renderer.frameFbW;
+            float sy = (1.0f - (ndc.y * 0.5f + 0.5f)) * (float)renderer.frameFbH;
+            ImDrawList* fg = ImGui::GetForegroundDrawList();
+            fg->AddTriangleFilled(ImVec2(sx - 8, sy - 10), ImVec2(sx + 8, sy - 10),
+                                  ImVec2(sx, sy), con);
+            fg->AddTriangle(ImVec2(sx - 8, sy - 10), ImVec2(sx + 8, sy - 10),
+                            ImVec2(sx, sy), IM_COL32(0, 0, 0, 200), 1.5f);
+        }
+    }
+}
+
 // On-screen quest tracker (top-right) — lists active quests + live progress.
 static void drawQuestTracker(AppContext& ctx) {
     if (ctx.activeQuests.empty()) return;
@@ -934,6 +984,8 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
     drawQuestGiverWindow(ctx);
     // Active-quest tracker (top-right HUD).
     drawQuestTracker(ctx);
+    // Target frame + in-world selection marker (top-centre).
+    drawTargetFrame(ctx, renderer);
 
     // Toast queue — XP / level-up / loot notifications stacked top-right.
     // Newest at the bottom of the stack so the eye lands on the latest

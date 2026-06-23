@@ -19,6 +19,15 @@ void sendPlayerModelUpdate(AppContext& ctx);
 // index is out of range or the quest isn't Complete.
 void turnInQuest(AppContext& ctx, int activeIndex);
 
+// --- Targeting (Track D) ---------------------------------------------------
+class NPC;
+// Resolve the sticky combat target (ctx.targetNpcId) to a live hostile NPC, or
+// nullptr — clearing the id if the target died or streamed out.
+NPC* currentTargetNpc(AppContext& ctx);
+// Per-frame: consume the cycle-target key (T) to lock the next nearby hostile,
+// and auto-drop the target if it dies or gets too far away.
+void updateTargeting(AppContext& ctx);
+
 // --- Healing staff abilities ----------------------------------------------
 // Invoked by HealingStaffItem's primary / secondary attacks. They own the
 // heal targeting, particle visuals and heal/effect packets so the item class

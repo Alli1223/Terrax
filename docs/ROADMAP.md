@@ -86,14 +86,15 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
 
 ## Track D — Targeting & combat UX (tab-target MMO feel)
 
-- [ ] **D1. Persistent target** — click / Tab to lock a target; `ctx.targetNpcId`
-  persists; abilities use it instead of re-coning each cast.
-- [ ] **D2. Target frame UI** — selected enemy's name, level, health bar, and a
-  cast bar; colour by hostility and level delta.
-- [~] **D3. Nameplates** — floating name + level + health over nearby enemies,
-  with a selection highlight ring on the target. _(Done: con-coloured "Lv N" tag
-  over hostiles within 45m + level-aware health bars. Pending: enemy name label
-  and the target selection ring — needs D1.)_
+- [x] **D1. Persistent target** — **T** cycles to the next nearby hostile in view;
+  `ctx.targetNpcId` persists (auto-cleared on death / >70m). `findTargetNpc` prefers
+  the locked target (ignores the aim cone) so abilities + attacks hit it.
+- [x] **D2. Target frame UI** — top-centre frame with the target's name, con-coloured
+  level, and health bar, plus a con-coloured selection chevron over its head.
+- [x] **D3. Nameplates** — con-coloured "Lv N" tags over hostiles within 45m,
+  level-aware health bars, and a con-coloured selection chevron over the locked
+  target (D1/D2). _(The focused enemy's name shows in the target frame; per-plate
+  name labels deferred as redundant for now.)_
 - [ ] **D4. Threat/aggro polish** — show aggro state; tab cycles nearest hostiles.
 
 ## Track E — Quests & quest-givers  *(the core loop)*

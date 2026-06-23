@@ -685,8 +685,54 @@ void updateNpcInteraction(AppContext& ctx) {
 // The NPC a swing/shot should land on — nearest one ahead within range.
 // Melee uses a 3.8-block radius and a generous facing cone; bows use a
 // 28-block radius and a tighter cone (you have to actually aim).
+NPC* currentTargetNpc(AppContext& ctx) {
+    if (ctx.targetNpcId == 0) return nullptr;
+    GameObject* o = ctx.objectManager.findById(ctx.targetNpcId);
+    if (!o || o->dead || o->kind != ObjectKind::NPC) { ctx.targetNpcId = 0; return nullptr; }
+    return static_cast<NPC*>(o);
+}
+
+// Lock the next nearby hostile in view, cycling past the current target.
+static void acquireNextTarget(AppContext& ctx) {
+    glm::vec3 eye = ctx.camera.position;
+    glm::vec3 fwd = glm::vec3(ctx.camera.front.x, 0.0f, ctx.camera.front.z);
+    if (glm::length(fwd) > 0.001f) fwd = glm::normalize(fwd);
+    const float MAXR = 45.0f;
+    std::vector<std::pair<float, uint32_t>> cands;
+    for (auto& o : ctx.objectManager.objects()) {
+        if (o->dead || o->kind != ObjectKind::NPC) continue;
+        NPC* n = static_cast<NPC*>(o.get());
+        if (!isHostileNpc(n->type) || n->dyingFlag) continue;
+        glm::vec3 to = n->position - eye; to.y = 0.0f;
+        float d2 = to.x * to.x + to.z * to.z;
+        if (d2 > MAXR * MAXR) continue;
+        if (d2 > 0.04f && glm::dot(glm::normalize(to), fwd) < 0.1f) continue;  // roughly in front
+        cands.push_back({ d2, n->id });
+    }
+    if (cands.empty()) { ctx.targetNpcId = 0; return; }
+    std::sort(cands.begin(), cands.end());
+    int curIdx = -1;
+    for (size_t i = 0; i < cands.size(); ++i)
+        if (cands[i].second == ctx.targetNpcId) curIdx = (int)i;
+    int next = (curIdx >= 0) ? (curIdx + 1) % (int)cands.size() : 0;
+    ctx.targetNpcId = cands[next].second;
+}
+
+void updateTargeting(AppContext& ctx) {
+    if (ctx.cycleTargetPressed) { acquireNextTarget(ctx); ctx.cycleTargetPressed = false; }
+    if (NPC* t = currentTargetNpc(ctx)) {
+        if (glm::distance(t->position, ctx.camera.position) > 70.0f) ctx.targetNpcId = 0;
+    }
+}
+
 NPC* findTargetNpc(AppContext& ctx, float maxRange, float minFacing) {
     glm::vec3 eye = ctx.camera.position;
+    // A locked target takes priority while it's alive and within range — abilities
+    // and attacks hit it without needing the precise aim cone (the point of locking).
+    if (NPC* t = currentTargetNpc(ctx)) {
+        glm::vec3 to = t->position - eye; to.y = 0.0f;
+        if (to.x * to.x + to.z * to.z <= maxRange * maxRange && !t->dyingFlag) return t;
+    }
     glm::vec3 fwd = glm::vec3(ctx.camera.front.x, 0.0f, ctx.camera.front.z);
     if (glm::length(fwd) > 0.001f) fwd = glm::normalize(fwd);
     NPC* best = nullptr;

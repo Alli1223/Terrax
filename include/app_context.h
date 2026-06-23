@@ -330,6 +330,8 @@ struct AppContext {
 
     // --- NPC interaction ---
     bool        interactPressed = false;   // E pressed this frame (set by input)
+    uint32_t    targetNpcId       = 0;     // sticky combat target (network id; 0 = none)
+    bool        cycleTargetPressed = false; // T pressed this frame (cycle target)
     std::string talkTargetName;            // villager currently faced ("" = none)
     uint32_t    talkTargetSeed = 0;
     glm::vec3   talkTargetPos{0.0f};

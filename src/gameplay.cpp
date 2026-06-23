@@ -619,6 +619,7 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
     updateLootPickup(ctx);
     updatePropInteraction(ctx);
     updateNpcInteraction(ctx);
+    updateTargeting(ctx);
 
     // The Class Trainer window opens by pressing E near a trainer (above), not
     // via a key toggle, so reconcile the cursor with its state here: free it when

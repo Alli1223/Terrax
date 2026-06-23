@@ -40,7 +40,7 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
 
 ## Track A — Asset & content catalog  *(reference infra, build first)*
 
-- [~] **A1. Asset catalog generator + `docs/ASSET_CATALOG.md`** — headless tool
+- [x] **A1. Asset catalog generator + `docs/ASSET_CATALOG.md`** — headless tool
   (links via `gl_stub` like the tests) that enumerates every prop in the registry,
   bakes its mesh, and records bounding-box **dimensions**, voxel count, light/
   interaction/wind metadata. Emits a Markdown catalog. `make catalog` target.

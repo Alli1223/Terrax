@@ -68,9 +68,18 @@ TEST_SRCS    := $(TEST_ENGINE_SRCS) tests/gl_stub.cpp $(TEST_CASE_SRCS)
 # link the pthread runtime on Linux (harmless elsewhere).
 TEST_FLAGS   := -std=c++17 -O0 -g -Wall -pthread -Iinclude -Isrc -Itests -DTERRAX_TESTING
 
+# --- Asset catalog tool (headless, no GL/GLFW) ---
+# Links the prop builders + voxel model against the GL stub and emits
+# docs/ASSET_CATALOG.md — a reference of every prop's dimensions + metadata.
+CATALOG_TARGET := asset_catalog
+CATALOG_SRCS   := tools/asset_catalog.cpp src/prop_registry.cpp \
+                  src/furniture.cpp src/decorations.cpp src/voxel_model.cpp \
+                  tests/gl_stub.cpp
+CATALOG_FLAGS  := -std=c++17 -O0 -g -Wall -pthread -Iinclude -Isrc -DTERRAX_TESTING
+
 $(shell mkdir -p build/imgui build/miniaudio)
 
-.PHONY: all build run clean test
+.PHONY: all build run clean test catalog
 
 all: $(TARGET)
 
@@ -81,6 +90,10 @@ run: $(TARGET)
 
 test: $(TEST_TARGET)
 	./$(TEST_TARGET)
+
+catalog: $(CATALOG_SRCS)
+	$(CXX) $(CATALOG_FLAGS) -o $(CATALOG_TARGET) $^ -lm
+	./$(CATALOG_TARGET) docs/ASSET_CATALOG.md
 
 $(TEST_TARGET): $(TEST_SRCS)
 	$(CXX) $(TEST_FLAGS) -o $@ $^ -lm

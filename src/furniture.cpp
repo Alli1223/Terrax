@@ -1,4 +1,24 @@
 #include "prop_builders.h"
+#include <algorithm>
+
+// Shared voxel box-fill used by every prop builder. Lives here (rather than in
+// prop.cpp) so the headless asset-catalog tool can link the builders without
+// the audio / object-manager closure.
+void voxFill(VoxelVolume* v, int x0, int y0, int z0,
+             int x1, int y1, int z1, Voxel c) {
+    if (!v) return;
+    if (x0 > x1) std::swap(x0, x1);
+    if (y0 > y1) std::swap(y0, y1);
+    if (z0 > z1) std::swap(z0, z1);
+    x0 = std::max(0, x0); y0 = std::max(0, y0); z0 = std::max(0, z0);
+    x1 = std::min(v->sizeX - 1, x1);
+    y1 = std::min(v->sizeY - 1, y1);
+    z1 = std::min(v->sizeZ - 1, z1);
+    for (int z = z0; z <= z1; z++)
+        for (int y = y0; y <= y1; y++)
+            for (int x = x0; x <= x1; x++)
+                v->setVoxel(x, y, z, c);
+}
 
 // --- Furniture: small-voxel models baked into the player houses ------------
 

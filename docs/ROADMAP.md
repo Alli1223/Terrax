@@ -94,9 +94,10 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
 
 ## Track E — Quests & quest-givers  *(the core loop)*
 
-- [ ] **E1. Quest data model** — `Quest` (id, title, text, objectives, rewards,
-  giver, turn-in) + `QuestState` (offered/active/complete/turned-in). Deterministic
-  generation from town/region seed. Headless-testable.
+- [x] **E1. Quest data model** — `Quest` (id, kind, title, text, objective,
+  rewards, giver) + `QuestStatus` + `QuestTarget`. Pure `buildTownQuests()`
+  (deterministic, headless-tested) + `getTownQuests()` that pulls real nearby
+  dungeons + a wilderness region from the world plans. quest.{h,cpp}, 4 tests.
 - [ ] **E2. Quest-giver NPCs** — a town NPC type that offers quests; interaction
   opens a quest dialog. Server-authoritative quest assignment.
 - [ ] **E3. Kill quests** — "slay N <enemy> in <region/dungeon>"; objective

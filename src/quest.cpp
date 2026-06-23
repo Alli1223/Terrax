@@ -22,7 +22,8 @@ uint32_t hashU32(uint32_t a, uint32_t b) {
 // Hostile NPCType values eligible for kill quests (see npc.h).
 const uint8_t HOSTILES[] = { (uint8_t)NPCType::Enemy, (uint8_t)NPCType::Skeleton,
                              (uint8_t)NPCType::Brute, (uint8_t)NPCType::Cultist,
-                             (uint8_t)NPCType::Zombie, (uint8_t)NPCType::Knight };
+                             (uint8_t)NPCType::Zombie, (uint8_t)NPCType::Knight,
+                             (uint8_t)NPCType::Necromancer, (uint8_t)NPCType::Ghoul };
 
 const char* COLLECTIBLES[] = {
     "Wolf Pelt", "Bandit Insignia", "Cracked Rune", "Ancient Coin",
@@ -37,9 +38,11 @@ const char* questEnemyLabel(uint8_t npcType) {
         case NPCType::Skeleton: return "Skeleton";
         case NPCType::Brute:    return "Ogre Brute";
         case NPCType::Cultist:  return "Cultist";
-        case NPCType::Zombie:   return "Zombie";
-        case NPCType::Knight:   return "Fallen Knight";
-        default:                return "Foe";
+        case NPCType::Zombie:      return "Zombie";
+        case NPCType::Knight:      return "Fallen Knight";
+        case NPCType::Necromancer: return "Necromancer";
+        case NPCType::Ghoul:       return "Ghoul";
+        default:                   return "Foe";
     }
 }
 

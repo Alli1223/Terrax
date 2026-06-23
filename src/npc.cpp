@@ -353,8 +353,10 @@ void NpcDirector::update(float dt, const std::vector<DirectorPlayer>& players,
         }
         if (n->type == NPCType::Enemy || n->type == NPCType::Skeleton ||
             n->type == NPCType::Brute || n->type == NPCType::Zombie ||
-            n->type == NPCType::Knight)       stepBandit(*n, dt, world, players);
-        else if (n->type == NPCType::Cultist) stepRangedEnemy(*n, dt, world, players);
+            n->type == NPCType::Knight || n->type == NPCType::Ghoul)
+                                              stepBandit(*n, dt, world, players);
+        else if (n->type == NPCType::Cultist ||
+                 n->type == NPCType::Necromancer) stepRangedEnemy(*n, dt, world, players);
         else if (n->type == NPCType::Guard)   stepGuard(*n, dt, world, players);
         else if (n->type == NPCType::Farmer)  stepFarmer(*n, dt, world, gameTime);
         else if (n->type == NPCType::Trainer ||
@@ -1209,6 +1211,7 @@ void NpcDirector::stepBandit(NPC& n, float dt, World& world,
     else if (n.type == NPCType::Skeleton) { chaseSpeed = 3.8f; dmgPlayer = 6.0f;  dmgGuard = 7.0f;  atkCd = 1.3f; }
     else if (n.type == NPCType::Zombie)   { chaseSpeed = 2.1f; dmgPlayer = 12.0f; dmgGuard = 10.0f; atkCd = 1.8f; }  // slow, heavy
     else if (n.type == NPCType::Knight)   { chaseSpeed = 3.2f; dmgPlayer = 15.0f; dmgGuard = 14.0f; atkCd = 1.6f; }  // disciplined, hard-hitting
+    else if (n.type == NPCType::Ghoul)    { chaseSpeed = 4.4f; dmgPlayer = 7.0f;  dmgGuard = 6.0f;  atkCd = 0.9f; }  // fast, frenzied claws
     // Higher-level foes (further from spawn) hit harder.
     dmgPlayer *= npcDamageScaleForLevel(n.level);
 

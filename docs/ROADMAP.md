@@ -75,12 +75,15 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
   _(Added: `Knight` — plate, sword+shield, tanky; spawns as ruins/castle minions
   & boss. Bandit/Cultist already existed. More humanoids to come.)_
 - [~] **C3. Undead** — Skeleton (warrior/archer/mage), Zombie, Ghoul, Wraith, Lich.
-  _(Added: `Zombie` — slow, heavy-hitting rotting melee; crypt/ruins minion.
-  Skeleton already existed. Ghoul/Wraith/Lich to come.)_
+  _(Added: `Zombie` (slow heavy melee), `Ghoul` (fast frenzied claws), and
+  `Necromancer` (ranged staff-bolt caster — Ruins boss). Skeleton already existed.
+  Wraith/Lich to come.)_
 - [ ] **C4. Beasts/monsters** — Wolf-pack, Bear, Spider, Slime, Golem, Troll, Ogre.
 - [ ] **C5. Elementals & exotics** — Fire/Ice/Earth elementals, Imp, Wisp, Drake.
-- [ ] **C6. Animal roster expansion** — deer, boar, fox, rabbit, sheep, cow,
-  chicken, horse, bear (neutral), birds, fish — passive/skittish/territorial AI.
+- [x] **C6. Animal roster** — 8 species already shipped: Sheep, Cow, Pig, Rabbit,
+  Squirrel, Deer, Fox, Chicken, each with a voxel rig, per-species speed, skittish
+  vs. calm AI, and biome-aware spawn tables. _(Predators/mounts — wolf, bear, boar,
+  horse — could extend it later.)_
 - [ ] **C7. Elites & rares** — occasional starred elite spawns with buffed stats
   and better loot, plus roaming named "rare" mobs.
 

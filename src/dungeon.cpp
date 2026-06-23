@@ -297,7 +297,9 @@ public:
     BlockType wallBlock()  const override { return BlockType::Stone; }
     BlockType floorBlock() const override { return BlockType::Gravel; }
     void fillSpawnTable(std::vector<DungeonSpawn>& out, uint32_t seed) const override {
-        rosterFill(out, seed, (uint8_t)NPCType::Enemy, (uint8_t)NPCType::Brute, 2);
+        // A bandit den that's also drawn ghouls up from the deep dark.
+        rosterFill(out, seed, (uint8_t)NPCType::Enemy, (uint8_t)NPCType::Brute, 2,
+                   (uint8_t)NPCType::Ghoul);
     }
 };
 
@@ -311,9 +313,9 @@ public:
     BlockType wallBlock()  const override { return BlockType::Sandstone; }
     BlockType floorBlock() const override { return BlockType::Sandstone; }
     void fillSpawnTable(std::vector<DungeonSpawn>& out, uint32_t seed) const override {
-        // Cultists + skeletal guardians, with a fallen knight lording over them.
-        rosterFill(out, seed, (uint8_t)NPCType::Cultist, (uint8_t)NPCType::Knight, 2,
-                   (uint8_t)NPCType::Skeleton);
+        // Cultists + shambling ghouls, raised and ruled by a necromancer.
+        rosterFill(out, seed, (uint8_t)NPCType::Cultist, (uint8_t)NPCType::Necromancer, 2,
+                   (uint8_t)NPCType::Ghoul);
     }
 };
 

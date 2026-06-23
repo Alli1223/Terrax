@@ -84,6 +84,14 @@ const Palette VENDOR_PALETTES[] = {
     { { 70,  95,  80, 255}, {200, 170, 110, 255} },   // travelling-trader green
     { {110,  60,  80, 255}, {225, 200, 150, 255} },   // wine-red bolt of cloth
 };
+const Palette NECRO_PALETTES[] = {
+    { { 26,  30,  40, 255}, { 90, 200, 130, 255} },   // black robe + necrotic green
+    { { 34,  26,  44, 255}, {150,  90, 210, 255} },   // dark violet + soul-light
+};
+const Palette GHOUL_PALETTES[] = {
+    { {120, 130, 100, 255}, { 80,  92,  70, 255} },   // pallid sickly flesh
+    { {138, 132, 110, 255}, { 96,  86,  64, 255} },   // grey carrion hide
+};
 
 template <typename T, size_t N>
 constexpr int arrLen(T (&)[N]) { return (int)N; }
@@ -99,7 +107,8 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
     // armour (clothing_painter does the actual rendering) and how it
     // sits on the body.
     ClothingTier tier = ClothingTier::Cloth;
-    if (type == NPCType::Enemy || type == NPCType::Brute || type == NPCType::Zombie)
+    if (type == NPCType::Enemy || type == NPCType::Brute || type == NPCType::Zombie ||
+        type == NPCType::Ghoul)
         tier = ClothingTier::Leather;
     else if (type == NPCType::Guard || type == NPCType::Knight)
         tier = ClothingTier::Plate;
@@ -129,6 +138,10 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
             palettes = KNIGHT_PALETTES;   palCount = arrLen(KNIGHT_PALETTES);   break;
         case NPCType::Vendor:
             palettes = VENDOR_PALETTES;   palCount = arrLen(VENDOR_PALETTES);   break;
+        case NPCType::Necromancer:
+            palettes = NECRO_PALETTES;    palCount = arrLen(NECRO_PALETTES);    break;
+        case NPCType::Ghoul:
+            palettes = GHOUL_PALETTES;    palCount = arrLen(GHOUL_PALETTES);    break;
         default: break;
     }
     const Palette& pal = palettes[pick(palCount)];
@@ -169,9 +182,10 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
         wear[4] = true;
     }
 
-    // A hood / helm is part of the silhouette for cultists, skeletons, knights.
+    // A hood / helm is part of the silhouette for cultists, skeletons, knights,
+    // and the hooded necromancer.
     if (type == NPCType::Cultist || type == NPCType::Skeleton ||
-        type == NPCType::Knight) wear[0] = true;
+        type == NPCType::Knight || type == NPCType::Necromancer) wear[0] = true;
 
     // Wipe the rig back to bare skin then layer the chosen clothing
     // pieces in slot order so accents stack correctly.
@@ -240,7 +254,12 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
         offW    = WeaponType::Shield;     // sword/axe + shield, shield in livery
         mainPri = {200, 205, 215, 255};   // polished steel
         mainAcc = { 80,  55,  30, 255};
+    } else if (type == NPCType::Necromancer) {
+        mainW   = WeaponType::Staff;      // raises bolts; uses the cast pose
+        mainPri = { 60,  50,  70, 255};   // dark bone staff
+        mainAcc = {120, 220, 150, 255};   // necrotic green focus
     }
+    // Ghoul: no weapon — it claws with bare hands (mainW stays None).
 
     applyWeaponsToRig(rig,
         mainW, ItemRarity::Common, mainPri, mainAcc,
@@ -262,4 +281,6 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
     if (type == NPCType::Brute) rig.heightScale = 1.4f;
     else if (type == NPCType::Zombie) rig.heightScale = 0.95f;   // a slight shamble-hunch
     else if (type == NPCType::Knight) rig.heightScale = 1.08f;   // an imposing, armoured frame
+    else if (type == NPCType::Ghoul)  rig.heightScale = 0.90f;   // small, hunched scavenger
+    else if (type == NPCType::Necromancer) rig.heightScale = 1.05f;
 }

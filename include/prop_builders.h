@@ -80,5 +80,11 @@ VoxelVolume* buildFlowerWreath();
 VoxelVolume* buildStoneUrn();
 VoxelVolume* buildDeadTree();
 
+// More home furnishings: a banded storage chest, a small round stool (sittable),
+// and a candle stand that glows at night.
+VoxelVolume* buildChest();
+VoxelVolume* buildStool();
+VoxelVolume* buildCandelabra();
+
 // Openable house door panel, one mesh per style/colour (the Door object).
 VoxelVolume* buildDoor(int variant);

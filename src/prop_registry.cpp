@@ -89,6 +89,10 @@ const std::vector<PropDef>& propRegistry() {
         { PropType::FlowerWreath,   "Flower Wreath",     buildFlowerWreath },
         { PropType::StoneUrn,       "Stone Urn",         buildStoneUrn },
         { PropType::DeadTree,       "Dead Tree",         buildDeadTree },
+        // More home furnishings
+        { PropType::Chest,          "Chest",             buildChest },
+        { PropType::Stool,          "Stool",             buildStool,      SIT },
+        { PropType::Candelabra,     "Candelabra",        buildCandelabra, {}, LANTERN_NIGHT },
     };
     return reg;
 }

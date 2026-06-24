@@ -113,6 +113,39 @@ VoxelVolume* buildChair() {
     return v;
 }
 
+VoxelVolume* buildChest() {
+    const int W = 16, H = 11, D = 11;
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    voxFill(v, 0, 0, 0, W - 1, 6, D - 1, WOOD);                // body
+    voxFill(v, 0, 7, 0, W - 1, H - 1, D - 1, WOODD);           // lid
+    for (int x : { 2, W - 3 }) voxFill(v, x, 0, 0, x, H - 1, D - 1, METAL);  // iron bands
+    voxFill(v, W / 2 - 1, 5, 0, W / 2, 8, 0, METAL);           // front latch
+    return v;
+}
+
+VoxelVolume* buildStool() {
+    const int W = 10, H = 12, D = 10;
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    for (int lx = 0; lx <= W - 2; lx += W - 2)
+        for (int lz = 0; lz <= D - 2; lz += D - 2)
+            voxFill(v, lx, 0, lz, lx + 1, 8, lz + 1, WOODD);   // four short legs
+    voxFill(v, 0, 9, 0, W - 1, 10, D - 1, WOOD);               // seat (~y=10 ≈ 0.5)
+    return v;
+}
+
+VoxelVolume* buildCandelabra() {
+    const int W = 7, H = 20, D = 7;
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    voxFill(v, 2, 0, 2, 4, 1, 4, METAL);                       // weighted base
+    voxFill(v, 3, 1, 3, 3, 14, 3, METAL);                      // central stem
+    voxFill(v, 1, 14, 3, 5, 14, 3, METAL);                     // candle crossbar
+    for (int cx : { 1, 3, 5 }) {
+        voxFill(v, cx, 15, 3, cx, 17, 3, WHITE);               // wax candle
+        v->setVoxel(cx, 18, 3, GLOW);                          // flame
+    }
+    return v;
+}
+
 VoxelVolume* buildCrockery() {
     const int W = 10, H = 7, D = 10;
     VoxelVolume* v = new VoxelVolume(W, H, D);

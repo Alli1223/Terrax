@@ -68,8 +68,11 @@ houses and towns so you pick props that fit the space and behave right.
 | 51 | Flower Wreath | 15×15×3 | 212 | - | - | - |
 | 52 | Stone Urn | 10×10×18 | 1402 | - | - | - |
 | 53 | Dead Tree | 11×7×51 | 353 | - | - | - |
+| 54 | Chest | 16×11×11 | 1936 | - | - | - |
+| 55 | Stool | 10×10×11 | 344 | Sit | - | - |
+| 56 | Candelabra | 5×3×19 | 47 | - | night | - |
 
-**54 props · 88503 filled voxels total.**
+**57 props · 90830 filled voxels total.**
 
 ## Weapons
 

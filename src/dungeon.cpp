@@ -237,12 +237,17 @@ void Dungeon::buildLayout(uint32_t seed, glm::ivec2 a, int surf,
 
 void Dungeon::rosterFill(std::vector<DungeonSpawn>& out, uint32_t seed,
                          uint8_t minionType, uint8_t bossType, int perRoom,
-                         uint8_t minionType2) const {
+                         uint8_t minionType2, uint8_t minionType3) const {
     std::mt19937 r(seed ^ 0x00D0A6E0u);
-    // Each minion is the primary species, or the secondary one (if any) ~40% of
-    // the time, so chambers read as a believable mix rather than a clone army.
+    // Minions are drawn from the primary type (≈half) plus any secondaries, so
+    // chambers read as a believable mix of species rather than a clone army.
+    uint8_t pool[3]; int poolN = 0;
+    pool[poolN++] = minionType;
+    if (minionType2 != 255) pool[poolN++] = minionType2;
+    if (minionType3 != 255) pool[poolN++] = minionType3;
     auto minionPick = [&]() -> uint8_t {
-        return (minionType2 != 255 && (r() % 100u) < 40u) ? minionType2 : minionType;
+        if (poolN == 1 || (r() % 100u) < 50u) return pool[0];
+        return pool[1 + (int)(r() % (uint32_t)(poolN - 1))];
     };
     for (const DungeonRoom& rm : rooms) {
         int ccx = (rm.mn.x + rm.mx.x) / 2, ccz = (rm.mn.z + rm.mx.z) / 2;
@@ -281,9 +286,9 @@ public:
     BlockType wallBlock()  const override { return BlockType::Stone; }
     BlockType floorBlock() const override { return BlockType::Stone; }
     void fillSpawnTable(std::vector<DungeonSpawn>& out, uint32_t seed) const override {
-        // Skeletons + shambling zombies, led by a hulking brute warden.
+        // Skeletons, shambling zombies + drifting wraiths, led by a brute warden.
         rosterFill(out, seed, (uint8_t)NPCType::Skeleton, (uint8_t)NPCType::Brute, 2,
-                   (uint8_t)NPCType::Zombie);
+                   (uint8_t)NPCType::Zombie, (uint8_t)NPCType::Wraith);
     }
 };
 
@@ -297,9 +302,9 @@ public:
     BlockType wallBlock()  const override { return BlockType::Stone; }
     BlockType floorBlock() const override { return BlockType::Gravel; }
     void fillSpawnTable(std::vector<DungeonSpawn>& out, uint32_t seed) const override {
-        // A bandit den that's also drawn ghouls up from the deep dark.
+        // A bandit den of cutthroats + brigands, with ghouls from the deep dark.
         rosterFill(out, seed, (uint8_t)NPCType::Enemy, (uint8_t)NPCType::Brute, 2,
-                   (uint8_t)NPCType::Ghoul);
+                   (uint8_t)NPCType::Brigand, (uint8_t)NPCType::Ghoul);
     }
 };
 

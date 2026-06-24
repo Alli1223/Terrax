@@ -104,7 +104,7 @@ protected:
     // mix of two species instead of one.
     void rosterFill(std::vector<DungeonSpawn>& out, uint32_t seed,
                     uint8_t minionType, uint8_t bossType, int perRoom,
-                    uint8_t minionType2 = 255) const;
+                    uint8_t minionType2 = 255, uint8_t minionType3 = 255) const;
 };
 
 // Factory — the only place that maps a DungeonKind to its concrete class.

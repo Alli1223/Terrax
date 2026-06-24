@@ -354,7 +354,8 @@ void NpcDirector::update(float dt, const std::vector<DirectorPlayer>& players,
         if (n->boss && isHostileNpc(n->type)) stepBossSpecial(*n, dt, players);
         if (n->type == NPCType::Enemy || n->type == NPCType::Skeleton ||
             n->type == NPCType::Brute || n->type == NPCType::Zombie ||
-            n->type == NPCType::Knight || n->type == NPCType::Ghoul)
+            n->type == NPCType::Knight || n->type == NPCType::Ghoul ||
+            n->type == NPCType::Brigand || n->type == NPCType::Wraith)
                                               stepBandit(*n, dt, world, players);
         else if (n->type == NPCType::Cultist ||
                  n->type == NPCType::Necromancer) stepRangedEnemy(*n, dt, world, players);
@@ -1263,6 +1264,8 @@ void NpcDirector::stepBandit(NPC& n, float dt, World& world,
     else if (n.type == NPCType::Zombie)   { chaseSpeed = 2.1f; dmgPlayer = 12.0f; dmgGuard = 10.0f; atkCd = 1.8f; }  // slow, heavy
     else if (n.type == NPCType::Knight)   { chaseSpeed = 3.2f; dmgPlayer = 15.0f; dmgGuard = 14.0f; atkCd = 1.6f; }  // disciplined, hard-hitting
     else if (n.type == NPCType::Ghoul)    { chaseSpeed = 4.4f; dmgPlayer = 7.0f;  dmgGuard = 6.0f;  atkCd = 0.9f; }  // fast, frenzied claws
+    else if (n.type == NPCType::Brigand)  { chaseSpeed = 3.3f; dmgPlayer = 13.0f; dmgGuard = 12.0f; atkCd = 1.5f; }  // hardened bandit
+    else if (n.type == NPCType::Wraith)   { chaseSpeed = 4.0f; dmgPlayer = 9.0f;  dmgGuard = 8.0f;  atkCd = 1.0f; }  // fast, chilling
     // Higher-level foes (further from spawn) hit harder.
     dmgPlayer *= npcDamageScaleForLevel(n.level);
 

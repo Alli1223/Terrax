@@ -403,6 +403,8 @@ const char* pickWeaponAdj(WeaponType type, ItemRarity rarity,
                           AXE_ADJ_RARE,   arrLen(AXE_ADJ_RARE),
                           AXE_ADJ_LEGENDARY, arrLen(AXE_ADJ_LEGENDARY));
         case WeaponType::Dagger: // bladed weapons share the sword adjective pool
+        case WeaponType::Greatsword:
+        case WeaponType::Spear:
             return choose(SWORD_ADJ_COMMON, arrLen(SWORD_ADJ_COMMON),
                           SWORD_ADJ_RARE,   arrLen(SWORD_ADJ_RARE),
                           SWORD_ADJ_LEGENDARY, arrLen(SWORD_ADJ_LEGENDARY));
@@ -669,9 +671,14 @@ std::unique_ptr<WeaponItem> generateRandomWeapon(uint32_t seed, WeaponType type,
                                 : Voxel{ rndByte(80, 150), rndByte(50, 100), rndByte(30, 70), 255 };
             break;
         case WeaponType::Dagger:
+        case WeaponType::Greatsword:
             item->primaryColor = metallic(140, 230);
             item->accentColor  = (rarity == ItemRarity::Legendary) ? glowAcc()
                                 : Voxel{ rndByte(60, 130), rndByte(30, 90), rndByte(20, 60), 255 };
+            break;
+        case WeaponType::Spear:   // steel head, wooden shaft
+            item->primaryColor = metallic(150, 230);
+            item->accentColor  = wood();
             break;
         default: break;
     }
@@ -688,6 +695,7 @@ std::unique_ptr<WeaponItem> generateRandomWeapon(uint32_t seed,
     static const WeaponType types[] = {
         WeaponType::Sword, WeaponType::Shield, WeaponType::Bow,
         WeaponType::Staff, WeaponType::Axe, WeaponType::Dagger, WeaponType::Mace,
+        WeaponType::Spear, WeaponType::Greatsword,
     };
     WeaponType t = types[std::uniform_int_distribution<int>(
         0, (int)(sizeof(types) / sizeof(types[0])) - 1)(outer)];

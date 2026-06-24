@@ -51,6 +51,8 @@ enum class WeaponType {
     Scythe,   // farm tool — used to harvest ripe wheat
     Dagger,   // short fast blade
     Mace,     // heavy hafted bludgeon
+    Spear,    // long reach polearm
+    Greatsword, // huge two-handed blade
 };
 
 // Elemental school carried by staves (and any future spell-casting

@@ -85,6 +85,9 @@ Dimensions are model-grid voxels (W = X, D = Z, H = Y).
 | Sword | Main-hand | Common | 4×2×20 | 160 |
 | Sword | Main-hand | Rare | 4×2×20 | 160 |
 | Sword | Main-hand | Legendary | 4×2×20 | 160 |
+| Greatsword | Main-hand | Common | 5×2×30 | 212 |
+| Greatsword | Main-hand | Rare | 5×2×30 | 212 |
+| Greatsword | Main-hand | Legendary | 5×2×30 | 212 |
 | Axe | Main-hand | Common | 6×2×20 | 128 |
 | Axe | Main-hand | Rare | 6×2×20 | 128 |
 | Axe | Main-hand | Legendary | 6×2×20 | 128 |
@@ -94,6 +97,9 @@ Dimensions are model-grid voxels (W = X, D = Z, H = Y).
 | Mace | Main-hand | Common | 4×4×21 | 156 |
 | Mace | Main-hand | Rare | 4×4×21 | 156 |
 | Mace | Main-hand | Legendary | 4×4×21 | 156 |
+| Spear | Main-hand | Common | 3×1×31 | 37 |
+| Spear | Main-hand | Rare | 3×1×31 | 37 |
+| Spear | Main-hand | Legendary | 3×1×31 | 37 |
 | Shield | Off-hand | Common | 10×2×14 | 236 |
 | Shield | Off-hand | Rare | 10×2×14 | 236 |
 | Shield | Off-hand | Legendary | 10×2×14 | 236 |
@@ -161,22 +167,22 @@ underground. Each has exactly one boss room with legendary loot.
 
 | Kind | Tier | Footprint (W×D) | Rooms | Corridors | Lights | Spawns | Bosses |
 |------|:----:|:---------------:|------:|----------:|-------:|-------:|-------:|
-| Crypt | 0 | 135×130 | 10 | 10 | 300 | 21 | 1 |
+| Crypt | 0 | 135×130 | 10 | 10 | 300 | 22 | 1 |
 | Crypt | 1 | 189×186 | 24 | 26 | 679 | 56 | 1 |
-| Crypt | 2 | 258×254 | 38 | 40 | 1025 | 91 | 1 |
-| Crypt | 3 | 325×328 | 33 | 36 | 1183 | 75 | 1 |
+| Crypt | 2 | 258×254 | 38 | 40 | 1025 | 86 | 1 |
+| Crypt | 3 | 325×328 | 33 | 36 | 1183 | 79 | 1 |
 | Cave | 0 | 166×156 | 19 | 19 | 319 | 43 | 1 |
-| Cave | 1 | 189×208 | 33 | 37 | 583 | 78 | 1 |
-| Cave | 2 | 250×291 | 51 | 56 | 857 | 120 | 1 |
+| Cave | 1 | 189×208 | 33 | 37 | 583 | 76 | 1 |
+| Cave | 2 | 250×291 | 51 | 56 | 857 | 112 | 1 |
 | Cave | 3 | 295×346 | 71 | 82 | 1420 | 167 | 1 |
-| Ruins | 0 | 121×120 | 11 | 10 | 245 | 23 | 1 |
-| Ruins | 1 | 181×174 | 17 | 17 | 439 | 40 | 1 |
-| Ruins | 2 | 253×260 | 28 | 30 | 752 | 69 | 1 |
-| Ruins | 3 | 323×302 | 42 | 46 | 1326 | 94 | 1 |
-| Castle | 0 | 60×33 | 5 | 0 | 16 | 16 | 1 |
+| Ruins | 0 | 121×120 | 11 | 10 | 245 | 24 | 1 |
+| Ruins | 1 | 181×174 | 17 | 17 | 439 | 38 | 1 |
+| Ruins | 2 | 253×260 | 28 | 30 | 752 | 68 | 1 |
+| Ruins | 3 | 323×302 | 42 | 46 | 1326 | 93 | 1 |
+| Castle | 0 | 60×33 | 5 | 0 | 16 | 15 | 1 |
 | Castle | 1 | 72×45 | 7 | 0 | 20 | 21 | 1 |
-| Castle | 2 | 84×57 | 9 | 0 | 24 | 27 | 1 |
-| Castle | 3 | 96×69 | 11 | 0 | 28 | 36 | 1 |
+| Castle | 2 | 84×57 | 9 | 0 | 24 | 28 | 1 |
+| Castle | 3 | 96×69 | 11 | 0 | 28 | 35 | 1 |
 
 Room purposes (DungeonRoom.purpose): 0 hall · 1 entrance · 2 boss · 3 throne · 4 library · 5 ornament · 6 vault/treasure · 7 prison.
 Room shapes: Rect · Circle · Octagon · Cross.

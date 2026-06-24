@@ -75,6 +75,8 @@ const char* weaponName(WeaponType t) {
         case WeaponType::Scythe: return "Scythe (farm tool)";
         case WeaponType::Dagger: return "Dagger";
         case WeaponType::Mace:   return "Mace";
+        case WeaponType::Spear:  return "Spear";
+        case WeaponType::Greatsword: return "Greatsword";
         default:                 return "None";
     }
 }
@@ -124,9 +126,9 @@ void writeWeapons(FILE* out) {
         "Dimensions are model-grid voxels (W = X, D = Z, H = Y).\n\n"
         "| Weapon | Slot | Rarity | W×D×H | Voxels |\n"
         "|--------|:----:|:------:|:-----:|-------:|\n");
-    const WeaponType types[] = { WeaponType::Sword, WeaponType::Axe, WeaponType::Dagger,
-                                 WeaponType::Mace, WeaponType::Shield,
-                                 WeaponType::Bow, WeaponType::Staff,
+    const WeaponType types[] = { WeaponType::Sword, WeaponType::Greatsword, WeaponType::Axe,
+                                 WeaponType::Dagger, WeaponType::Mace, WeaponType::Spear,
+                                 WeaponType::Shield, WeaponType::Bow, WeaponType::Staff,
                                  WeaponType::Hoe, WeaponType::Scythe };
     const ItemRarity rarities[] = { ItemRarity::Common, ItemRarity::Rare, ItemRarity::Legendary };
     const char* rarityStr[] = { "Common", "Rare", "Legendary" };

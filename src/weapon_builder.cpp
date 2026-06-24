@@ -209,6 +209,25 @@ static VoxelVolume* buildBaseWeaponMesh(WeaponType type, Voxel pri, Voxel acc) {
                 v->setVoxel(x, y, z, pri);                     // blunt head
             return v;
         }
+        case WeaponType::Greatsword: {
+            // 5x30x2 — long accent grip + wide guard, then a massive blade.
+            VoxelVolume* v = new VoxelVolume(5, 30, 2);
+            for (int x = 0; x < 5; x++) for (int y = 0; y < 30; y++) for (int z = 0; z < 2; z++) {
+                if (y < 6)       v->setVoxel(x, y, z, acc);    // long grip
+                else if (y < 8)  v->setVoxel(x, y, z, guard);  // broad guard
+                else if (x >= 1 && x <= 3) v->setVoxel(x, y, z, pri);  // wide blade
+            }
+            return v;
+        }
+        case WeaponType::Spear: {
+            // 3x32x3 — a long accent shaft with a primary leaf-blade tip on top.
+            VoxelVolume* v = new VoxelVolume(3, 32, 3);
+            for (int y = 0; y < 26; y++) v->setVoxel(1, y, 1, acc);    // shaft
+            for (int y = 25; y < 30; y++) for (int x = 0; x < 3; x++)  // spearhead
+                if (x == 1 || y < 28) v->setVoxel(x, y, 1, pri);
+            v->setVoxel(1, 30, 1, pri);                                // point
+            return v;
+        }
         default: return nullptr;
     }
 }
@@ -270,10 +289,16 @@ static void setWeaponPose(CharacterNode* node, WeaponType type, bool offHand) {
             node->localPos = glm::vec3(0, -6, 0);
             node->localRot = glm::vec3(90, 0, 0);
             break;
-        case WeaponType::Mace:     // gripped like an axe (heavy head up)
+        case WeaponType::Mace:       // gripped like an axe (heavy head up)
+        case WeaponType::Greatsword: // huge blade, held like a sword
             node->pivot    = glm::vec3(1, 2, 1);
             node->localPos = glm::vec3(0, -6, 0);
             node->localRot = glm::vec3(90, 0, offHand ? -10.0f : 10.0f);
+            break;
+        case WeaponType::Spear:      // long shaft, angled forward like a polearm
+            node->pivot    = glm::vec3(1, 4, 1);
+            node->localPos = glm::vec3(0, -6, 0);
+            node->localRot = glm::vec3(80, 0, 0);
             break;
         default: break;
     }

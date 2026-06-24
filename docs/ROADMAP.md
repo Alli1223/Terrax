@@ -187,8 +187,17 @@ unobstructed (the old shots hid ~40% of the frame). Reviewed clean vistas
 - [ ] **R8. Water saturation near snow** — the turquoise sea reads a touch neon
   against muted snow/tundra; consider easing water saturation toward the shore
   in cold biomes. _(Low priority — per the Sea-of-Thieves palette by design.)_
-- [ ] **R9. Foliage variety** — conifers are simple cones; more tree silhouettes
-  / size variation would enrich distance vistas. _(Ties into C/vegetation work.)_
+- [x] **R9. Foliage density** — bumped open-biome ground-cover coverage (Plains
+  0.62→0.72, Forest 0.62→0.68, Jungle 0.66→0.72, Savanna 0.50→0.58) so meadows read
+  lusher and less flat (verified in review #3). The vegetation system already has
+  ~22 detail types; distinct *tree* silhouettes remain a larger future item.
+
+### Rendering review #3 (2026-06-24, clean tour)
+
+Reviewed fresh clean vistas (plains, town, mountains). **Renderer + vegetation are
+both already strong** — AO depth, tuned post/water/chunk shaders, ~22 vegetation
+types. Only actioned R9 (denser open-biome cover). No other urgent gaps; remaining
+ideas (distinct tree models, biome-aware water saturation) are low-priority polish.
 
 ### Rendering review #1 (2026-06-23, tour shots tier 1 & tier 9)
 

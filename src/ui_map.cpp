@@ -350,10 +350,14 @@ void renderMapUI(AppContext& ctx) {
             if (showNames && !dg.name.empty()) {
                 ImU32 nameCol = dg.overground ? IM_COL32(185, 210, 245, 245)
                                               : IM_COL32(240, 175, 175, 245);
-                ImVec2 ts = ImGui::CalcTextSize(dg.name.c_str());
+                // Append the recommended level so players can size up a dungeon.
+                int recLv = enemyLevelForTier(dangerTierAt((float)dg.entrance.x,
+                                                           (float)dg.entrance.z));
+                std::string label = dg.name + "  (Lv ~" + std::to_string(recLv) + ")";
+                ImVec2 ts = ImGui::CalcTextSize(label.c_str());
                 ImVec2 tp = { sp.x - ts.x * 0.5f, sp.y + 6.0f };
-                dl->AddText({ tp.x + 1, tp.y + 1 }, IM_COL32(0, 0, 0, 210), dg.name.c_str());
-                dl->AddText(tp, nameCol, dg.name.c_str());
+                dl->AddText({ tp.x + 1, tp.y + 1 }, IM_COL32(0, 0, 0, 210), label.c_str());
+                dl->AddText(tp, nameCol, label.c_str());
             }
         }
     }

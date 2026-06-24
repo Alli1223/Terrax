@@ -182,6 +182,13 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
 - [ ] **H6. Per-screenshot follow-ups** — each rendering review appends concrete,
   scoped items here for later iterations to work through.
 
+### Rendering review #4 (2026-06-24, clean tour)
+
+Reviewed clean vistas (forest canopy, snowy coast). Applied **R8** (eased water
+saturation 1.45→1.30 — calmer turquoise vs snow, verified). Also confirmed the
+B5 region danger warning fires in-context ("foes here are around level 19…").
+Renderer remains in good shape; no further urgent items.
+
 ### Rendering review #2 (2026-06-23, clean tour — overlay now off)
 
 `--screenshot-tour` now disables the F3 debug overlay so review frames are
@@ -191,9 +198,9 @@ unobstructed (the old shots hid ~40% of the frame). Reviewed clean vistas
 - **Verdict: the renderer reads well.** AO (R1) gives terrain + stone steps +
   building edges real depth; the post pass (shafts, fog, contrast, saturation,
   vignette) is well-tuned. No urgent visual gaps.
-- [ ] **R8. Water saturation near snow** — the turquoise sea reads a touch neon
-  against muted snow/tundra; consider easing water saturation toward the shore
-  in cold biomes. _(Low priority — per the Sea-of-Thieves palette by design.)_
+- [x] **R8. Water saturation** — eased the water shader's saturation boost
+  (1.45→1.30) so open water reads less neon next to muted snow/sand while keeping
+  its turquoise character (verified in review #4's snowy-coast shot).
 - [x] **R9. Foliage density** — bumped open-biome ground-cover coverage (Plains
   0.62→0.72, Forest 0.62→0.68, Jungle 0.66→0.72, Savanna 0.50→0.58) so meadows read
   lusher and less flat (verified in review #3). The vegetation system already has

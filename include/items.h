@@ -49,6 +49,8 @@ enum class WeaponType {
     Axe,
     Hoe,      // farm tool — a working "weapon" carried by farmer NPCs
     Scythe,   // farm tool — used to harvest ripe wheat
+    Dagger,   // short fast blade
+    Mace,     // heavy hafted bludgeon
 };
 
 // Elemental school carried by staves (and any future spell-casting

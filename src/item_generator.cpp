@@ -398,9 +398,14 @@ const char* pickWeaponAdj(WeaponType type, ItemRarity rarity,
                           STAFF_ADJ_RARE,   arrLen(STAFF_ADJ_RARE),
                           STAFF_ADJ_LEGENDARY, arrLen(STAFF_ADJ_LEGENDARY));
         case WeaponType::Axe:
+        case WeaponType::Mace:   // heavy weapons share the brutal adjective pool
             return choose(AXE_ADJ_COMMON, arrLen(AXE_ADJ_COMMON),
                           AXE_ADJ_RARE,   arrLen(AXE_ADJ_RARE),
                           AXE_ADJ_LEGENDARY, arrLen(AXE_ADJ_LEGENDARY));
+        case WeaponType::Dagger: // bladed weapons share the sword adjective pool
+            return choose(SWORD_ADJ_COMMON, arrLen(SWORD_ADJ_COMMON),
+                          SWORD_ADJ_RARE,   arrLen(SWORD_ADJ_RARE),
+                          SWORD_ADJ_LEGENDARY, arrLen(SWORD_ADJ_LEGENDARY));
         default: return "";
     }
 }
@@ -658,9 +663,15 @@ std::unique_ptr<WeaponItem> generateRandomWeapon(uint32_t seed, WeaponType type,
             break;
         }
         case WeaponType::Axe:
+        case WeaponType::Mace:
             item->primaryColor = metallic(150, 230);
             item->accentColor  = (rarity == ItemRarity::Legendary) ? glowAcc()
                                 : Voxel{ rndByte(80, 150), rndByte(50, 100), rndByte(30, 70), 255 };
+            break;
+        case WeaponType::Dagger:
+            item->primaryColor = metallic(140, 230);
+            item->accentColor  = (rarity == ItemRarity::Legendary) ? glowAcc()
+                                : Voxel{ rndByte(60, 130), rndByte(30, 90), rndByte(20, 60), 255 };
             break;
         default: break;
     }
@@ -676,9 +687,10 @@ std::unique_ptr<WeaponItem> generateRandomWeapon(uint32_t seed,
     std::mt19937 outer(seed);
     static const WeaponType types[] = {
         WeaponType::Sword, WeaponType::Shield, WeaponType::Bow,
-        WeaponType::Staff, WeaponType::Axe,
+        WeaponType::Staff, WeaponType::Axe, WeaponType::Dagger, WeaponType::Mace,
     };
-    WeaponType t = types[std::uniform_int_distribution<int>(0, 4)(outer)];
+    WeaponType t = types[std::uniform_int_distribution<int>(
+        0, (int)(sizeof(types) / sizeof(types[0])) - 1)(outer)];
     return generateRandomWeapon(outer(), t, targetLevel);
 }
 

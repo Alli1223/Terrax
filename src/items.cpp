@@ -93,6 +93,8 @@ WeaponItem::WeaponItem(std::string n, WeaponType t)
         case WeaponType::Bow:    attackPower  =  8.0f; break;
         case WeaponType::Staff:  attackPower  =  6.0f; break;
         case WeaponType::Shield: defenseValue =  6.0f; break;
+        case WeaponType::Dagger: attackPower  =  8.0f; break;   // light + fast
+        case WeaponType::Mace:   attackPower  = 13.0f; break;   // heavy bludgeon
         default: break;
     }
 }
@@ -278,6 +280,8 @@ const char* weaponTypeName(WeaponType t) {
         case WeaponType::Axe:    return "Axe";
         case WeaponType::Hoe:    return "Hoe";
         case WeaponType::Scythe: return "Scythe";
+        case WeaponType::Dagger: return "Dagger";
+        case WeaponType::Mace:   return "Mace";
         default:                 return "";
     }
 }

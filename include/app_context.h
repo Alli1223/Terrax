@@ -187,6 +187,7 @@ struct AppContext {
     bool showQuestLog         = false;  // J — quest journal panel
     std::vector<Quest> activeQuests;    // quests the player has accepted
     int  playerGold           = 0;      // currency earned from quests / kills (Track G)
+    std::unordered_set<int> discoveredDungeons;  // dungeon indices the player has entered
 
     // --- Progression ---
     int   playerLevel = 1;

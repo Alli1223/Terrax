@@ -7,6 +7,7 @@
 #include "game_session.h"
 #include "character_save.h"
 #include "town.h"
+#include "dungeon.h"
 #include "prop_placement.h"
 #include "vehicle.h"
 #include "npc.h"
@@ -637,6 +638,23 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
                 Voxel{255, 90, 70, 255}, 4.0f };
             ctx.toasts.push_back(std::move(t));
             dangerWarnTimer = 18.0f;   // don't nag more than ~every 18s
+        }
+    }
+
+    // Dungeon discovery: announce the first time the player crosses into a
+    // dungeon's footprint — a little "zone discovered" moment.
+    {
+        const DungeonPlan& dp = getDungeonPlan();
+        int px = (int)ctx.camera.position.x, pz = (int)ctx.camera.position.z;
+        for (size_t i = 0; i < dp.dungeons.size(); ++i) {
+            if (ctx.discoveredDungeons.count((int)i)) continue;
+            const Dungeon& d = *dp.dungeons[i];
+            if (px < d.bbMin.x || px > d.bbMax.x || pz < d.bbMin.y || pz > d.bbMax.y) continue;
+            ctx.discoveredDungeons.insert((int)i);
+            AppContext::HudToast t{ std::string("Discovered: ") + d.name,
+                                    Voxel{255, 225, 130, 255}, 5.0f };
+            ctx.toasts.push_back(std::move(t));
+            break;   // at most one announcement per frame
         }
     }
 

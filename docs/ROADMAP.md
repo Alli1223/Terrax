@@ -147,8 +147,10 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
 - [x] **F2. Boss loot** — boss kills drop 2–4 guaranteed **legendaries** *plus* a
   guaranteed themed **set piece** (`generateSetClothing`) — a recognisable trophy you
   can only earn from bosses. _(Per-dungeon-kind themed tables still possible later.)_
-- [ ] **F3. Dungeon discovery & re-pop** — entrance markers, "dungeon cleared"
-  state, timed re-population.
+- [~] **F3. Dungeon discovery & re-pop** — dungeons show as **map markers** (with
+  recommended level), and crossing into a dungeon's footprint pops a **"Discovered:
+  \<name\>"** banner (tracked in `ctx.discoveredDungeons`). _("Cleared" state +
+  timed re-population still to come.)_
 - [x] **F4. Dungeon difficulty by tier** — a dungeon's foes already scale with the
   danger tier of its location (B2/B3), and the world map now labels each dungeon
   with its **recommended level** ("Lv ~N") so players can pick targets that match

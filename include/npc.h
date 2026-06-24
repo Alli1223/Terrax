@@ -137,6 +137,8 @@ public:
     // NPC's death so we don't spawn loot on every overkill swing.
     bool      lootDropped = false;
     bool      boss        = false;  // dungeon boss — drops legendary loot on death
+    float     bossSlamCd   = 3.0f;  // server: cooldown until the boss can slam again
+    float     bossSlamWind = -1.0f; // server: >=0 while winding up a slam (telegraph), then impact
 
     // Read-only access for systems that need to inspect a dying NPC's
     // voxels (e.g. the death-explosion particle spawner).
@@ -260,6 +262,9 @@ private:
     void despawnCamp(uint64_t key);
     void stepBandit(NPC& n, float dt, World& world,
                     const std::vector<DirectorPlayer>& players);
+    // Dungeon-boss signature move: a telegraphed ground-slam that booms an AoE on
+    // nearby players after a brief wind-up (so they can step out of the ring).
+    void stepBossSpecial(NPC& n, float dt, const std::vector<DirectorPlayer>& players);
     void stepRangedEnemy(NPC& n, float dt, World& world,
                          const std::vector<DirectorPlayer>& players);
 

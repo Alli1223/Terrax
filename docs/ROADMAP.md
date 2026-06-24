@@ -139,8 +139,11 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
 
 ## Track F — Dungeons & boss loop
 
-- [ ] **F1. Boss mechanics** — telegraphs, special abilities, enrage; distinct
-  from trash mobs.
+- [~] **F1. Boss mechanics** — dungeon bosses now do a **telegraphed ground-slam**
+  (`stepBossSpecial`): a warning ring appears + the boss rears up (~0.95s), then a
+  radius AoE booms on anyone still standing in it — dodgeable by stepping out.
+  Server-resolved, broadcast as SpellEffect for the visual. _(Enrage / per-type
+  specials could follow.)_
 - [x] **F2. Boss loot** — boss kills drop 2–4 guaranteed **legendaries** *plus* a
   guaranteed themed **set piece** (`generateSetClothing`) — a recognisable trophy you
   can only earn from bosses. _(Per-dungeon-kind themed tables still possible later.)_

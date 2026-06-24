@@ -351,6 +351,7 @@ void NpcDirector::update(float dt, const std::vector<DirectorPlayer>& players,
             if (n->dyingTimer <= 0.0f) n->dead = true;
             continue;
         }
+        if (n->boss && isHostileNpc(n->type)) stepBossSpecial(*n, dt, players);
         if (n->type == NPCType::Enemy || n->type == NPCType::Skeleton ||
             n->type == NPCType::Brute || n->type == NPCType::Zombie ||
             n->type == NPCType::Knight || n->type == NPCType::Ghoul)
@@ -1195,6 +1196,56 @@ void NpcDirector::stepEnemyProjectiles(float dt, const std::vector<DirectorPlaye
         std::remove_if(enemyProjectiles.begin(), enemyProjectiles.end(),
                        [](const EnemyProjectile& e){ return e.ttl <= 0.0f; }),
         enemyProjectiles.end());
+}
+
+void NpcDirector::stepBossSpecial(NPC& n, float dt,
+                                  const std::vector<DirectorPlayer>& players) {
+    const float SLAM_R   = 5.5f;     // impact radius
+    const float WIND     = 0.95f;    // telegraph window (seconds to step out)
+    auto nearestPlayerDist2 = [&]() {
+        float best = 1e18f;
+        for (const DirectorPlayer& p : players) {
+            glm::vec3 d = p.pos - n.position; d.y = 0.0f;
+            best = std::min(best, d.x * d.x + d.z * d.z);
+        }
+        return best;
+    };
+
+    if (n.bossSlamWind >= 0.0f) {                 // winding up → impact
+        n.bossSlamWind -= dt;
+        if (n.bossSlamWind <= 0.0f) {
+            float dmg = 16.0f * npcDamageScaleForLevel(n.level);
+            for (const DirectorPlayer& p : players) {
+                glm::vec3 d = p.pos - n.position;
+                if (d.x * d.x + d.z * d.z <= SLAM_R * SLAM_R && std::fabs(d.y) < 4.0f)
+                    pendingDamage.push_back({ p.id, dmg });
+            }
+            if (g_server) {                       // impact burst (kind 2 = AoE)
+                SpellEffectPacket se{};
+                se.casterID = n.id; se.kind = 2;
+                se.x = n.position.x; se.y = n.position.y; se.z = n.position.z;
+                se.radius = SLAM_R; se.ttl = 0.6f;
+                g_server->broadcast(PacketType::SpellEffect, &se, sizeof(se));
+            }
+            n.bossSlamWind = -1.0f;
+            n.bossSlamCd   = 6.0f;
+        }
+        return;
+    }
+
+    n.bossSlamCd -= dt;
+    // Wind up a slam when a player is close enough to be worth punishing.
+    if (n.bossSlamCd <= 0.0f && nearestPlayerDist2() < 9.0f * 9.0f) {
+        n.bossSlamWind    = WIND;
+        n.attackAnimTimer = WIND;                 // a visible rear-up
+        if (g_server) {                           // telegraph ring (kind 3)
+            SpellEffectPacket se{};
+            se.casterID = n.id; se.kind = 3;
+            se.x = n.position.x; se.y = n.position.y; se.z = n.position.z;
+            se.radius = SLAM_R; se.ttl = WIND;
+            g_server->broadcast(PacketType::SpellEffect, &se, sizeof(se));
+        }
+    }
 }
 
 void NpcDirector::stepBandit(NPC& n, float dt, World& world,

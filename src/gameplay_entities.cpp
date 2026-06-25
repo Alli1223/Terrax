@@ -905,9 +905,22 @@ bool vendorSell(AppContext& ctx, int inventoryIndex) {
     return true;
 }
 
+// Spawn a floating combat number just above the local player — used for damage
+// taken (red) and heals received (green), mirroring the enemy-side numbers (D5).
+static void spawnPlayerFloatText(AppContext& ctx, const std::string& txt, Voxel col) {
+    if (ctx.floatingTexts.size() >= 64) return;
+    glm::vec3 base = ctx.localPlayer ? ctx.localPlayer->position : ctx.camera.position;
+    AppContext::FloatingText ft;
+    ft.worldPos = base + glm::vec3(0.0f, 2.2f, 0.0f);
+    ft.text  = txt;
+    ft.color = col;
+    ctx.floatingTexts.push_back(std::move(ft));
+}
+
 bool useConsumable(AppContext& ctx, Item* item) {
     if (!item || item->getKind() != ItemKind::Consumable) return false;
     auto* c = static_cast<ConsumableItem*>(item);
+    float beforeHp = ctx.playerHealth;
     bool used = false;
     if (c->restoreHealthPct > 0.0f && ctx.playerHealth < 1.0f) {
         ctx.playerHealth = std::min(1.0f, ctx.playerHealth + c->restoreHealthPct);
@@ -923,6 +936,10 @@ bool useConsumable(AppContext& ctx, Item* item) {
         pushToast(ctx, "Already at full", Voxel{200, 200, 210, 255}, 1.4f);
         return false;
     }
+    float healedHp = (ctx.playerHealth - beforeHp) * ctx.maxHpScaled;
+    if (healedHp > 0.5f)
+        spawnPlayerFloatText(ctx, "+" + std::to_string((int)(healedHp + 0.5f)),
+                             Voxel{120, 230, 130, 255});
     std::string nm = item->getName();
     ctx.inventory.removeItem(item);
     pushToast(ctx, "Drank " + nm, Voxel{120, 220, 130, 255}, 1.8f);
@@ -968,7 +985,11 @@ void updatePlayerVitals(AppContext& ctx) {
         float defense = ctx.defenseMult;
         for (const ActiveBuff& b : ctx.activeBuffs)
             if (b.kind == BuffKind::Defense) defense += b.magnitude;
-        ctx.playerHealth -= (dmg / defense) / ctx.maxHpScaled;
+        float hpLost = dmg / defense;
+        ctx.playerHealth -= hpLost / ctx.maxHpScaled;
+        if (hpLost > 0.5f)
+            spawnPlayerFloatText(ctx, "-" + std::to_string((int)(hpLost + 0.5f)),
+                                 Voxel{255, 110, 90, 255});
         // Tanks build Rage by weathering hits.
         if (ctx.resourceType == ResourceType::Rage)
             ctx.resource = std::min(ctx.resourceMax, ctx.resource + dmg * 0.5f);
@@ -978,7 +999,11 @@ void updatePlayerVitals(AppContext& ctx) {
     // Incoming heals (chain heal / sanctuary cast by any player, including us)
     // top the bar back up. Capped at full; never blocked by the regen delay.
     if (ctx.client && ctx.client->pendingSelfHeal > 0.0f) {
-        ctx.playerHealth = std::min(1.0f, ctx.playerHealth + ctx.client->pendingSelfHeal / ctx.maxHpScaled);
+        float h = ctx.client->pendingSelfHeal;
+        ctx.playerHealth = std::min(1.0f, ctx.playerHealth + h / ctx.maxHpScaled);
+        if (h > 0.5f)
+            spawnPlayerFloatText(ctx, "+" + std::to_string((int)(h + 0.5f)),
+                                 Voxel{120, 230, 130, 255});
         ctx.client->pendingSelfHeal = 0.0f;
     }
     if (ctx.regenDelay > 0.0f) {

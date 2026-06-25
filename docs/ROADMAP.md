@@ -111,8 +111,9 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
 - [x] **D5. Floating combat text** — damage numbers rise off a struck enemy and fade
   out. Fully client-side: spawned from each enemy's per-tick synced health delta
   (`syncNPCObjects`), aged/pruned in `updateGameplay`, projected + drawn in the play HUD
-  (`drawFloatingCombatText`). Elite hits show in gold. Makes melee/abilities feel
-  responsive without any new packet.
+  (`drawFloatingCombatText`). Elite hits show in gold. Now also **player-side**: red
+  damage-taken numbers + green heal numbers (potions, chain-heal/sanctuary) float over the
+  player via `spawnPlayerFloatText`. Makes melee/abilities feel responsive, no new packet.
 
 ## Track E — Quests & quest-givers  *(the core loop)*
 

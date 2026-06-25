@@ -317,11 +317,12 @@ FurnitureRule dungeonFurnitureRule(uint8_t purpose) {
         r.capMin = 8; r.capMax = 14; break;
     case 6: // Vault / treasure
         r.wallPicks = { PropType::Crate, PropType::Barrel, PropType::Bookshelf };
-        r.openPicks = { PropType::Crate, PropType::Barrel, PropType::ProducePile };
+        r.openPicks = { PropType::TreasurePile, PropType::TreasurePile, PropType::Crate,
+                        PropType::Barrel, PropType::BonePile, PropType::ProducePile };
         r.capMin = 8; r.capMax = 14; r.allowTableTopper = false; break;
     case 7: // Prison / cells
         r.wallPicks = { PropType::Bed, PropType::Barrel };
-        r.openPicks = { PropType::Crate };
+        r.openPicks = { PropType::Crate, PropType::BonePile, PropType::BonePile };
         r.capMin = 3; r.capMax = 6; r.allowTableTopper = false; break;
     case 3: // Throne room
         r.wallPicks = { PropType::Couch, PropType::SideTable, PropType::WallPainting, PropType::Bookshelf };
@@ -329,7 +330,8 @@ FurnitureRule dungeonFurnitureRule(uint8_t purpose) {
         r.capMin = 4; r.capMax = 8; break;
     case 2: // Boss hall
         r.wallPicks = { PropType::AlchemyTable, PropType::Bookshelf, PropType::Barrel };
-        r.openPicks = { PropType::Cauldron, PropType::Crate, PropType::FlowerVase };
+        r.openPicks = { PropType::Cauldron, PropType::TreasurePile, PropType::BonePile,
+                        PropType::Crate };
         r.capMin = 4; r.capMax = 7; break;
     case 5: // Ornament (central monument is block-built)
         r.wallPicks = { PropType::WallPainting, PropType::Bookshelf, PropType::Bench };
@@ -345,7 +347,7 @@ FurnitureRule dungeonFurnitureRule(uint8_t purpose) {
                         PropType::WallPainting, PropType::BarCounter };
         r.openPicks = { PropType::Table, PropType::Chair, PropType::Chair, PropType::FlowerVase,
                         PropType::PottedPlant, PropType::Cauldron, PropType::Crate,
-                        PropType::Barrel, PropType::BarStool };
+                        PropType::Barrel, PropType::BarStool, PropType::BonePile };
         r.capMin = 9; r.capMax = 16; break;
     }
     return r;

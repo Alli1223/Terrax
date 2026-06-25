@@ -96,6 +96,9 @@ const std::vector<PropDef>& propRegistry() {
         { PropType::Bookpile,       "Book Pile",         buildBookpile },
         { PropType::WallShelf,      "Wall Shelf",        buildWallShelf },
         { PropType::WallClock,      "Wall Clock",        buildWallClock },
+        // --- Dungeon dressing ---
+        { PropType::BonePile,       "Bone Pile",         buildBonePile },
+        { PropType::TreasurePile,   "Treasure Pile",     buildTreasurePile },
     };
     return reg;
 }

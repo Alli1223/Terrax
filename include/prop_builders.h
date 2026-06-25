@@ -89,5 +89,10 @@ VoxelVolume* buildBookpile();
 VoxelVolume* buildWallShelf();
 VoxelVolume* buildWallClock();
 
+// Dungeon dressing: a heap of bleached bones + skull, and a glittering pile of
+// gold coins studded with gems — atmospheric clutter for crypt / vault rooms.
+VoxelVolume* buildBonePile();
+VoxelVolume* buildTreasurePile();
+
 // Openable house door panel, one mesh per style/colour (the Door object).
 VoxelVolume* buildDoor(int variant);

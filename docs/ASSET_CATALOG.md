@@ -74,8 +74,10 @@ houses and towns so you pick props that fit the space and behave right.
 | 57 | Book Pile | 10×8×8 | 640 | - | - | - |
 | 58 | Wall Shelf | 18×6×7 | 298 | - | - | - |
 | 59 | Wall Clock | 9×1×9 | 61 | - | - | - |
+| 60 | Bone Pile | 12×12×6 | 330 | - | - | - |
+| 61 | Treasure Pile | 12×12×5 | 440 | - | - | - |
 
-**60 props · 91829 filled voxels total.**
+**62 props · 92599 filled voxels total.**
 
 ## Weapons
 

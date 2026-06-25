@@ -106,6 +106,12 @@ const Palette LICH_PALETTES[] = {
     { { 40,  52,  70, 255}, {120, 200, 230, 255} },   // dark slate robe + frost-blue soul-light
     { { 56,  58,  78, 255}, {180, 210, 235, 255} },   // frostbitten violet-grey + pale ice
 };
+// Armoured war-commander — heavy dark plate with bold heraldic accents.
+const Palette WARLORD_PALETTES[] = {
+    { { 52,  54,  62, 255}, {170,  40,  40, 255} },   // blackened steel + crimson heraldry
+    { { 60,  58,  64, 255}, {200, 170,  80, 255} },   // dark iron + warlord's gold
+    { { 44,  50,  58, 255}, {120, 140, 175, 255} },   // gunmetal + steel-blue plume
+};
 
 template <typename T, size_t N>
 constexpr int arrLen(T (&)[N]) { return (int)N; }
@@ -124,7 +130,8 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
     if (type == NPCType::Enemy || type == NPCType::Brute || type == NPCType::Zombie ||
         type == NPCType::Ghoul || type == NPCType::Brigand)
         tier = ClothingTier::Leather;
-    else if (type == NPCType::Guard || type == NPCType::Knight)
+    else if (type == NPCType::Guard || type == NPCType::Knight ||
+             type == NPCType::Warlord)
         tier = ClothingTier::Plate;
 
     // Single palette picked once — used for every slot so the outfit
@@ -162,6 +169,8 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
             palettes = WRAITH_PALETTES;   palCount = arrLen(WRAITH_PALETTES);   break;
         case NPCType::Lich:
             palettes = LICH_PALETTES;     palCount = arrLen(LICH_PALETTES);     break;
+        case NPCType::Warlord:
+            palettes = WARLORD_PALETTES;  palCount = arrLen(WARLORD_PALETTES);  break;
         default: break;
     }
     const Palette& pal = palettes[pick(palCount)];
@@ -206,7 +215,8 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
     // and the hooded necromancer.
     if (type == NPCType::Cultist || type == NPCType::Skeleton ||
         type == NPCType::Knight || type == NPCType::Necromancer ||
-        type == NPCType::Wraith || type == NPCType::Lich) wear[0] = true;
+        type == NPCType::Wraith || type == NPCType::Lich ||
+        type == NPCType::Warlord) wear[0] = true;
 
     // Wipe the rig back to bare skin then layer the chosen clothing
     // pieces in slot order so accents stack correctly.
@@ -287,6 +297,10 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
         mainW   = WeaponType::Staff;      // frost staff; uses the cast pose
         mainPri = {205, 210, 220, 255};   // bleached bone shaft
         mainAcc = {130, 210, 240, 255};   // icy soul focus
+    } else if (type == NPCType::Warlord) {
+        mainW   = (pick(2) == 0) ? WeaponType::Greatsword : WeaponType::Axe;  // heavy two-hander
+        mainPri = {210, 212, 222, 255};   // polished blade
+        mainAcc = { 60,  45,  30, 255};   // dark wrapped grip
     }
     // Ghoul / Wraith: no weapon — they claw with bare/spectral hands (mainW None).
 
@@ -315,4 +329,5 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
     else if (type == NPCType::Brigand) rig.heightScale = 1.06f;  // burly bandit
     else if (type == NPCType::Wraith)  rig.heightScale = 1.10f;  // tall, drifting
     else if (type == NPCType::Lich)    rig.heightScale = 1.12f;  // gaunt, regal
+    else if (type == NPCType::Warlord) rig.heightScale = 1.16f;  // a towering, imposing commander
 }

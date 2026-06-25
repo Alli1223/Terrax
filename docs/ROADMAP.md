@@ -73,9 +73,11 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
 
 - [ ] **C1. Enemy archetype framework** — data-driven enemy defs (model palette,
   size, behaviour flags, ability set, tier band) so new enemies are table rows.
-- [~] **C2. Humanoids** — Bandit, Brigand, Cultist, Necromancer, Knight, Warlord.
+- [x] **C2. Humanoids** — Bandit, Brigand, Cultist, Necromancer, Knight, Warlord.
   _(Added: `Knight` (plate sword+shield), `Brigand` (hardened axe/mace bandit, cave
-  packs). Bandit/Cultist/Necromancer already present. Warlord to come.)_
+  packs), and `Warlord` (heavy plate war-commander wielding a greatsword/axe — now the
+  **Castle boss** + elite champions, replacing the generic Brute lord). Bandit/Cultist/
+  Necromancer already present.)_
 - [~] **C3. Undead** — Skeleton (warrior/archer/mage), Zombie, Ghoul, Wraith, Lich.
   _(Added: `Zombie` (slow heavy melee), `Ghoul` (fast frenzied claws),
   `Necromancer` (ranged staff-bolt caster — Ruins boss), `Wraith` (fast

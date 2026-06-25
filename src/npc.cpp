@@ -356,7 +356,8 @@ void NpcDirector::update(float dt, const std::vector<DirectorPlayer>& players,
         if (n->type == NPCType::Enemy || n->type == NPCType::Skeleton ||
             n->type == NPCType::Brute || n->type == NPCType::Zombie ||
             n->type == NPCType::Knight || n->type == NPCType::Ghoul ||
-            n->type == NPCType::Brigand || n->type == NPCType::Wraith)
+            n->type == NPCType::Brigand || n->type == NPCType::Wraith ||
+            n->type == NPCType::Warlord)
                                               stepBandit(*n, dt, world, players);
         else if (n->type == NPCType::Cultist ||
                  n->type == NPCType::Necromancer ||
@@ -1268,6 +1269,7 @@ void NpcDirector::stepBandit(NPC& n, float dt, World& world,
     else if (n.type == NPCType::Ghoul)    { chaseSpeed = 4.4f; dmgPlayer = 7.0f;  dmgGuard = 6.0f;  atkCd = 0.9f; }  // fast, frenzied claws
     else if (n.type == NPCType::Brigand)  { chaseSpeed = 3.3f; dmgPlayer = 13.0f; dmgGuard = 12.0f; atkCd = 1.5f; }  // hardened bandit
     else if (n.type == NPCType::Wraith)   { chaseSpeed = 4.0f; dmgPlayer = 9.0f;  dmgGuard = 8.0f;  atkCd = 1.0f; }  // fast, chilling
+    else if (n.type == NPCType::Warlord)  { chaseSpeed = 3.4f; dmgPlayer = 22.0f; dmgGuard = 20.0f; atkCd = 1.9f; }  // armoured commander — heavy two-hander
     // Higher-level foes (further from spawn) hit harder.
     dmgPlayer *= npcDamageScaleForLevel(n.level);
 

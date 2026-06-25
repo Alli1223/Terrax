@@ -669,6 +669,7 @@ static void drawQuestLog(AppContext& ctx) {
         ImGui::TextWrapped("%s", q.text.c_str());
         const char* what = (q.kind == QuestKind::KillEnemies) ? questEnemyLabel(q.targetNpcType)
                          : (q.kind == QuestKind::SlayBoss)     ? "Boss"
+                         : (q.kind == QuestKind::Explore)      ? "Scout"
                          : q.collectName.c_str();
         ImGui::Text("   Progress: %s %d / %d", what, q.progress, q.requiredCount);
         ImGui::TextDisabled("   Region: %s (tier %d, rec. level %d)",
@@ -844,6 +845,7 @@ static void drawQuestTracker(AppContext& ctx) {
         } else {
             const char* what = (q.kind == QuestKind::KillEnemies) ? questEnemyLabel(q.targetNpcType)
                              : (q.kind == QuestKind::SlayBoss)     ? "Boss"
+                             : (q.kind == QuestKind::Explore)      ? "Scout"
                              : q.collectName.c_str();
             ImGui::TextDisabled("   %s  %d/%d", what, q.progress, q.requiredCount);
         }

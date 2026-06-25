@@ -665,6 +665,19 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
         }
     }
 
+    // Explore quests: complete the moment the player reaches the scouted target.
+    {
+        float px = ctx.camera.position.x, pz = ctx.camera.position.z;
+        for (Quest& q : ctx.activeQuests) {
+            if (!questExploreReached(q, px, pz)) continue;
+            q.progress = q.requiredCount;
+            q.status   = QuestStatus::Complete;
+            ctx.toasts.push_back({ std::string("Quest complete: ") + q.title
+                                       + " - return to a quest giver",
+                                   Voxel{120, 230, 140, 255}, 5.0f });
+        }
+    }
+
     // The Class Trainer window opens by pressing E near a trainer (above), not
     // via a key toggle, so reconcile the cursor with its state here: free it when
     // the window opens, recapture it when it closes (Close button / X / Esc).

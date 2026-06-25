@@ -37,6 +37,7 @@ TEST_CASE(Quest_BoardIsNonEmptyAndAnchored) {
         if (q.kind == QuestKind::KillEnemies)        CHECK(q.targetNpcType != 0);
         else if (q.kind == QuestKind::CollectItems)  CHECK(!q.collectName.empty());
         else if (q.kind == QuestKind::SlayBoss)      CHECK_EQ(q.requiredCount, 1);
+        else if (q.kind == QuestKind::Explore)       CHECK_EQ(q.requiredCount, 1);
         CHECK(!q.title.empty());
         CHECK(!q.text.empty());
     }
@@ -130,4 +131,19 @@ TEST_CASE(Quest_BossKillCountingRule) {
     // Non-boss quest kinds are never boss-credited.
     q.status = QuestStatus::Active; q.kind = QuestKind::KillEnemies;
     CHECK(!questBossKillCounts(q, 4));
+}
+
+TEST_CASE(Quest_ExploreReachedRule) {
+    Quest q;
+    q.kind = QuestKind::Explore;
+    q.targetXZ = glm::ivec2(1000, -500);
+    q.status = QuestStatus::Active;
+    CHECK(questExploreReached(q, 1000.0f, -500.0f));        // dead on the target
+    CHECK(questExploreReached(q, 1030.0f, -480.0f));        // within the scout radius
+    CHECK(!questExploreReached(q, 1300.0f, -500.0f));       // too far away
+    q.status = QuestStatus::Complete;
+    CHECK(!questExploreReached(q, 1000.0f, -500.0f));       // already done
+    // Other kinds are never explore-credited.
+    q.status = QuestStatus::Active; q.kind = QuestKind::KillEnemies;
+    CHECK(!questExploreReached(q, 1000.0f, -500.0f));
 }

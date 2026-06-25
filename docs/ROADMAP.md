@@ -144,10 +144,11 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
   into the inventory; marks TurnedIn + drops from the active list. Giver window
   shows the player's gold. _(Quest chains TBD; rewards client-side for now.)_
 - [~] **E7. Quest variety** — escort, boss-kill, exploration ("discover X"),
-  delivery between towns. _(Added: **boss-kill** quests — `QuestKind::SlayBoss`,
-  "Slay the master of <dungeon>", credited on a boss kill in-region via
-  `questBossKillCounts`, with a boosted guaranteed-item reward. Escort/explore/
-  delivery to come.)_
+  delivery between towns. _(Added: **boss-kill** quests (`QuestKind::SlayBoss`,
+  credited via `questBossKillCounts`) and **exploration** quests (`QuestKind::Explore`,
+  "Scout <region/dungeon>" — completed the instant the player reaches the target via
+  `questExploreReached`, checked each tick in updateGameplay; quick fair reward). Tracker/
+  journal show a "Scout" objective; map marker points the way. Escort/delivery to come.)_
 
 ## Track F — Dungeons & boss loop
 

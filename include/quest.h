@@ -14,7 +14,8 @@
 // like the town / dungeon plans). E2+ wires givers, progress tracking, the log
 // UI and rewards on top of this model.
 
-enum class QuestKind   : uint8_t { KillEnemies = 0, CollectItems = 1, SlayBoss = 2 };
+enum class QuestKind   : uint8_t { KillEnemies = 0, CollectItems = 1, SlayBoss = 2,
+                                   Explore = 3 };   // travel to + scout a region/dungeon
 enum class QuestStatus : uint8_t { Available = 0, Active = 1, Complete = 2, TurnedIn = 3 };
 
 // A place a quest sends the player: a named dungeon or a wilderness region.
@@ -77,6 +78,16 @@ inline bool questCollectCounts(const Quest& q, int killTier) {
 inline bool questBossKillCounts(const Quest& q, int killTier) {
     return q.status == QuestStatus::Active && q.kind == QuestKind::SlayBoss
         && (killTier >= q.targetTier - 1) && (killTier <= q.targetTier + 1);
+}
+
+// True when the player's position has reached an Explore quest's target — i.e.
+// they have travelled to and "scouted" the region/dungeon it points at. The
+// gameplay loop calls this each tick with the player's world XZ.
+inline bool questExploreReached(const Quest& q, float px, float pz,
+                                float radius = 60.0f) {
+    if (q.status != QuestStatus::Active || q.kind != QuestKind::Explore) return false;
+    float dx = px - (float)q.targetXZ.x, dz = pz - (float)q.targetXZ.y;
+    return dx * dx + dz * dz <= radius * radius;
 }
 
 // Pure, deterministic generator: build a giver town's quest board from its

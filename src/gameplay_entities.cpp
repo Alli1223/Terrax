@@ -383,6 +383,19 @@ void syncNPCObjects(AppContext& ctx) {
             bool wasDying = (!isNewNpc) ? n->dyingFlag : true;
             bool nowDying = (np.flags & 4) != 0;
 
+            // Floating combat text: a known enemy's synced health dropping means
+            // it just took a hit — pop a rising damage number off it (the delta).
+            if (!isNewNpc && isHostileNpc(n->type) && ctx.floatingTexts.size() < 64) {
+                float dmg = n->health - np.health;
+                if (dmg > 0.5f) {
+                    AppContext::FloatingText ft;
+                    ft.worldPos = n->position + glm::vec3(0.0f, 2.4f, 0.0f);
+                    ft.text  = "-" + std::to_string((int)(dmg + 0.5f));
+                    ft.color = n->elite ? Voxel{255, 200, 110, 255}
+                                        : Voxel{255, 240, 200, 255};
+                    ctx.floatingTexts.push_back(std::move(ft));
+                }
+            }
             n->targetPos  = glm::vec3(np.x, np.y, np.z);
             n->targetYaw  = np.yaw;
             n->velocity   = glm::vec3(np.vx, np.vy, np.vz);

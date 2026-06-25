@@ -564,6 +564,13 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
                        [](const AppContext::HudToast& t){ return t.lifeTime <= 0.0f; }),
         ctx.toasts.end());
 
+    // Age + prune floating combat-text numbers (spawned in syncNPCObjects).
+    for (auto& f : ctx.floatingTexts) f.age += ctx.deltaTime;
+    ctx.floatingTexts.erase(
+        std::remove_if(ctx.floatingTexts.begin(), ctx.floatingTexts.end(),
+                       [](const AppContext::FloatingText& f){ return f.age >= f.life; }),
+        ctx.floatingTexts.end());
+
     // Update death-explosion voxel particles. Each falls under gravity and
     // sticks to the first solid block its centre crosses, then fades over
     // its remaining lifetime.

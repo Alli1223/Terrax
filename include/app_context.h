@@ -212,6 +212,18 @@ struct AppContext {
     };
     std::vector<HudToast> toasts;
 
+    // Floating combat text — damage numbers that rise off an enemy as it is hit
+    // and fade out. Spawned client-side from each enemy's per-tick health delta
+    // (no packet needed); aged + pruned in updateGameplay, drawn in the play HUD.
+    struct FloatingText {
+        glm::vec3   worldPos{0.0f};
+        std::string text;
+        Voxel       color = {255, 240, 200, 255};
+        float       age   = 0.0f;
+        float       life  = 1.1f;    // total seconds before it fades out
+    };
+    std::vector<FloatingText> floatingTexts;
+
     // --- Camera / mouse ---
     Camera camera;
     double lastMouseX = WINDOW_WIDTH  / 2.0;

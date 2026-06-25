@@ -101,6 +101,31 @@ static void drawLevelTag(const glm::vec3& worldPos, int level, ImU32 col,
 }
 
 // F3 debug / session overlay — performance, world, rendered objects, server.
+// Floating combat-text numbers: project each to screen, rise + fade over its
+// life. Drawn on the foreground draw list so they sit above the world.
+static void drawFloatingCombatText(AppContext& ctx, const Renderer& renderer) {
+    if (ctx.floatingTexts.empty()) return;
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    for (const auto& f : ctx.floatingTexts) {
+        float t  = (f.life > 0.0f) ? f.age / f.life : 1.0f;          // 0..1
+        glm::vec3 wp = f.worldPos + glm::vec3(0.0f, t * 1.4f, 0.0f);  // rise as it ages
+        glm::vec4 clip = renderer.frameProj * renderer.frameView * glm::vec4(wp, 1.0f);
+        if (clip.w <= 0.01f) continue;
+        glm::vec3 ndc = glm::vec3(clip) / clip.w;
+        if (ndc.z < -1.0f || ndc.z > 1.0f) continue;
+        float sx = (ndc.x * 0.5f + 0.5f) * (float)renderer.frameFbW;
+        float sy = (1.0f - (ndc.y * 0.5f + 0.5f)) * (float)renderer.frameFbH;
+        int a = (int)(255.0f * (1.0f - t * t));                      // fade out, slow then fast
+        if (a < 0) a = 0;
+        ImU32 col = IM_COL32(f.color.r, f.color.g, f.color.b, a);
+        ImU32 sh  = IM_COL32(0, 0, 0, a);
+        ImVec2 ts = ImGui::CalcTextSize(f.text.c_str());
+        ImVec2 p(sx - ts.x * 0.5f, sy - ts.y * 0.5f);
+        dl->AddText(ImVec2(p.x + 1, p.y + 1), sh, f.text.c_str());
+        dl->AddText(p, col, f.text.c_str());
+    }
+}
+
 static void renderDebugOverlay(AppContext& ctx) {
     // Tally the live client-side objects by kind.
     int vill = 0, band = 0, guard = 0, anim = 0, ferry = 0;
@@ -1036,6 +1061,9 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
                       renderer.frameView, renderer.frameProj,
                       renderer.frameFbW, renderer.frameFbH);
     }
+
+    // Floating combat-text damage numbers rising off struck enemies.
+    drawFloatingCombatText(ctx, renderer);
 
     // Chat
     if (ctx.client) {

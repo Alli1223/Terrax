@@ -108,6 +108,11 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
   target (D1/D2). _(The focused enemy's name shows in the target frame; per-plate
   name labels deferred as redundant for now.)_
 - [ ] **D4. Threat/aggro polish** — show aggro state; tab cycles nearest hostiles.
+- [x] **D5. Floating combat text** — damage numbers rise off a struck enemy and fade
+  out. Fully client-side: spawned from each enemy's per-tick synced health delta
+  (`syncNPCObjects`), aged/pruned in `updateGameplay`, projected + drawn in the play HUD
+  (`drawFloatingCombatText`). Elite hits show in gold. Makes melee/abilities feel
+  responsive without any new packet.
 
 ## Track E — Quests & quest-givers  *(the core loop)*
 

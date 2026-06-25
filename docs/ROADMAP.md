@@ -170,7 +170,12 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
   opens a buy/sell shop. Stock is deterministic, tier-scaled generated gear
   (`vendorStock` cache); buy deducts gold + adds a fresh copy, sell removes an
   item for ~35% of value. `vendorBuy`/`vendorSell`/`itemSellPrice` in gameplay.
-- [ ] **G3. Repair / consumables** — potions (heal/mana), food, basic upgrades.
+- [~] **G3. Repair / consumables** — _(Added: **Health + Mana potions** — new
+  `ItemKind::Consumable` + `ConsumableItem` (items.{h,cpp}); restore a % of max
+  health/resource when right-clicked in the bag (`useConsumable`, client-side); every
+  town apothecary stocks both at a fixed price (`vendorStock`/`vendorBuy`); bottle icon +
+  liquid colour + tooltip in the inventory UI. Repair / food / a use-cooldown still to
+  come.)_
 - [ ] **G4. Bank/stash** — per-character persistent storage in town.
 
 ## Track H — Rendering pass (screenshot-driven)

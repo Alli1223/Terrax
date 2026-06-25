@@ -43,6 +43,13 @@ int         itemSellPrice(const Item& it);
 // Sell inventory item `i` to the vendor: removes it and credits gold. Returns true.
 bool        vendorSell(AppContext& ctx, int inventoryIndex);
 
+// --- Consumables (Track G3) ------------------------------------------------
+// Use (drink) a consumable from the bag: applies its restore (health / resource),
+// spends one, and toasts. Returns true only if `item` was a consumable that had
+// an effect to apply (a full-up potion is not wasted). Client-side: health +
+// resource are local player state, so no packet is needed.
+bool        useConsumable(AppContext& ctx, Item* item);
+
 // --- Healing staff abilities ----------------------------------------------
 // Invoked by HealingStaffItem's primary / secondary attacks. They own the
 // heal targeting, particle visuals and heal/effect packets so the item class

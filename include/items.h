@@ -16,6 +16,14 @@
 enum class ItemKind {
     Clothing,
     Weapon,
+    Consumable,
+};
+
+// A usable consumable's effect family. Potions restore a fraction of the
+// player's max health or resource when used from the bag.
+enum class ConsumableKind {
+    HealthPotion,
+    ManaPotion,
 };
 
 // Slots on a humanoid where a piece of equipment can go.
@@ -269,6 +277,32 @@ public:
     void onPrimaryAttack(AppContext& ctx, float chargeAmount, NPC* target) override;
     void onSecondaryAttack(AppContext& ctx) override;
 };
+
+// A usable consumable (potion). Restores a fraction of the player's max
+// health and/or resource when used (right-click in the bag); one is spent
+// per use. Not equippable — `slot` stays None — so it never touches the
+// equip / networked-loadout / save paths. Its world-drop + inventory icon
+// mesh is a small glass bottle coloured by its liquid.
+class ConsumableItem : public Item {
+public:
+    ConsumableItem(std::string name, ConsumableKind kind);
+    ~ConsumableItem() override = default;
+
+    ConsumableKind getConsumable() const { return consumable; }
+
+    float restoreHealthPct   = 0.0f;   // 0..1 fraction of max health restored
+    float restoreResourcePct = 0.0f;   // 0..1 fraction of max resource restored
+    Voxel liquidColor = {210, 55, 55, 255};
+
+protected:
+    VoxelVolume* buildVoxelVolume() override;
+
+private:
+    ConsumableKind consumable;
+};
+
+// Factory — build a stock potion of the given kind (fixed restore amounts).
+std::unique_ptr<ConsumableItem> makeConsumable(ConsumableKind kind);
 
 // Factory — pick the right concrete subclass for a given WeaponType.
 // All code that needs to build a weapon (procedural generator, network

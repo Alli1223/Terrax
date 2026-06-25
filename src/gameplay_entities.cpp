@@ -786,7 +786,8 @@ int itemValue(const Item& it) {
     float stat = 1.0f + 0.05f * (it.attackPower + it.defenseValue);
     return std::max(1, (int)(base * rar * stat));
 }
-struct VendorSlot { std::unique_ptr<Item> item; uint32_t seed; int level; int price; };
+struct VendorSlot { std::unique_ptr<Item> item; uint32_t seed; int level; int price;
+                    int consumable = -1; };   // >=0 = a ConsumableKind potion slot
 std::unordered_map<int, std::vector<VendorSlot>> g_vendorCache;
 std::atomic<uint64_t> g_vendorSeed{ ~0ull };
 std::mutex g_vendorMtx;
@@ -805,6 +806,19 @@ const std::vector<VendorSlot>& vendorStock(int townIndex) {
     int baseLv = enemyLevelForTier(tier);
 
     std::vector<VendorSlot> stock;
+    // Every town apothecary always stocks restorative potions at a fixed price.
+    {
+        VendorSlot s;
+        s.consumable = (int)ConsumableKind::HealthPotion; s.seed = 0; s.level = 1;
+        s.item = makeConsumable(ConsumableKind::HealthPotion); s.price = 25;
+        stock.push_back(std::move(s));
+    }
+    {
+        VendorSlot s;
+        s.consumable = (int)ConsumableKind::ManaPotion; s.seed = 0; s.level = 1;
+        s.item = makeConsumable(ConsumableKind::ManaPotion); s.price = 20;
+        stock.push_back(std::move(s));
+    }
     for (int i = 0; i < 8; ++i) {
         uint32_t seed = (uint32_t)((townIndex * 2654435761u) ^ (uint32_t)(i * 40503u) ^ 0x5E11D00Du);
         int lv = std::max(1, baseLv + (int)(seed % 4u) - 1);
@@ -834,16 +848,20 @@ int vendorStockPrice(int townIndex, int i) {
 }
 
 bool vendorBuy(AppContext& ctx, int townIndex, int i) {
-    uint32_t seed; int lv, price;
+    uint32_t seed; int lv, price, consumable;
     {
         std::lock_guard<std::mutex> lock(g_vendorMtx);
         auto it = g_vendorCache.find(townIndex);
         if (it == g_vendorCache.end() || i < 0 || i >= (int)it->second.size()) return false;
         seed = it->second[(size_t)i].seed; lv = it->second[(size_t)i].level;
-        price = it->second[(size_t)i].price;
+        price = it->second[(size_t)i].price; consumable = it->second[(size_t)i].consumable;
     }
     if (ctx.playerGold < price) return false;
-    auto fresh = generateRandomItem(seed, lv);   // deterministic — matches the display
+    // Potion slots rebuild a fresh potion; everything else regenerates the same
+    // gear deterministically from its seed (so the bought copy matches display).
+    std::unique_ptr<Item> fresh = (consumable >= 0)
+        ? std::unique_ptr<Item>(makeConsumable((ConsumableKind)consumable))
+        : generateRandomItem(seed, lv);
     if (!fresh) return false;
     std::string nm = fresh->getName();
     if (!ctx.inventory.addItem(std::move(fresh))) return false;   // bags full
@@ -866,6 +884,30 @@ bool vendorSell(AppContext& ctx, int inventoryIndex) {
     ctx.playerGold += gold;
     pushToast(ctx, "Sold " + nm + " (+" + std::to_string(gold) + "g)",
               Voxel{235, 205, 90, 255}, 2.5f);
+    return true;
+}
+
+bool useConsumable(AppContext& ctx, Item* item) {
+    if (!item || item->getKind() != ItemKind::Consumable) return false;
+    auto* c = static_cast<ConsumableItem*>(item);
+    bool used = false;
+    if (c->restoreHealthPct > 0.0f && ctx.playerHealth < 1.0f) {
+        ctx.playerHealth = std::min(1.0f, ctx.playerHealth + c->restoreHealthPct);
+        ctx.regenDelay   = 0.0f;   // a quaff doesn't reset the out-of-combat timer
+        used = true;
+    }
+    if (c->restoreResourcePct > 0.0f && ctx.resource < ctx.resourceMax) {
+        ctx.resource = std::min(ctx.resourceMax,
+                                ctx.resource + c->restoreResourcePct * ctx.resourceMax);
+        used = true;
+    }
+    if (!used) {                   // already topped up — don't waste the potion
+        pushToast(ctx, "Already at full", Voxel{200, 200, 210, 255}, 1.4f);
+        return false;
+    }
+    std::string nm = item->getName();
+    ctx.inventory.removeItem(item);
+    pushToast(ctx, "Drank " + nm, Voxel{120, 220, 130, 255}, 1.8f);
     return true;
 }
 

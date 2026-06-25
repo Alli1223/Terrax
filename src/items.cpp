@@ -82,6 +82,51 @@ VoxelVolume* ClothingItem::buildVoxelVolume() {
     return v;
 }
 
+// --- ConsumableItem ---------------------------------------------------------
+
+ConsumableItem::ConsumableItem(std::string n, ConsumableKind k)
+    : Item(std::move(n), ItemKind::Consumable), consumable(k) {
+    slot = EquipSlot::None;   // never equipped
+    switch (k) {
+        case ConsumableKind::HealthPotion:
+            restoreHealthPct   = 0.5f;  liquidColor = {210,  55,  55, 255}; break;  // red
+        case ConsumableKind::ManaPotion:
+            restoreResourcePct = 0.6f;  liquidColor = { 70, 110, 220, 255}; break;  // blue
+    }
+}
+
+VoxelVolume* ConsumableItem::buildVoxelVolume() {
+    // A small glass potion bottle: a liquid-filled rounded body, a narrow
+    // glass neck and a cork stopper. Coloured by the liquid (red / blue).
+    VoxelVolume* v = new VoxelVolume(6, 9, 6);
+    const Voxel glass = {185, 205, 210, 255};
+    const Voxel cork  = {120,  85,  50, 255};
+    for (int x = 1; x <= 4; x++)            // body (liquid behind a glass rim)
+        for (int z = 1; z <= 4; z++)
+            for (int y = 0; y <= 4; y++) {
+                bool rim = (x == 1 || x == 4) && (z == 1 || z == 4);
+                v->setVoxel(x, y, z, rim ? glass : liquidColor);
+            }
+    for (int x = 2; x <= 3; x++)            // neck
+        for (int z = 2; z <= 3; z++)
+            for (int y = 5; y <= 6; y++)
+                v->setVoxel(x, y, z, glass);
+    for (int x = 2; x <= 3; x++)            // cork
+        for (int z = 2; z <= 3; z++)
+            for (int y = 7; y <= 8; y++)
+                v->setVoxel(x, y, z, cork);
+    return v;
+}
+
+std::unique_ptr<ConsumableItem> makeConsumable(ConsumableKind kind) {
+    std::string nm = (kind == ConsumableKind::HealthPotion) ? "Health Potion"
+                                                            : "Mana Potion";
+    auto p = std::make_unique<ConsumableItem>(std::move(nm), kind);
+    p->level  = 1;
+    p->rarity = ItemRarity::Common;
+    return p;
+}
+
 // --- WeaponItem -------------------------------------------------------------
 
 WeaponItem::WeaponItem(std::string n, WeaponType t)

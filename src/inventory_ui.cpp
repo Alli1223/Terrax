@@ -48,6 +48,10 @@ void itemColors(const Item* item, Voxel& pri, Voxel& acc) {
         const WeaponItem* w = static_cast<const WeaponItem*>(item);
         pri = w->primaryColor;
         acc = w->accentColor;
+    } else if (item && item->getKind() == ItemKind::Consumable) {
+        const ConsumableItem* c = static_cast<const ConsumableItem*>(item);
+        pri = c->liquidColor;            // the potion liquid
+        acc = {185, 205, 210, 255};      // glass
     } else {
         pri = {180, 180, 180, 255};
         acc = {120, 120, 120, 255};
@@ -64,6 +68,12 @@ std::string itemSubtitle(const Item* item) {
     if (item->getKind() == ItemKind::Weapon) {
         const WeaponItem* w = static_cast<const WeaponItem*>(item);
         return weaponTypeName(w->getType());
+    }
+    if (item->getKind() == ItemKind::Consumable) {
+        const ConsumableItem* c = static_cast<const ConsumableItem*>(item);
+        if (c->restoreHealthPct > 0.0f)
+            return "Potion — restores " + std::to_string((int)(c->restoreHealthPct * 100)) + "% health";
+        return "Potion — restores " + std::to_string((int)(c->restoreResourcePct * 100)) + "% resource";
     }
     return {};
 }
@@ -316,6 +326,12 @@ void drawItemIcon(ImDrawList* dl, ImVec2 c, float size, const Item* item) {
             }
             default: break;
         }
+    } else if (item->getKind() == ItemKind::Consumable) {
+        // Potion: a rounded liquid body, a glass neck and a cork stopper.
+        rect(-0.42f, -0.05f, 0.42f, 0.78f, pri);
+        dl->AddCircleFilled(ImVec2(c.x, c.y + h * 0.32f), h * 0.44f, pri, 16);
+        rect(-0.16f, -0.52f, 0.16f, 0.05f, acc);                            // neck
+        rect(-0.20f, -0.70f, 0.20f, -0.50f, IM_COL32(120, 85, 50, 255));    // cork
     }
 
     // Legendary items get a small star spark in the corner — quick hint
@@ -559,9 +575,11 @@ bool drawItemCell(AppContext& ctx, ImVec2 size, int cellIdx, Item* item,
         }
     }
 
-    // Right-click on an equipped item = quick unequip.
+    // Right-click on an equipped item = quick unequip; on a consumable = use it.
     if (item && ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
-        if (ctx.inventory.isEquipped(item)) {
+        if (item->getKind() == ItemKind::Consumable) {
+            useConsumable(ctx, item);   // applies restore + spends one (no rig rebuild)
+        } else if (ctx.inventory.isEquipped(item)) {
             auto rev = ctx.inventory.equippedIds().find(item->getId());
             if (rev != ctx.inventory.equippedIds().end()) {
                 ctx.inventory.unequip(rev->second);

@@ -564,8 +564,15 @@ void NpcDirector::spawnDungeon(size_t di) {
         // Level scales with how far out the dungeon sits; the boss leads its pack.
         int tier = dangerTierAt((float)s.pos.x, (float)s.pos.z);
         int lvl  = enemyLevelForTier(tier) + (s.boss ? 3 : 0);
+        // Some non-boss minions are promoted to "elites": +2 levels, ~2x HP, a
+        // star-marked nameplate and better loot — an occasional threat spike that
+        // makes a pack worth scanning before you wade in. Deterministic per slot.
+        bool elite = !s.boss && (hashU32(aseed, 0x5E11E70Du) % 100u) < 12u;
+        if (elite) lvl += 2;
         n->level     = (uint8_t)std::min(lvl, 60);
-        n->health    = defaultNpcHealth((NPCType)s.npcType) * npcHpScaleForLevel(n->level);
+        n->elite     = elite;
+        n->health    = defaultNpcHealth((NPCType)s.npcType) * npcHpScaleForLevel(n->level)
+                     * (elite ? 2.0f : 1.0f);
         active.push_back(std::move(n));
     }
 }
@@ -1106,7 +1113,7 @@ void NpcDirector::applyPlayerDamageToNpc(NPC& n, uint32_t attackerId,
         // bandits (Enemy) drop loot — villagers and guards don't.
         if (!n.lootDropped && isHostileNpc(n.type) && g_server) {
             n.lootDropped = true;
-            g_server->spawnLootForKill(attackerId, n.position, n.boss, n.level);  // boss → legendary; loot scales with foe level
+            g_server->spawnLootForKill(attackerId, n.position, n.boss, n.level, n.elite);  // boss → legendary; elite → extra rolls; loot scales with foe level
         }
     }
 }

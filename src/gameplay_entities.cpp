@@ -241,6 +241,10 @@ void awardEnemyKill(AppContext& ctx, const NPC* npc) {
     int diff = enemyLevel - ctx.playerLevel;
     if (diff < -8)     xp = std::max(1, xp / 5);
     else if (diff < 0) xp = std::max(1, (int)(xp * (1.0f + 0.06f * (float)diff)));
+    if (npc->elite) {                                 // elites are worth markedly more
+        xp = (int)(xp * 1.8f);
+        pushToast(ctx, "Elite slain!", Voxel{255, 210, 120, 255}, 2.0f);
+    }
     grantPlayerXp(ctx, xp);
 
     // Kill-quest progress: credit any active KillEnemies quest whose foe + region
@@ -387,6 +391,7 @@ void syncNPCObjects(AppContext& ctx) {
             n->walking    = (np.flags & 1) != 0;
             n->attackFlag = (np.flags & 2) != 0;
             n->sitting    = (np.flags & 8) != 0;
+            n->elite      = (np.flags & 16) != 0;
             n->dyingFlag  = nowDying;
             n->lastUpdate = now;
 

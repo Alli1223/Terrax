@@ -81,20 +81,23 @@ static ImU32 conColor(int enemyLevel, int playerLevel) {
 // Floating "Lv N" tag centred at a world position (above an enemy's head).
 static void drawLevelTag(const glm::vec3& worldPos, int level, ImU32 col,
                          const glm::mat4& view, const glm::mat4& proj,
-                         int fbW, int fbH) {
+                         int fbW, int fbH, bool elite = false) {
     glm::vec4 clip = proj * view * glm::vec4(worldPos, 1.0f);
     if (clip.w <= 0.01f) return;
     glm::vec3 ndc = glm::vec3(clip) / clip.w;
     if (ndc.z < -1.0f || ndc.z > 1.0f) return;
     float sx = (ndc.x * 0.5f + 0.5f) * (float)fbW;
     float sy = (1.0f - (ndc.y * 0.5f + 0.5f)) * (float)fbH;
-    char buf[16];
-    std::snprintf(buf, sizeof(buf), "Lv %d", level);
+    char buf[24];
+    // Elites get a starred, gold tag so they stand out from the trash mob.
+    if (elite) std::snprintf(buf, sizeof(buf), "* Lv %d *", level);
+    else       std::snprintf(buf, sizeof(buf), "Lv %d", level);
+    ImU32 useCol = elite ? IM_COL32(255, 210, 120, 255) : col;
     ImDrawList* dl = ImGui::GetForegroundDrawList();
     ImVec2 ts = ImGui::CalcTextSize(buf);
     ImVec2 p(sx - ts.x * 0.5f, sy - ts.y * 0.5f);
     dl->AddText(ImVec2(p.x + 1, p.y + 1), IM_COL32(0, 0, 0, 200), buf);   // shadow
-    dl->AddText(p, col, buf);
+    dl->AddText(p, useCol, buf);
 }
 
 // F3 debug / session overlay — performance, world, rendered objects, server.
@@ -1026,7 +1029,7 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
             drawLevelTag(n->position + glm::vec3(0.0f, 2.65f, 0.0f),
                          (int)n->level, conColor((int)n->level, ctx.playerLevel),
                          renderer.frameView, renderer.frameProj,
-                         renderer.frameFbW, renderer.frameFbH);
+                         renderer.frameFbW, renderer.frameFbH, n->elite);
         }
         if (frac >= 0.995f) continue;                     // hide the bar at full health
         drawHealthBar(n->position + glm::vec3(0.0f, 2.3f, 0.0f), frac,

@@ -219,12 +219,16 @@ static void itemToLootPacket(const Item* item, LootSpawnPacket& pkt) {
 }
 
 void NetworkServer::spawnLootForKill(uint32_t attackerId, const glm::vec3& pos,
-                                     bool legendary, int enemyLevel) {
+                                     bool legendary, int enemyLevel, bool elite) {
     int level = std::max(getPlayerLevel(attackerId), enemyLevel);
     static std::mt19937 rng((uint32_t)std::chrono::steady_clock::now()
                               .time_since_epoch().count());
+    // Elites drop a little more than trash (but well short of a boss's haul) and
+    // roll a couple of levels higher, so a starred kill feels worth the fight.
     int dropCount = legendary ? std::uniform_int_distribution<int>(2, 4)(rng)
+                  : elite     ? std::uniform_int_distribution<int>(2, 3)(rng)
                               : std::uniform_int_distribution<int>(1, 3)(rng);
+    if (elite) level += 2;
     auto frand = [&](float lo, float hi) {
         return std::uniform_real_distribution<float>(lo, hi)(rng);
     };

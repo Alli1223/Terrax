@@ -408,7 +408,8 @@ public:
     // bags a high-tier foe still gets level-appropriate loot. Records each entry
     // in `activeLoot`, and broadcasts a LootSpawnPacket per drop.
     void spawnLootForKill(uint32_t attackerId, const glm::vec3& pos,
-                          bool legendary = false, int enemyLevel = 1);
+                          bool legendary = false, int enemyLevel = 1,
+                          bool elite = false);
 
     // Try to honour a client's pickup request. If the drop still exists
     // and the requester is within range, removes it and broadcasts

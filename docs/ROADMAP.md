@@ -90,8 +90,11 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
   Squirrel, Deer, Fox, Chicken, each with a voxel rig, per-species speed, skittish
   vs. calm AI, and biome-aware spawn tables. _(Predators/mounts — wolf, bear, boar,
   horse — could extend it later.)_
-- [ ] **C7. Elites & rares** — occasional starred elite spawns with buffed stats
-  and better loot, plus roaming named "rare" mobs.
+- [~] **C7. Elites & rares** — _(Added **elites**: ~12% of non-boss dungeon minions
+  are promoted to elite — +2 levels, ~2x HP, a starred gold nameplate (`drawLevelTag`),
+  1.8x XP and extra loot rolled a couple levels higher (`spawnLootForKill` elite arg). The
+  elite flag rides NPCState `flags` bit 4 (server pack / client unpack). Roaming named
+  "rare" mobs still to come.)_
 
 ## Track D — Targeting & combat UX (tab-target MMO feel)
 

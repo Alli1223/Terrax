@@ -85,6 +85,9 @@ VoxelVolume* buildDeadTree();
 VoxelVolume* buildChest();
 VoxelVolume* buildStool();
 VoxelVolume* buildCandelabra();
+VoxelVolume* buildBookpile();
+VoxelVolume* buildWallShelf();
+VoxelVolume* buildWallClock();
 
 // Openable house door panel, one mesh per style/colour (the Door object).
 VoxelVolume* buildDoor(int variant);

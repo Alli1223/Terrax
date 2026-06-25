@@ -71,8 +71,11 @@ houses and towns so you pick props that fit the space and behave right.
 | 54 | Chest | 16×11×11 | 1936 | - | - | - |
 | 55 | Stool | 10×10×11 | 344 | Sit | - | - |
 | 56 | Candelabra | 5×3×19 | 47 | - | night | - |
+| 57 | Book Pile | 10×8×8 | 640 | - | - | - |
+| 58 | Wall Shelf | 18×6×7 | 298 | - | - | - |
+| 59 | Wall Clock | 9×1×9 | 61 | - | - | - |
 
-**57 props · 90830 filled voxels total.**
+**60 props · 91829 filled voxels total.**
 
 ## Weapons
 

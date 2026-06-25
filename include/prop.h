@@ -41,7 +41,7 @@ enum class PropType : uint8_t {
     // flowers, a wreath, a stone urn, and a bare dead tree.
     SoilMound, Spade, GraveFlowers, FlowerWreath, StoneUrn, DeadTree,
     // More home furnishings
-    Chest, Stool, Candelabra,
+    Chest, Stool, Candelabra, Bookpile, WallShelf, WallClock,
     Count
 };
 

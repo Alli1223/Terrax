@@ -146,6 +146,47 @@ VoxelVolume* buildCandelabra() {
     return v;
 }
 
+VoxelVolume* buildBookpile() {
+    // A short stack of books, each a coloured band with a pale page edge.
+    const int W = 10, H = 8, D = 8;
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    const Voxel covers[4] = { {150, 50, 45, 255}, {45, 80, 130, 255},
+                              {60, 120, 70, 255}, {170, 140, 60, 255} };
+    for (int b = 0; b < 4; b++) {
+        int y0 = b * 2;
+        voxFill(v, 0, y0, 0, W - 1, y0 + 1, D - 1, covers[b]);
+        voxFill(v, W - 1, y0, 0, W - 1, y0 + 1, D - 1, Voxel{230, 225, 205, 255});  // pages
+    }
+    return v;
+}
+
+VoxelVolume* buildWallShelf() {
+    // A thin wall plank with a few trinkets on top.
+    const int W = 18, H = 8, D = 6;
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    voxFill(v, 0, 0, 0, W - 1, 1, D - 1, WOOD);                // the plank
+    voxFill(v, 2, 2, 1, 4, 6, 3, Voxel{150, 60, 55, 255});     // a small book/box
+    voxFill(v, 9, 2, 1, 11, 5, 3, Voxel{70, 110, 140, 255});   // a pot
+    v->setVoxel(14, 2, 2, GLOW);                               // a tiny candle
+    return v;
+}
+
+VoxelVolume* buildWallClock() {
+    // A round wall clock: dark rim, pale face, two metal hands.
+    const int W = 9, H = 9, D = 2;
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    const float cx = 4.0f, cy = 4.0f;
+    for (int x = 0; x < W; x++)
+        for (int y = 0; y < H; y++) {
+            float dx = x - cx, dy = y - cy, r2 = dx * dx + dy * dy;
+            if (r2 > 18.5f) continue;                          // outside the disc
+            v->setVoxel(x, y, 0, (r2 > 10.9f) ? WOODD : Voxel{235, 232, 220, 255});  // rim / face
+        }
+    voxFill(v, 4, 4, 0, 4, 7, 0, METAL);                       // minute hand
+    voxFill(v, 4, 4, 0, 6, 4, 0, METAL);                       // hour hand
+    return v;
+}
+
 VoxelVolume* buildCrockery() {
     const int W = 10, H = 7, D = 10;
     VoxelVolume* v = new VoxelVolume(W, H, D);

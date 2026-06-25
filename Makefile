@@ -88,7 +88,7 @@ CATALOG_FLAGS  := -std=c++17 -O0 -g -Wall -pthread -Iinclude -Isrc -DTERRAX_TEST
 
 $(shell mkdir -p build/imgui build/miniaudio)
 
-.PHONY: all build run clean test catalog
+.PHONY: all build run run-release clean test catalog
 
 all: $(TARGET)
 
@@ -96,6 +96,10 @@ build: $(TARGET)
 
 run: $(TARGET)
 	./$(TARGET)
+
+# Force an optimised (release) build and run it, regardless of any BUILD= override.
+run-release:
+	$(MAKE) BUILD=release run
 
 test: $(TEST_TARGET)
 	./$(TEST_TARGET)

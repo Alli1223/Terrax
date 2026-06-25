@@ -17,6 +17,7 @@ const PropInteractDef LIE { InteractAction::LieBed,   0.45f, "Press E to lie dow
 
 // Light profiles (base intensity/radius; the renderer applies flicker + night).
 const PropLightDef HEARTH        { true, 0.70f, 0.70f, 15.0f, glm::vec3(1.00f, 0.52f, 0.22f), false };
+const PropLightDef BRAZIER_FIRE  { true, 1.60f, 0.85f, 16.0f, glm::vec3(1.00f, 0.56f, 0.24f), false };
 const PropLightDef LANTERN_NIGHT { true, 0.45f, 0.55f, 25.0f, glm::vec3(1.00f, 0.70f, 0.36f), true  };
 const PropLightDef LAMP_NIGHT    { true, 3.15f, 0.58f, 30.0f, glm::vec3(1.00f, 0.70f, 0.36f), true  };
 
@@ -99,6 +100,7 @@ const std::vector<PropDef>& propRegistry() {
         // --- Dungeon dressing ---
         { PropType::BonePile,       "Bone Pile",         buildBonePile },
         { PropType::TreasurePile,   "Treasure Pile",     buildTreasurePile },
+        { PropType::Brazier,        "Brazier",           buildBrazier,    {}, BRAZIER_FIRE },
     };
     return reg;
 }

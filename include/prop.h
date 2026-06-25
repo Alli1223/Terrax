@@ -43,7 +43,7 @@ enum class PropType : uint8_t {
     // More home furnishings
     Chest, Stool, Candelabra, Bookpile, WallShelf, WallClock,
     // Dungeon dressing
-    BonePile, TreasurePile,
+    BonePile, TreasurePile, Brazier,
     Count
 };
 

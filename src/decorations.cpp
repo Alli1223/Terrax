@@ -490,6 +490,35 @@ VoxelVolume* buildTreasurePile() {
     return v;
 }
 
+VoxelVolume* buildBrazier() {
+    // An iron brazier on a splayed foot, its bowl full of glowing coals + flame.
+    // The actual point light comes from its PropLightDef; the bright ember/flame
+    // voxels just make it read as lit.
+    const int W = 12, H = 20, D = 12;
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    const Voxel IRON  { 72,  74,  80, 255};
+    const Voxel IROND { 48,  50,  56, 255};
+    const Voxel COAL  {110,  36,  18, 255};
+    const Voxel EMBER {235, 120,  40, 255};
+    const Voxel FLAME {255, 205,  80, 255};
+    const int cx = W / 2, cz = D / 2;
+    // Splayed foot + central column
+    voxFill(v, cx-3, 0, cz-3, cx+2, 1, cz+2, IROND);
+    voxFill(v, cx-1, 1, cz-1, cx,   12, cz,  IRON);
+    // Bowl: rim ring + sloped wall
+    voxFill(v, 2, 12, 2, W-3, 13, D-3, IRON);
+    voxFill(v, 3, 13, 3, W-4, 16, D-4, IROND);
+    // Glowing contents
+    voxFill(v, 4, 14, 4, W-5, 16, D-5, COAL);
+    voxFill(v, 4, 15, 4, W-5, 16, D-5, EMBER);
+    // A lick of flame rising from the centre
+    voxFill(v, cx-1, 16, cz-1, cx+1, 18, cz+1, EMBER);
+    voxFill(v, cx, 18, cz, cx, 19, cz, FLAME);
+    v->setVoxel(cx-1, 17, cz, FLAME); v->setVoxel(cx+1, 17, cz, FLAME);
+    v->setVoxel(cx, 17, cz-1, FLAME); v->setVoxel(cx, 17, cz+1, FLAME);
+    return v;
+}
+
 VoxelVolume* buildFountain() {
     // A tiered stone fountain — lower basin, central column, upper bowl, spray.
     const int W = 20, H = 16, D = 20;

@@ -94,5 +94,9 @@ VoxelVolume* buildWallClock();
 VoxelVolume* buildBonePile();
 VoxelVolume* buildTreasurePile();
 
+// An iron tripod brazier holding glowing coals + flame — a standing light source
+// that warms up otherwise-dark dungeon rooms (carries a fire PropLightDef).
+VoxelVolume* buildBrazier();
+
 // Openable house door panel, one mesh per style/colour (the Door object).
 VoxelVolume* buildDoor(int variant);

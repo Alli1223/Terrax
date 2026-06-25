@@ -76,8 +76,9 @@ houses and towns so you pick props that fit the space and behave right.
 | 59 | Wall Clock | 9×1×9 | 61 | - | - | - |
 | 60 | Bone Pile | 12×12×6 | 330 | - | - | - |
 | 61 | Treasure Pile | 12×12×5 | 440 | - | - | - |
+| 62 | Brazier | 8×8×20 | 367 | - | yes | - |
 
-**62 props · 92599 filled voxels total.**
+**63 props · 92966 filled voxels total.**
 
 ## Weapons
 

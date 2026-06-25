@@ -10,6 +10,7 @@
 #include "network.h"
 #include "game_session.h"
 #include "town.h"
+#include "dungeon.h"
 #include "prop_placement.h"
 #include "vehicle.h"
 #include "npc.h"
@@ -270,6 +271,20 @@ void awardEnemyKill(AppContext& ctx, const NPC* npc) {
             pushToast(ctx, std::string("Quest complete: ") + q.title
                            + " - return to a quest giver",
                       Voxel{120, 230, 140, 255}, 5.0f);
+        }
+    }
+
+    // Boss down → mark the dungeon it belonged to as cleared (a real milestone).
+    if (npc->boss) {
+        const DungeonPlan& dp = getDungeonPlan();
+        int bx = (int)npc->position.x, bz = (int)npc->position.z;
+        for (size_t i = 0; i < dp.dungeons.size(); ++i) {
+            const Dungeon& d = *dp.dungeons[i];
+            if (bx < d.bbMin.x || bx > d.bbMax.x || bz < d.bbMin.y || bz > d.bbMax.y) continue;
+            if (ctx.clearedDungeons.insert((int)i).second)
+                pushToast(ctx, std::string("Cleared: ") + d.name + "!",
+                          Voxel{120, 235, 140, 255}, 6.0f);
+            break;
         }
     }
 

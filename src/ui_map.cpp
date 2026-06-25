@@ -340,20 +340,25 @@ void renderMapUI(AppContext& ctx) {
     {
         const DungeonPlan& dp = getDungeonPlan();
         bool showNames = worldRadius < 700.0f;   // names only when fairly zoomed in
-        for (const auto& dptr : dp.dungeons) {
-            const Dungeon& dg = *dptr;
+        for (size_t i = 0; i < dp.dungeons.size(); ++i) {
+            const Dungeon& dg = *dp.dungeons[i];
             ImVec2 sp = worldToMap((float)dg.entrance.x, (float)dg.entrance.z);
             float  d2 = (sp.x - mc.x) * (sp.x - mc.x) + (sp.y - mc.y) * (sp.y - mc.y);
             if (d2 >= h * h) continue;
             if (dg.overground) drawCastleMarker(dl, sp, 5.5f);
             else               drawDungeonMarker(dl, sp, 5.0f);
+            bool cleared = ctx.clearedDungeons.count((int)i) != 0;
             if (showNames && !dg.name.empty()) {
-                ImU32 nameCol = dg.overground ? IM_COL32(185, 210, 245, 245)
-                                              : IM_COL32(240, 175, 175, 245);
-                // Append the recommended level so players can size up a dungeon.
+                ImU32 nameCol = cleared           ? IM_COL32(150, 235, 160, 245)
+                              : dg.overground     ? IM_COL32(185, 210, 245, 245)
+                                                  : IM_COL32(240, 175, 175, 245);
+                // Append the recommended level (or a cleared tick) so players can
+                // size up a dungeon at a glance.
                 int recLv = enemyLevelForTier(dangerTierAt((float)dg.entrance.x,
                                                            (float)dg.entrance.z));
-                std::string label = dg.name + "  (Lv ~" + std::to_string(recLv) + ")";
+                std::string label = cleared
+                    ? (dg.name + "  (Cleared)")
+                    : (dg.name + "  (Lv ~" + std::to_string(recLv) + ")");
                 ImVec2 ts = ImGui::CalcTextSize(label.c_str());
                 ImVec2 tp = { sp.x - ts.x * 0.5f, sp.y + 6.0f };
                 dl->AddText({ tp.x + 1, tp.y + 1 }, IM_COL32(0, 0, 0, 210), label.c_str());

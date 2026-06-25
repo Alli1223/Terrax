@@ -188,6 +188,7 @@ struct AppContext {
     std::vector<Quest> activeQuests;    // quests the player has accepted
     int  playerGold           = 0;      // currency earned from quests / kills (Track G)
     std::unordered_set<int> discoveredDungeons;  // dungeon indices the player has entered
+    std::unordered_set<int> clearedDungeons;     // dungeon indices whose boss the player has slain
 
     // --- Progression ---
     int   playerLevel = 1;

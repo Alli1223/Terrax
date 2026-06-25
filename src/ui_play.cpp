@@ -976,7 +976,9 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
     }
     if (ctx.talkTimer > 0.0f) {
         ImVec2 vp = vpPos(), vs = vpSize();
-        ImGui::SetNextWindowPos(ImVec2(vp.x + vs.x * 0.5f - 220.0f, vp.y + vs.y - 172.0f));
+        // Sit well clear of the ability hotbar (which draws on the foreground
+        // draw list and would otherwise cover this regular window).
+        ImGui::SetNextWindowPos(ImVec2(vp.x + vs.x * 0.5f - 220.0f, vp.y + vs.y - 268.0f));
         ImGui::SetNextWindowSize(ImVec2(440, 80));
         ImGui::Begin("NpcDialogue", nullptr,
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |

@@ -212,12 +212,13 @@ walls now show clear top-vs-side dimension, with no muddying or over-darkening.
 Tour-quality follow-ups noted below (R10, R11) — the captures themselves can be
 improved so future reviews are cleaner.
 
-- [ ] **R10. Tour far-waypoint clipping** — the outermost tour stage (20000m)
-  sometimes lands the camera *inside* a block mass (buried/clipped frame). Lift
-  the waypoint camera higher above the land column / push it back before the shot.
-- [ ] **R11. Tour HUD suppression** — `--screenshot-tour` already hides the F3
-  overlay but the gameplay HUD (hotbar, bars, gold) still covers the lower frame.
-  Hide the HUD too during the tour so review shots are unobstructed.
+- [x] **R10. Tour far-waypoint clipping** — fixed: the tour camera now sits `gy+32`
+  above the land column (was `gy+16`) and looks down at `-32°` (was `-24°`), so far
+  stages on tall/coastal terrain read as clean aerial vistas instead of burying the
+  camera in a hill. Verified — the 20000m stage is now a clean overhead shot.
+- [x] **R11. Tour HUD suppression** — fixed: `main.cpp` skips `renderPlayUI` entirely
+  in `--screenshot-tour`, so review frames are completely HUD-free (no hotbar / bars /
+  gold / nameplates covering the scene). Verified across all tour stages.
 
 ### Rendering review #4 (2026-06-24, clean tour)
 

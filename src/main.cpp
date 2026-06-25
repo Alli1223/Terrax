@@ -165,7 +165,8 @@ int main(int argc, char** argv) {
             updateGameplay(ctx, window);
             if (ctx.state == GameState::Playing || ctx.state == GameState::Paused) {
                 renderer.renderWorld(ctx, window, currentFrame);
-                renderPlayUI(ctx, window, renderer);
+                if (!tourMode)                       // clean, HUD-free review frames
+                    renderPlayUI(ctx, window, renderer);
                 if (ctx.state == GameState::Paused)
                     renderPauseMenuUI(ctx, window);
             }
@@ -193,15 +194,17 @@ int main(int argc, char** argv) {
                     int lx, lz; findLand(tourDist[tourStage], 0, lx, lz);
                     int gy = sampleSurfaceSolid(lx, lz);
                     // Elevated, angled vista (noclip keeps the free camera aloft
-                    // without gravity while distant chunks stream in).
+                    // without gravity while distant chunks stream in). Sit well
+                    // above the land column + look down steeply so far stages on
+                    // tall/coastal terrain don't bury the camera inside a hill.
                     ctx.noclip          = true;
                     ctx.spawnedOnGround = true;       // don't snap back to ground
                     ctx.spawnX = lx; ctx.spawnZ = lz;
                     ctx.camera.position = glm::vec3((float)lx + 0.5f,
-                                                    (float)(gy + 16), (float)lz + 0.5f);
+                                                    (float)(gy + 32), (float)lz + 0.5f);
                     ctx.camera.velocity = glm::vec3(0.0f);
                     ctx.camera.yaw   = 35.0f + (float)tourStage * 57.0f;
-                    ctx.camera.pitch = -24.0f;
+                    ctx.camera.pitch = -32.0f;
                     ctx.camera.updateVectors();
                 }
             }

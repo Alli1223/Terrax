@@ -101,6 +101,11 @@ const Palette WRAITH_PALETTES[] = {
     { {150, 170, 200, 255}, {200, 220, 245, 255} },   // pale spectral blue
     { {130, 150, 170, 255}, {180, 200, 220, 255} },   // ghostly grey-cyan
 };
+// Regal undead arch-caster — frostbitten robes lit by cold soul-fire.
+const Palette LICH_PALETTES[] = {
+    { { 40,  52,  70, 255}, {120, 200, 230, 255} },   // dark slate robe + frost-blue soul-light
+    { { 56,  58,  78, 255}, {180, 210, 235, 255} },   // frostbitten violet-grey + pale ice
+};
 
 template <typename T, size_t N>
 constexpr int arrLen(T (&)[N]) { return (int)N; }
@@ -155,6 +160,8 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
             palettes = BRIGAND_PALETTES;  palCount = arrLen(BRIGAND_PALETTES);  break;
         case NPCType::Wraith:
             palettes = WRAITH_PALETTES;   palCount = arrLen(WRAITH_PALETTES);   break;
+        case NPCType::Lich:
+            palettes = LICH_PALETTES;     palCount = arrLen(LICH_PALETTES);     break;
         default: break;
     }
     const Palette& pal = palettes[pick(palCount)];
@@ -199,7 +206,7 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
     // and the hooded necromancer.
     if (type == NPCType::Cultist || type == NPCType::Skeleton ||
         type == NPCType::Knight || type == NPCType::Necromancer ||
-        type == NPCType::Wraith) wear[0] = true;
+        type == NPCType::Wraith || type == NPCType::Lich) wear[0] = true;
 
     // Wipe the rig back to bare skin then layer the chosen clothing
     // pieces in slot order so accents stack correctly.
@@ -276,6 +283,10 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
         mainW   = (pick(2) == 0) ? WeaponType::Axe : WeaponType::Mace;  // brutal arms
         mainPri = {165, 168, 178, 255};
         mainAcc = { 70,  50,  35, 255};
+    } else if (type == NPCType::Lich) {
+        mainW   = WeaponType::Staff;      // frost staff; uses the cast pose
+        mainPri = {205, 210, 220, 255};   // bleached bone shaft
+        mainAcc = {130, 210, 240, 255};   // icy soul focus
     }
     // Ghoul / Wraith: no weapon — they claw with bare/spectral hands (mainW None).
 
@@ -303,4 +314,5 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
     else if (type == NPCType::Necromancer) rig.heightScale = 1.05f;
     else if (type == NPCType::Brigand) rig.heightScale = 1.06f;  // burly bandit
     else if (type == NPCType::Wraith)  rig.heightScale = 1.10f;  // tall, drifting
+    else if (type == NPCType::Lich)    rig.heightScale = 1.12f;  // gaunt, regal
 }

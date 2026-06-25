@@ -286,8 +286,8 @@ public:
     BlockType wallBlock()  const override { return BlockType::Stone; }
     BlockType floorBlock() const override { return BlockType::Stone; }
     void fillSpawnTable(std::vector<DungeonSpawn>& out, uint32_t seed) const override {
-        // Skeletons, shambling zombies + drifting wraiths, led by a brute warden.
-        rosterFill(out, seed, (uint8_t)NPCType::Skeleton, (uint8_t)NPCType::Brute, 2,
+        // Skeletons, shambling zombies + drifting wraiths, raised and ruled by a lich.
+        rosterFill(out, seed, (uint8_t)NPCType::Skeleton, (uint8_t)NPCType::Lich, 2,
                    (uint8_t)NPCType::Zombie, (uint8_t)NPCType::Wraith);
     }
 };

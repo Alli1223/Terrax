@@ -77,9 +77,11 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
   _(Added: `Knight` (plate sword+shield), `Brigand` (hardened axe/mace bandit, cave
   packs). Bandit/Cultist/Necromancer already present. Warlord to come.)_
 - [~] **C3. Undead** — Skeleton (warrior/archer/mage), Zombie, Ghoul, Wraith, Lich.
-  _(Added: `Zombie` (slow heavy melee), `Ghoul` (fast frenzied claws), and
-  `Necromancer` (ranged staff-bolt caster — Ruins boss), and `Wraith` (fast
-  spectral claws, crypt packs). Skeleton already existed. Lich to come.)_
+  _(Added: `Zombie` (slow heavy melee), `Ghoul` (fast frenzied claws),
+  `Necromancer` (ranged staff-bolt caster — Ruins boss), `Wraith` (fast
+  spectral claws, crypt packs), and `Lich` (undead arch-caster — frost-bolt
+  staff, now the **Crypt boss** + elite champions, reuses the ranged-caster AI;
+  also gave the Necromancer its proper cast pose). Skeleton already existed.)_
 - [ ] **C4. Beasts/monsters** — Wolf-pack, Bear, Spider, Slime, Golem, Troll, Ogre.
 - [ ] **C5. Elementals & exotics** — Fire/Ice/Earth elementals, Imp, Wisp, Drake.
 - [x] **C6. Animal roster** — 8 species already shipped: Sheep, Cow, Pig, Rabbit,

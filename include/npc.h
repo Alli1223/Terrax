@@ -27,7 +27,8 @@ enum class NPCType : uint8_t { Villager = 0, Enemy = 1, Guard = 2, Farmer = 3,
                               Necromancer = 12, // ranged undead caster — staff bolts (ruins boss)
                               Ghoul = 13,       // fast, fragile undead melee — claws
                               Brigand = 14,     // tougher bandit — axe, more HP (caves/camps)
-                              Wraith = 15 };    // fast ethereal undead — chilling claws
+                              Wraith = 15,      // fast ethereal undead — chilling claws
+                              Lich = 16 };      // undead arch-caster — frost bolts (crypt boss)
 
 // True for hostile NPC types — the town watch fights them and the player can
 // kill them for loot/XP. Extended as new enemy types are added.
@@ -36,7 +37,8 @@ inline bool isHostileNpc(NPCType t) {
            t == NPCType::Brute || t == NPCType::Cultist ||
            t == NPCType::Zombie || t == NPCType::Knight ||
            t == NPCType::Necromancer || t == NPCType::Ghoul ||
-           t == NPCType::Brigand || t == NPCType::Wraith;
+           t == NPCType::Brigand || t == NPCType::Wraith ||
+           t == NPCType::Lich;
 }
 
 // Spawn health by type — brutes are tanky, skeletons brittle.
@@ -51,6 +53,7 @@ inline float defaultNpcHealth(NPCType t) {
         case NPCType::Ghoul:       return 70.0f;    // fast and fragile
         case NPCType::Brigand:     return 150.0f;   // a hardened bandit
         case NPCType::Wraith:      return 80.0f;    // ethereal, brittle
+        case NPCType::Lich:        return 180.0f;   // undead arch-caster boss
         default:                   return 100.0f;   // bandits and the rest
     }
 }

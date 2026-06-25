@@ -158,8 +158,14 @@ void main() {
     float shadow      = calcShadow(FragPosLightSpace, NdotL) * shadowFade;
     float cloudAtten  = getCloudShadow(FragWorldPos, u_sunDir, time);
 
-    // Sky ambient (indirect light, not shadowed)
-    vec3 skyAmb = SkyLight * sunFactor * skyAmbient * 0.22;
+    // Sky ambient (indirect light, not shadowed). Hemispheric: surfaces opening
+    // upward to the sky catch more indirect light than vertical / under faces, so
+    // voxel slopes keep their form even when the sun is high overhead (a purely
+    // flat ambient makes terrain tops + sides read as one tone). Top faces are
+    // left at full strength, so overall scene brightness is preserved.
+    float upFace = FragNormal.y * 0.5 + 0.5;        // 1 = up, 0.5 = side, 0 = down
+    float hemi   = mix(0.62, 1.0, upFace);
+    vec3 skyAmb = SkyLight * sunFactor * skyAmbient * 0.22 * hemi;
 
     // Direct sun only reaches surfaces open to the sky. Enclosed spaces (house
     // interiors, caves) get no direct sun and stay dark — they are lit only by

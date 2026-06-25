@@ -185,6 +185,23 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
 - [ ] **H6. Per-screenshot follow-ups** — each rendering review appends concrete,
   scoped items here for later iterations to work through.
 
+### Rendering review #5 (2026-06-25, clean tour)
+
+Reviewed fresh vistas across tiers (spawn town, rolling hills, autumn forest,
+snowy biome). Terrain had good AO crevice depth but its larger *form* read soft
+at high sun (slope tops all caught similar light). Applied **R2** — hemispheric
+sky ambient (above) — and re-ran the tour to verify: hill slopes and building
+walls now show clear top-vs-side dimension, with no muddying or over-darkening.
+Tour-quality follow-ups noted below (R10, R11) — the captures themselves can be
+improved so future reviews are cleaner.
+
+- [ ] **R10. Tour far-waypoint clipping** — the outermost tour stage (20000m)
+  sometimes lands the camera *inside* a block mass (buried/clipped frame). Lift
+  the waypoint camera higher above the land column / push it back before the shot.
+- [ ] **R11. Tour HUD suppression** — `--screenshot-tour` already hides the F3
+  overlay but the gameplay HUD (hotbar, bars, gold) still covers the lower frame.
+  Hide the HUD too during the tour so review shots are unobstructed.
+
 ### Rendering review #4 (2026-06-24, clean tour)
 
 Reviewed clean vistas (forest canopy, snowy coast). Applied **R8** (eased water
@@ -226,9 +243,11 @@ scoped as actionable items:
   table), carried on a new `Vertex.ao` attribute (loc 9) through chunk.vert →
   chunk.frag where it multiplies the lighting. Concave corners/joints now read 3D
   (verified in review #3's town shot). No per-frame cost (baked at mesh time).
-- [ ] **R2. Stronger directional shading** — lit vs shadowed faces look nearly
-  equal (ambient too high). Lower ambient, raise sun contribution / face-normal
-  shading so terrain has form.
+- [x] **R2. Stronger directional shading** — addressed with **hemispheric sky
+  ambient** in `chunk.frag`: indirect light now scales with the face normal's
+  up-component (`mix(0.62,1.0,upFace)`), so voxel slopes keep their form even at
+  high sun while top faces (and overall brightness) stay unchanged. Verified in
+  review #5 — hill slopes + building walls read with clear top-vs-side dimension.
 - [ ] **R3. Water material** — water is flat and near-opaque. Add transparency +
   fresnel + a little specular/normal ripple in `water.frag`.
 - [ ] **R4. Weather particles** — vertical streaks are prominent even over open

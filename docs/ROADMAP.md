@@ -167,7 +167,9 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
   Server-resolved, broadcast as SpellEffect for the visual. Plus an **enrage**: once a
   boss drops below 30% HP it frenzies (melee +50% dmg / +30% speed / faster swing; caster
   bosses fire 50% harder + faster), flagged once with a red burst cue — a tense finish.
-  _(Per-type specials could still follow.)_
+  And **per-type specials**: caster bosses (Lich / Necromancer / Cultist) hurl a telegraphed
+  **5-bolt volley** (a fan, reuses `spawnEnemyProjectile`) from range instead of the melee
+  slam, so a caster boss fights very differently from a melee one.
 - [x] **F2. Boss loot** — boss kills drop 2–4 guaranteed **legendaries** *plus* a
   guaranteed themed **set piece** (`generateSetClothing`) — a recognisable trophy you
   can only earn from bosses. _(Per-dungeon-kind themed tables still possible later.)_

@@ -1244,38 +1244,72 @@ void NpcDirector::stepBossSpecial(NPC& n, float dt,
         }
     }
 
+    // Per-type special: caster bosses (Lich / Necromancer / Cultist) hurl a
+    // telegraphed bolt VOLLEY (a fan of projectiles) from range; melee bosses do
+    // the ground-slam. Both reuse the bossSlam wind-up/cooldown timers.
+    const bool caster = (n.type == NPCType::Cultist || n.type == NPCType::Necromancer ||
+                         n.type == NPCType::Lich);
+    auto nearestPlayer = [&]() -> const DirectorPlayer* {
+        const DirectorPlayer* best = nullptr; float bd = 1e18f;
+        for (const DirectorPlayer& p : players) {
+            glm::vec3 d = p.pos - n.position; d.y = 0.0f;
+            float d2 = d.x * d.x + d.z * d.z;
+            if (d2 < bd) { bd = d2; best = &p; }
+        }
+        return best;
+    };
+
     if (n.bossSlamWind >= 0.0f) {                 // winding up → impact
         n.bossSlamWind -= dt;
         if (n.bossSlamWind <= 0.0f) {
-            float dmg = 16.0f * npcDamageScaleForLevel(n.level) * (n.enraged ? 1.5f : 1.0f);
-            for (const DirectorPlayer& p : players) {
-                glm::vec3 d = p.pos - n.position;
-                if (d.x * d.x + d.z * d.z <= SLAM_R * SLAM_R && std::fabs(d.y) < 4.0f)
-                    pendingDamage.push_back({ p.id, dmg });
-            }
-            if (g_server) {                       // impact burst (kind 2 = AoE)
-                SpellEffectPacket se{};
-                se.casterID = n.id; se.kind = 2;
-                se.x = n.position.x; se.y = n.position.y; se.z = n.position.z;
-                se.radius = SLAM_R; se.ttl = 0.6f;
-                g_server->broadcast(PacketType::SpellEffect, &se, sizeof(se));
+            if (caster) {                         // bolt volley — a 5-bolt fan at the target
+                const DirectorPlayer* tp = nearestPlayer();
+                if (tp) {
+                    glm::vec3 origin = n.position + glm::vec3(0.0f, 1.4f, 0.0f);
+                    glm::vec3 aim    = (tp->pos + glm::vec3(0.0f, 1.0f, 0.0f)) - origin;
+                    float len = glm::length(aim);
+                    if (len > 0.001f) {
+                        glm::vec3 fwd = aim / len;
+                        float bdmg = 8.0f * npcDamageScaleForLevel(n.level) * (n.enraged ? 1.5f : 1.0f);
+                        for (int k = -2; k <= 2; k++) {     // ±22° spread, yaw-rotated
+                            float a = glm::radians((float)k * 11.0f), cs = cosf(a), sn = sinf(a);
+                            glm::vec3 dir(fwd.x * cs - fwd.z * sn, fwd.y, fwd.x * sn + fwd.z * cs);
+                            spawnEnemyProjectile(origin, dir * 16.0f, bdmg);
+                        }
+                    }
+                }
+            } else {                              // ground slam — radius AoE
+                float dmg = 16.0f * npcDamageScaleForLevel(n.level) * (n.enraged ? 1.5f : 1.0f);
+                for (const DirectorPlayer& p : players) {
+                    glm::vec3 d = p.pos - n.position;
+                    if (d.x * d.x + d.z * d.z <= SLAM_R * SLAM_R && std::fabs(d.y) < 4.0f)
+                        pendingDamage.push_back({ p.id, dmg });
+                }
+                if (g_server) {                   // impact burst (kind 2 = AoE)
+                    SpellEffectPacket se{};
+                    se.casterID = n.id; se.kind = 2;
+                    se.x = n.position.x; se.y = n.position.y; se.z = n.position.z;
+                    se.radius = SLAM_R; se.ttl = 0.6f;
+                    g_server->broadcast(PacketType::SpellEffect, &se, sizeof(se));
+                }
             }
             n.bossSlamWind = -1.0f;
-            n.bossSlamCd   = 6.0f;
+            n.bossSlamCd   = caster ? 5.0f : 6.0f;
         }
         return;
     }
 
     n.bossSlamCd -= dt;
-    // Wind up a slam when a player is close enough to be worth punishing.
-    if (n.bossSlamCd <= 0.0f && nearestPlayerDist2() < 9.0f * 9.0f) {
+    // Wind up the special when a player is in range (casters reach much further).
+    float trigR = caster ? 20.0f : 9.0f;
+    if (n.bossSlamCd <= 0.0f && nearestPlayerDist2() < trigR * trigR) {
         n.bossSlamWind    = WIND;
-        n.attackAnimTimer = WIND;                 // a visible rear-up
+        n.attackAnimTimer = WIND;                 // a visible rear-up / cast wind
         if (g_server) {                           // telegraph ring (kind 3)
             SpellEffectPacket se{};
             se.casterID = n.id; se.kind = 3;
             se.x = n.position.x; se.y = n.position.y; se.z = n.position.z;
-            se.radius = SLAM_R; se.ttl = WIND;
+            se.radius = caster ? 2.5f : SLAM_R; se.ttl = WIND;
             g_server->broadcast(PacketType::SpellEffect, &se, sizeof(se));
         }
     }

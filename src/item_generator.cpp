@@ -193,6 +193,18 @@ const ArmorSet KNOWN_SETS[] = {
         { 34,  32,  44, 255}, {120,  80, 170, 255} },   // black feather + violet sheen
     { "Glacial",     "Glacial",     ClothingTier::Cloth,
         {200, 228, 240, 255}, { 70, 150, 200, 255} },   // ice white + deep glacier blue
+    { "Sandscar",    "Sandscar",    ClothingTier::Leather,
+        {180, 150,  95, 255}, {205,  95,  45, 255} },   // desert raider tan + burnt orange
+    { "Mirrorsteel", "Mirrorsteel", ClothingTier::Plate,
+        {200, 205, 215, 255}, {110, 180, 230, 255} },   // polished silver + sky blue
+    { "Venomweave",  "Venomweave",  ClothingTier::Cloth,
+        { 95, 130,  70, 255}, {170,  90, 200, 255} },   // toxin green + venom violet
+    { "Gravewarden", "Gravewarden", ClothingTier::Leather,
+        {150, 145, 130, 255}, {120, 190, 110, 255} },   // bone grey + grave-light green
+    { "Goldleaf",    "Goldleaf",    ClothingTier::Cloth,
+        {200, 150,  70, 255}, {180,  60,  50, 255} },   // autumn amber + crimson
+    { "Tempest",     "Tempest",     ClothingTier::Plate,
+        { 70,  90, 110, 255}, {220, 240, 255, 255} },   // storm steel + lightning white
 };
 
 // Slot noun pools. Common slots have more "plain" nouns; rare/legendary

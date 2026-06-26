@@ -163,8 +163,14 @@ piece). Source of truth: `KNOWN_SETS` in item_generator.cpp.
 | Aurelian | Plate | 215,180,90 | 255,245,220 |
 | Ravenfeather | Leather | 34,32,44 | 120,80,170 |
 | Glacial | Cloth | 200,228,240 | 70,150,200 |
+| Sandscar | Leather | 180,150,95 | 205,95,45 |
+| Mirrorsteel | Plate | 200,205,215 | 110,180,230 |
+| Venomweave | Cloth | 95,130,70 | 170,90,200 |
+| Gravewarden | Leather | 150,145,130 | 120,190,110 |
+| Goldleaf | Cloth | 200,150,70 | 180,60,50 |
+| Tempest | Plate | 70,90,110 | 220,240,255 |
 
-**20 themed sets.**
+**26 themed sets.**
 
 ## Dungeons
 

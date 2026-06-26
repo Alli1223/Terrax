@@ -71,6 +71,9 @@ std::string itemSubtitle(const Item* item) {
     }
     if (item->getKind() == ItemKind::Consumable) {
         const ConsumableItem* c = static_cast<const ConsumableItem*>(item);
+        if (c->buffSeconds > 0.0f)
+            return "Food — +" + std::to_string((int)(c->buffPowerPct * 100)) + "% power for "
+                 + std::to_string((int)c->buffSeconds) + "s";
         if (c->restoreHealthPct > 0.0f)
             return "Potion — restores " + std::to_string((int)(c->restoreHealthPct * 100)) + "% health";
         return "Potion — restores " + std::to_string((int)(c->restoreResourcePct * 100)) + "% resource";
@@ -327,11 +330,21 @@ void drawItemIcon(ImDrawList* dl, ImVec2 c, float size, const Item* item) {
             default: break;
         }
     } else if (item->getKind() == ItemKind::Consumable) {
-        // Potion: a rounded liquid body, a glass neck and a cork stopper.
-        rect(-0.42f, -0.05f, 0.42f, 0.78f, pri);
-        dl->AddCircleFilled(ImVec2(c.x, c.y + h * 0.32f), h * 0.44f, pri, 16);
-        rect(-0.16f, -0.52f, 0.16f, 0.05f, acc);                            // neck
-        rect(-0.20f, -0.70f, 0.20f, -0.50f, IM_COL32(120, 85, 50, 255));    // cork
+        const ConsumableItem* ci = static_cast<const ConsumableItem*>(item);
+        if (ci->buffSeconds > 0.0f) {
+            // Food: a roast — rounded brown body with a little bone nub.
+            dl->AddCircleFilled(ImVec2(c.x, c.y + h * 0.05f), h * 0.55f, pri, 18);
+            rect(-0.55f, 0.10f, 0.55f, 0.45f, pri);
+            dl->AddLine(ImVec2(c.x - h * 0.55f, c.y + h * 0.1f),
+                        ImVec2(c.x - h * 0.85f, c.y - h * 0.05f),
+                        IM_COL32(225, 220, 205, 255), 3.0f);                 // bone
+        } else {
+            // Potion: a rounded liquid body, a glass neck and a cork stopper.
+            rect(-0.42f, -0.05f, 0.42f, 0.78f, pri);
+            dl->AddCircleFilled(ImVec2(c.x, c.y + h * 0.32f), h * 0.44f, pri, 16);
+            rect(-0.16f, -0.52f, 0.16f, 0.05f, acc);                         // neck
+            rect(-0.20f, -0.70f, 0.20f, -0.50f, IM_COL32(120, 85, 50, 255)); // cork
+        }
     }
 
     // Legendary items get a small star spark in the corner — quick hint

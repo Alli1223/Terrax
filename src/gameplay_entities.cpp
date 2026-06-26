@@ -842,6 +842,12 @@ const std::vector<VendorSlot>& vendorStock(int townIndex) {
         s.item = makeConsumable(ConsumableKind::ManaPotion); s.price = 20;
         stock.push_back(std::move(s));
     }
+    {
+        VendorSlot s;
+        s.consumable = (int)ConsumableKind::FoodRation; s.seed = 0; s.level = 1;
+        s.item = makeConsumable(ConsumableKind::FoodRation); s.price = 18;
+        stock.push_back(std::move(s));
+    }
     for (int i = 0; i < 8; ++i) {
         uint32_t seed = (uint32_t)((townIndex * 2654435761u) ^ (uint32_t)(i * 40503u) ^ 0x5E11D00Du);
         int lv = std::max(1, baseLv + (int)(seed % 4u) - 1);
@@ -924,6 +930,22 @@ static void spawnPlayerFloatText(AppContext& ctx, const std::string& txt, Voxel 
 
 bool useConsumable(AppContext& ctx, Item* item) {
     if (!item || item->getKind() != ItemKind::Consumable) return false;
+    auto* cc = static_cast<ConsumableItem*>(item);
+    // Food: grant a timed "well-fed" ability-power buff (no potion cooldown — it's
+    // a buff, not an emergency heal). Re-eating refreshes the single food buff.
+    if (cc->buffSeconds > 0.0f) {
+        for (auto it = ctx.activeBuffs.begin(); it != ctx.activeBuffs.end(); ++it)
+            if (it->id == AbilityId::None) { ctx.activeBuffs.erase(it); break; }
+        ActiveBuff b;
+        b.id = AbilityId::None; b.kind = BuffKind::Power;
+        b.magnitude = cc->buffPowerPct; b.ttl = cc->buffSeconds; b.total = cc->buffSeconds;
+        ctx.activeBuffs.push_back(b);
+        std::string nm = item->getName();
+        ctx.inventory.removeItem(item);
+        pushToast(ctx, "Well Fed (+" + std::to_string((int)(cc->buffPowerPct * 100)) + "% power)",
+                  Voxel{210, 170, 110, 255}, 2.0f);
+        return true;
+    }
     // Shared "potion sickness" cooldown — no chain-quaffing to full mid-fight.
     if (ctx.potionCooldown > 0.0f) {
         pushToast(ctx, "Potion not ready (" + std::to_string((int)ctx.potionCooldown + 1) + "s)",

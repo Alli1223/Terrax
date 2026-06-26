@@ -92,10 +92,28 @@ ConsumableItem::ConsumableItem(std::string n, ConsumableKind k)
             restoreHealthPct   = 0.5f;  liquidColor = {210,  55,  55, 255}; break;  // red
         case ConsumableKind::ManaPotion:
             restoreResourcePct = 0.6f;  liquidColor = { 70, 110, 220, 255}; break;  // blue
+        case ConsumableKind::FoodRation:
+            buffPowerPct = 0.25f; buffSeconds = 300.0f;                            // +25% power, 5 min
+            liquidColor = {170, 110,  60, 255}; break;                            // roast brown
     }
 }
 
 VoxelVolume* ConsumableItem::buildVoxelVolume() {
+    if (consumable == ConsumableKind::FoodRation) {
+        // A roast on a platter — a rounded brown meat loaf with a darker crust.
+        VoxelVolume* v = new VoxelVolume(8, 6, 8);
+        const Voxel meat  = liquidColor;                  // roast brown
+        const Voxel crust = {120,  72,  40, 255};
+        const Voxel bone  = {225, 220, 205, 255};
+        for (int x = 1; x <= 6; x++)
+            for (int z = 1; z <= 6; z++)
+                for (int y = 0; y <= 3; y++) {
+                    bool edge = (x == 1 || x == 6 || z == 1 || z == 6 || y == 3);
+                    v->setVoxel(x, y, z, edge ? crust : meat);
+                }
+        v->setVoxel(0, 1, 3, bone); v->setVoxel(7, 1, 4, bone);   // little bone ends
+        return v;
+    }
     // A small glass potion bottle: a liquid-filled rounded body, a narrow
     // glass neck and a cork stopper. Coloured by the liquid (red / blue).
     VoxelVolume* v = new VoxelVolume(6, 9, 6);
@@ -120,7 +138,8 @@ VoxelVolume* ConsumableItem::buildVoxelVolume() {
 
 std::unique_ptr<ConsumableItem> makeConsumable(ConsumableKind kind) {
     std::string nm = (kind == ConsumableKind::HealthPotion) ? "Health Potion"
-                                                            : "Mana Potion";
+                   : (kind == ConsumableKind::ManaPotion)   ? "Mana Potion"
+                                                            : "Hearty Meal";
     auto p = std::make_unique<ConsumableItem>(std::move(nm), kind);
     p->level  = 1;
     p->rarity = ItemRarity::Common;

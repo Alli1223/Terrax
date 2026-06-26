@@ -192,8 +192,10 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
   health/resource when right-clicked in the bag (`useConsumable`, client-side); every
   town apothecary stocks both at a fixed price (`vendorStock`/`vendorBuy`); bottle icon +
   liquid colour + tooltip in the inventory UI. A shared **12s "potion sickness" cooldown**
-  (`ctx.potionCooldown`) now blocks chain-quaffing to full mid-fight. Repair / food still to
-  come.)_
+  (`ctx.potionCooldown`) blocks chain-quaffing to full mid-fight. Plus **food** — a "Hearty
+  Meal" (`ConsumableKind::FoodRation`) grants a timed **+25% ability-power "Well Fed" buff**
+  (5 min, an `ActiveBuff` shown in the buff bar); also vendor-stocked, with its own roast icon
+  and no potion cooldown. Repair still to come.)_
 - [ ] **G4. Bank/stash** — per-character persistent storage in town.
 
 ## Track H — Rendering pass (screenshot-driven)

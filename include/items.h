@@ -20,10 +20,11 @@ enum class ItemKind {
 };
 
 // A usable consumable's effect family. Potions restore a fraction of the
-// player's max health or resource when used from the bag.
+// player's max health or resource; food grants a timed "well-fed" power buff.
 enum class ConsumableKind {
     HealthPotion,
     ManaPotion,
+    FoodRation,
 };
 
 // Slots on a humanoid where a piece of equipment can go.
@@ -293,6 +294,8 @@ public:
 
     float restoreHealthPct   = 0.0f;   // 0..1 fraction of max health restored
     float restoreResourcePct = 0.0f;   // 0..1 fraction of max resource restored
+    float buffPowerPct       = 0.0f;   // food: ability-power buff magnitude (added to mult)
+    float buffSeconds        = 0.0f;   // food: buff duration
     Voxel liquidColor = {210, 55, 55, 255};
 
 protected:

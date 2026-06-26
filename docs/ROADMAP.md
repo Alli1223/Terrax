@@ -85,7 +85,11 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
   staff, now the **Crypt boss** + elite champions, reuses the ranged-caster AI;
   also gave the Necromancer its proper cast pose). Skeleton already existed.)_
 - [ ] **C4. Beasts/monsters** — Wolf-pack, Bear, Spider, Slime, Golem, Troll, Ogre.
-- [ ] **C5. Elementals & exotics** — Fire/Ice/Earth elementals, Imp, Wisp, Drake.
+- [~] **C5. Elementals & exotics** — Fire/Ice/Earth elementals, Imp, Wisp, Drake.
+  _(Added: **Fire Elemental** — a being of living fire (no clothing/weapon; the rig's
+  `skinColor` recoloured molten-orange + `resetBaseBody`, the first non-humanoid-looking
+  foe), a ranged caster (`stepRangedEnemy`) conjured among the arcane Ruins. Ice/Earth
+  variants would be a palette swap; Imp/Wisp/Drake need new rigs.)_
 - [x] **C6. Animal roster** — 8 species already shipped: Sheep, Cow, Pig, Rabbit,
   Squirrel, Deer, Fox, Chicken, each with a voxel rig, per-species speed, skittish
   vs. calm AI, and biome-aware spawn tables. _(Predators/mounts — wolf, bear, boar,

@@ -122,6 +122,16 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
     std::mt19937 rng(seed ? seed : 1u);
     auto pick = [&](int n) { return std::uniform_int_distribution<int>(0, n - 1)(rng); };
 
+    // A Fire Elemental is a being of living fire — no clothing, no weapon: just a
+    // molten-orange body. Recolour the "skin" to fire and rebuild the base body.
+    if (type == NPCType::FireElemental) {
+        rig.skinColor   = Voxel{255, 132, 40, 255};
+        rig.resetBaseBody();
+        rig.heightScale = 1.05f;
+        rig.hasLantern  = false;
+        return;
+    }
+
     // Clothing tier per type — villagers run around in cloth, bandits
     // in leather, guards in plate. This drives both the shape of the
     // armour (clothing_painter does the actual rendering) and how it

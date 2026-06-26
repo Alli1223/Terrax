@@ -25,7 +25,8 @@ const uint8_t HOSTILES[] = { (uint8_t)NPCType::Enemy, (uint8_t)NPCType::Skeleton
                              (uint8_t)NPCType::Zombie, (uint8_t)NPCType::Knight,
                              (uint8_t)NPCType::Necromancer, (uint8_t)NPCType::Ghoul,
                              (uint8_t)NPCType::Brigand, (uint8_t)NPCType::Wraith,
-                             (uint8_t)NPCType::Lich, (uint8_t)NPCType::Warlord };
+                             (uint8_t)NPCType::Lich, (uint8_t)NPCType::Warlord,
+                             (uint8_t)NPCType::FireElemental };
 
 const char* COLLECTIBLES[] = {
     "Wolf Pelt", "Bandit Insignia", "Cracked Rune", "Ancient Coin",
@@ -48,6 +49,7 @@ const char* questEnemyLabel(uint8_t npcType) {
         case NPCType::Wraith:      return "Wraith";
         case NPCType::Lich:        return "Lich";
         case NPCType::Warlord:     return "Warlord";
+        case NPCType::FireElemental: return "Fire Elemental";
         default:                   return "Foe";
     }
 }

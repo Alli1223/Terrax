@@ -318,9 +318,9 @@ public:
     BlockType wallBlock()  const override { return BlockType::Sandstone; }
     BlockType floorBlock() const override { return BlockType::Sandstone; }
     void fillSpawnTable(std::vector<DungeonSpawn>& out, uint32_t seed) const override {
-        // Cultists + shambling ghouls, raised and ruled by a necromancer.
+        // Cultists + shambling ghouls + conjured fire elementals, ruled by a necromancer.
         rosterFill(out, seed, (uint8_t)NPCType::Cultist, (uint8_t)NPCType::Necromancer, 2,
-                   (uint8_t)NPCType::Ghoul);
+                   (uint8_t)NPCType::Ghoul, (uint8_t)NPCType::FireElemental);
     }
 };
 

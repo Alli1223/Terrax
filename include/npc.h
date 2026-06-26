@@ -29,7 +29,8 @@ enum class NPCType : uint8_t { Villager = 0, Enemy = 1, Guard = 2, Farmer = 3,
                               Brigand = 14,     // tougher bandit — axe, more HP (caves/camps)
                               Wraith = 15,      // fast ethereal undead — chilling claws
                               Lich = 16,        // undead arch-caster — frost bolts (crypt boss)
-                              Warlord = 17 };   // armoured war-commander — greatsword (castle boss)
+                              Warlord = 17,     // armoured war-commander — greatsword (castle boss)
+                              FireElemental = 18 }; // conjured being of living fire — hurls bolts (ruins)
 
 // True for hostile NPC types — the town watch fights them and the player can
 // kill them for loot/XP. Extended as new enemy types are added.
@@ -39,7 +40,8 @@ inline bool isHostileNpc(NPCType t) {
            t == NPCType::Zombie || t == NPCType::Knight ||
            t == NPCType::Necromancer || t == NPCType::Ghoul ||
            t == NPCType::Brigand || t == NPCType::Wraith ||
-           t == NPCType::Lich || t == NPCType::Warlord;
+           t == NPCType::Lich || t == NPCType::Warlord ||
+           t == NPCType::FireElemental;
 }
 
 // Spawn health by type — brutes are tanky, skeletons brittle.
@@ -56,6 +58,7 @@ inline float defaultNpcHealth(NPCType t) {
         case NPCType::Wraith:      return 80.0f;    // ethereal, brittle
         case NPCType::Lich:        return 180.0f;   // undead arch-caster boss
         case NPCType::Warlord:     return 260.0f;   // heavily armoured boss
+        case NPCType::FireElemental: return 110.0f; // a caster — burns bright but brittle
         default:                   return 100.0f;   // bandits and the rest
     }
 }

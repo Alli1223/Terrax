@@ -150,7 +150,7 @@ void NPC::update(float dt, World& world) {
             if (type == NPCType::Farmer) {
                 rig->playClip(ClipKind::Hoe, 0.7f);
             } else if (type == NPCType::Cultist || type == NPCType::Necromancer ||
-                       type == NPCType::Lich) {
+                       type == NPCType::Lich || type == NPCType::FireElemental) {
                 rig->isCasting = true;
                 rig->castAnim  = 0.0f;
             } else {
@@ -361,7 +361,8 @@ void NpcDirector::update(float dt, const std::vector<DirectorPlayer>& players,
                                               stepBandit(*n, dt, world, players);
         else if (n->type == NPCType::Cultist ||
                  n->type == NPCType::Necromancer ||
-                 n->type == NPCType::Lich)        stepRangedEnemy(*n, dt, world, players);
+                 n->type == NPCType::Lich ||
+                 n->type == NPCType::FireElemental) stepRangedEnemy(*n, dt, world, players);
         else if (n->type == NPCType::Guard)   stepGuard(*n, dt, world, players);
         else if (n->type == NPCType::Farmer)  stepFarmer(*n, dt, world, gameTime);
         else if (n->type == NPCType::Trainer ||

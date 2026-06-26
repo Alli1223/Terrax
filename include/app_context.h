@@ -189,7 +189,10 @@ struct AppContext {
     std::vector<Quest> activeQuests;    // quests the player has accepted
     int  playerGold           = 0;      // currency earned from quests / kills (Track G)
     std::unordered_set<int> discoveredDungeons;  // dungeon indices the player has entered
-    std::unordered_set<int> clearedDungeons;     // dungeon indices whose boss the player has slain
+    // Dungeon index -> seconds the "Cleared" marker lingers before the dungeon
+    // re-populates (its pack already respawns on re-entry; this just keeps the map
+    // honest, reverting the label to "available" so the player knows to return).
+    std::unordered_map<int, float> clearedDungeons;
 
     // --- Progression ---
     int   playerLevel = 1;

@@ -567,6 +567,19 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
     // Tick the shared consumable cooldown down toward ready.
     if (ctx.potionCooldown > 0.0f) ctx.potionCooldown -= ctx.deltaTime;
 
+    // Age cleared-dungeon timers; when one lapses the dungeon has re-populated, so
+    // drop the "Cleared" marker (the map reverts to "available") and announce it.
+    for (auto it = ctx.clearedDungeons.begin(); it != ctx.clearedDungeons.end(); ) {
+        it->second -= ctx.deltaTime;
+        if (it->second <= 0.0f) {
+            const DungeonPlan& dp = getDungeonPlan();
+            if (it->first >= 0 && it->first < (int)dp.dungeons.size())
+                ctx.toasts.push_back({ dp.dungeons[it->first]->name + " has repopulated",
+                                       Voxel{200, 220, 160, 255}, 4.0f });
+            it = ctx.clearedDungeons.erase(it);
+        } else ++it;
+    }
+
     // Age + prune floating combat-text numbers (spawned in syncNPCObjects).
     for (auto& f : ctx.floatingTexts) f.age += ctx.deltaTime;
     ctx.floatingTexts.erase(

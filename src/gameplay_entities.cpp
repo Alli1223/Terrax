@@ -289,7 +289,9 @@ void awardEnemyKill(AppContext& ctx, const NPC* npc) {
         for (size_t i = 0; i < dp.dungeons.size(); ++i) {
             const Dungeon& d = *dp.dungeons[i];
             if (bx < d.bbMin.x || bx > d.bbMax.x || bz < d.bbMin.y || bz > d.bbMax.y) continue;
-            if (ctx.clearedDungeons.insert((int)i).second)
+            // Mark cleared for 5 minutes, then it re-populates. insert_or_assign's
+            // bool is true only on the first clear, so the toast fires just once.
+            if (ctx.clearedDungeons.insert_or_assign((int)i, 300.0f).second)
                 pushToast(ctx, std::string("Cleared: ") + d.name + "!",
                           Voxel{120, 235, 140, 255}, 6.0f);
             break;

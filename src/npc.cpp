@@ -1339,6 +1339,8 @@ void NpcDirector::stepBandit(NPC& n, float dt, World& world,
     // guard only wins the contest once it has genuinely closed in.
     const bool hitGuard = gTarget && (!pTarget || gBest < pBest);
 
+    n.aggro = (pTarget != nullptr);   // hunting a player this tick → show the alert
+
     if (pTarget || gTarget) {
         glm::vec2 cur(n.position.x, n.position.z);
         glm::vec2 tpos = hitGuard ? glm::vec2(gTarget->position.x, gTarget->position.z)
@@ -1479,6 +1481,7 @@ void NpcDirector::stepRangedEnemy(NPC& n, float dt, World& world,
     // Only engage a target the caster can actually see; otherwise it holds its
     // room and loiters. Approaching only happens along a clear line, so it never
     // shoots — or charges — through a wall.
+    n.aggro = (tgt != nullptr && hasLineOfSight(world, n.position, tgt->pos));
     if (tgt && hasLineOfSight(world, n.position, tgt->pos)) {
         glm::vec2 cur(n.position.x, n.position.z);
         glm::vec2 d(tgt->pos.x - cur.x, tgt->pos.z - cur.y);

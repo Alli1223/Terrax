@@ -150,6 +150,7 @@ public:
     bool      elite       = false;  // promoted elite minion — tougher, better loot, starred
     bool      rare        = false;  // named "rare" spawn — uncommon, purple plate, top loot
     bool      enraged     = false;  // boss below 30% HP — frenzied: faster + hits harder
+    bool      aggro       = false;  // currently hunting a player — drives the threat alert
     float     bossSlamCd   = 3.0f;  // server: cooldown until the boss can slam again
     float     bossSlamWind = -1.0f; // server: >=0 while winding up a slam (telegraph), then impact
 

@@ -82,7 +82,7 @@ static ImU32 conColor(int enemyLevel, int playerLevel) {
 static void drawLevelTag(const glm::vec3& worldPos, int level, ImU32 col,
                          const glm::mat4& view, const glm::mat4& proj,
                          int fbW, int fbH, bool elite = false,
-                         const char* rareName = nullptr) {
+                         const char* rareName = nullptr, bool aggro = false) {
     glm::vec4 clip = proj * view * glm::vec4(worldPos, 1.0f);
     if (clip.w <= 0.01f) return;
     glm::vec3 ndc = glm::vec3(clip) / clip.w;
@@ -107,6 +107,11 @@ static void drawLevelTag(const glm::vec3& worldPos, int level, ImU32 col,
     }
     dl->AddText(ImVec2(p.x + 1, p.y + 1), IM_COL32(0, 0, 0, 200), buf);   // shadow
     dl->AddText(p, useCol, buf);
+    if (aggro) {                                       // red "!" — this foe is hunting a player
+        ImVec2 ep(p.x + ts.x + 4.0f, p.y);
+        dl->AddText(ImVec2(ep.x + 1, ep.y + 1), IM_COL32(0, 0, 0, 200), "!");
+        dl->AddText(ep, IM_COL32(255, 80, 70, 255), "!");
+    }
 }
 
 // F3 debug / session overlay — performance, world, rendered objects, server.
@@ -1069,7 +1074,7 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
                          (int)n->level, conColor((int)n->level, ctx.playerLevel),
                          renderer.frameView, renderer.frameProj,
                          renderer.frameFbW, renderer.frameFbH, n->elite,
-                         n->rare ? rn.c_str() : nullptr);
+                         n->rare ? rn.c_str() : nullptr, n->aggro);
         }
         if (frac >= 0.995f) continue;                     // hide the bar at full health
         drawHealthBar(n->position + glm::vec3(0.0f, 2.3f, 0.0f), frac,

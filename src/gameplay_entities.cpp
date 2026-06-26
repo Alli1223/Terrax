@@ -410,6 +410,7 @@ void syncNPCObjects(AppContext& ctx) {
             n->sitting    = (np.flags & 8) != 0;
             n->elite      = (np.flags & 16) != 0;
             n->rare       = (np.flags & 32) != 0;
+            n->aggro      = (np.flags & 64) != 0;
             n->dyingFlag  = nowDying;
             n->lastUpdate = now;
 

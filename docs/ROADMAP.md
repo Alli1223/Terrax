@@ -109,7 +109,10 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
   level-aware health bars, and a con-coloured selection chevron over the locked
   target (D1/D2). _(The focused enemy's name shows in the target frame; per-plate
   name labels deferred as redundant for now.)_
-- [ ] **D4. Threat/aggro polish** — show aggro state; tab cycles nearest hostiles.
+- [x] **D4. Threat/aggro polish** — hostiles that have acquired a player target set an
+  `aggro` flag (server, in `stepBandit`/`stepRangedEnemy`), ridden on NPCState `flags` bit 6
+  (pack/unpack like elite/rare); their nameplate shows a red **"!"** alert, so you can see at
+  a glance which foes in a pack have woken and are hunting you. (Tab/T cycling already done in D1.)
 - [x] **D5. Floating combat text** — damage numbers rise off a struck enemy and fade
   out. Fully client-side: spawned from each enemy's per-tick synced health delta
   (`syncNPCObjects`), aged/pruned in `updateGameplay`, projected + drawn in the play HUD

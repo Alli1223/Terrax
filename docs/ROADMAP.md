@@ -210,6 +210,22 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
 - [ ] **H6. Per-screenshot follow-ups** — each rendering review appends concrete,
   scoped items here for later iterations to work through.
 
+### Rendering review #7 (2026-06-26, clean tour)
+
+With HUD-free framing (R11) the review kept landing the tour camera over ponds /
+coastal spits, so far shots read as flat top-down water. Two tour-vista fixes:
+- **R12. Inland vista anchoring** — `findLand` now seeks a genuinely *inland*
+  column (a margin above sea level with land neighbours), falling back to any dry
+  land — so far stages frame terrain, not a pond.
+- The tour camera now sits above the **tallest nearby column** (sampled in a small
+  ring), not just the anchor's surface, so it clears mesas/cliffs instead of
+  clipping into a wall. Verified: all five stages now give clean elevated vistas.
+
+Renderer verdict (again): **strong** — AO (R1) + hemispheric ambient (R2) give
+terrain real form, water (fresnel/foam/planar reflection) reads well at play
+angles (the flat grey is only the near-vertical top-down view, atypical in play).
+No urgent shader work; the open R3/R4/R5/R6 polish items remain low-priority.
+
 ### Rendering review #5 (2026-06-25, clean tour)
 
 Reviewed fresh vistas across tiers (spawn town, rolling hills, autumn forest,

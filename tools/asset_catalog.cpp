@@ -17,7 +17,8 @@
 #include "dungeon.h"          // makeDungeon, DungeonKind, DungeonSpawn
 #include "castle.h"           // CastleDungeon (overground castle layout)
 #include "world.h"            // setWorldSeed, sampleSurfaceSolid
-#include "npc.h"              // NPCType (boss / spawn classification)
+#include "npc.h"              // NPCType, defaultNpcHealth, isHostileNpc
+#include "quest.h"            // questEnemyLabel (bestiary names)
 #include "building.h"         // BuildingKind, RoomType (taxonomy reference)
 
 #include <algorithm>
@@ -253,6 +254,30 @@ void writeBuildings(FILE* out) {
         "Chapel, Apothecary, Bakery.\n\n");
 }
 
+void writeBestiary(FILE* out) {
+    // Every hostile NPC type with its spawn (tier-1) HP and combat archetype.
+    // Source of truth: NPCType / defaultNpcHealth / isHostileNpc in npc.h.
+    std::fprintf(out,
+        "## Bestiary (hostiles)\n\n"
+        "Every hostile enemy type, its base (tier-1) spawn health and combat archetype.\n"
+        "HP, damage, XP and loot all scale up with the danger tier of the spawn point, so\n"
+        "the same foe far from spawn is far deadlier. ~12%% of dungeon minions spawn as\n"
+        "**elites** (tougher, starred) and ~3%% as named **rares** (purple, top loot);\n"
+        "each dungeon is led by a **boss**. Source: `NPCType` / `defaultNpcHealth` (npc.h).\n\n"
+        "| Enemy | Base HP | Archetype |\n"
+        "|-------|--------:|-----------|\n");
+    for (int i = 0; i < 24; i++) {
+        NPCType t = (NPCType)i;
+        if (!isHostileNpc(t)) continue;
+        bool caster = (t == NPCType::Cultist || t == NPCType::Necromancer ||
+                       t == NPCType::Lich    || t == NPCType::FireElemental);
+        std::fprintf(out, "| %s | %d | %s |\n",
+                     questEnemyLabel((uint8_t)t), (int)defaultNpcHealth(t),
+                     caster ? "Ranged caster" : "Melee");
+    }
+    std::fprintf(out, "\n");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -275,6 +300,7 @@ int main(int argc, char** argv) {
     writeClothingAndSets(out);
     writeDungeons(out);
     writeBuildings(out);
+    writeBestiary(out);
 
     std::fclose(out);
     std::printf("asset_catalog: wrote catalog (props + weapons + clothing + dungeons + buildings) to %s\n", outPath);

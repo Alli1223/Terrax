@@ -226,3 +226,28 @@ is a taxonomy reference. Source: `BuildingKind` / `RoomType` in building.h.
 DiningHall, BarArea, Forge, Workshop, AlchemyLab, Library, Hallway, Stable,
 Chapel, Apothecary, Bakery.
 
+## Bestiary (hostiles)
+
+Every hostile enemy type, its base (tier-1) spawn health and combat archetype.
+HP, damage, XP and loot all scale up with the danger tier of the spawn point, so
+the same foe far from spawn is far deadlier. ~12% of dungeon minions spawn as
+**elites** (tougher, starred) and ~3% as named **rares** (purple, top loot);
+each dungeon is led by a **boss**. Source: `NPCType` / `defaultNpcHealth` (npc.h).
+
+| Enemy | Base HP | Archetype |
+|-------|--------:|-----------|
+| Bandit | 100 | Melee |
+| Skeleton | 60 | Melee |
+| Ogre Brute | 220 | Melee |
+| Cultist | 90 | Ranged caster |
+| Zombie | 130 | Melee |
+| Fallen Knight | 200 | Melee |
+| Necromancer | 140 | Ranged caster |
+| Ghoul | 70 | Melee |
+| Brigand | 150 | Melee |
+| Wraith | 80 | Melee |
+| Lich | 180 | Ranged caster |
+| Warlord | 260 | Melee |
+| Fire Elemental | 110 | Ranged caster |
+| Stone Elemental | 210 | Melee |
+

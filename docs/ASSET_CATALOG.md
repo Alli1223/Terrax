@@ -198,6 +198,10 @@ underground. Each has exactly one boss room with legendary loot.
 | Castle | 1 | 72×45 | 7 | 0 | 20 | 21 | 1 |
 | Castle | 2 | 84×57 | 9 | 0 | 24 | 28 | 1 |
 | Castle | 3 | 96×69 | 11 | 0 | 28 | 35 | 1 |
+| Barrow | 0 | 201×105 | 16 | 17 | 289 | 37 | 1 |
+| Barrow | 1 | 210×175 | 28 | 31 | 514 | 64 | 1 |
+| Barrow | 2 | 295×210 | 44 | 49 | 814 | 98 | 1 |
+| Barrow | 3 | 250×359 | 62 | 67 | 1148 | 139 | 1 |
 
 Room purposes (DungeonRoom.purpose): 0 hall · 1 entrance · 2 boss · 3 throne · 4 library · 5 ornament · 6 vault/treasure · 7 prison.
 Room shapes: Rect · Circle · Octagon · Cross.

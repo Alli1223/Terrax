@@ -11,7 +11,7 @@ class Chunk;
 // The dungeon archetypes. A new type is one subclass + one line in
 // makeDungeon() — the same polymorphic rule the Building/Projectile
 // hierarchies follow (see CLAUDE.md). Append new values only.
-enum class DungeonKind : uint8_t { Crypt = 0, Cave = 1, Ruins = 2, Castle = 3, Count };
+enum class DungeonKind : uint8_t { Crypt = 0, Cave = 1, Ruins = 2, Castle = 3, Barrow = 4, Count };
 
 // The carved silhouette of a chamber within its mn..mx bounding box. Non-rect
 // shapes leave the surrounding rock as natural curved/angled walls.

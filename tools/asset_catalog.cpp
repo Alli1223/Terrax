@@ -178,6 +178,7 @@ const char* dungeonName(DungeonKind k) {
         case DungeonKind::Cave:   return "Cave";
         case DungeonKind::Ruins:  return "Ruins";
         case DungeonKind::Castle: return "Castle";
+        case DungeonKind::Barrow: return "Barrow";
         default:                  return "?";
     }
 }
@@ -193,7 +194,8 @@ void writeDungeons(FILE* out) {
         "| Kind | Tier | Footprint (W×D) | Rooms | Corridors | Lights | Spawns | Bosses |\n"
         "|------|:----:|:---------------:|------:|----------:|-------:|-------:|-------:|\n");
     const DungeonKind kinds[] = { DungeonKind::Crypt, DungeonKind::Cave,
-                                  DungeonKind::Ruins, DungeonKind::Castle };
+                                  DungeonKind::Ruins, DungeonKind::Castle,
+                                  DungeonKind::Barrow };
     for (DungeonKind k : kinds) {
         for (int tier = 0; tier <= 3; ++tier) {
             setWorldSeed(1234u);

@@ -92,10 +92,11 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
   oversized (1.32×), slow but very tanky melee guardian (`stepBandit`) that stands sentinel
   in Castles. Two elemental archetypes (caster + melee). Ice would be another palette swap;
   Imp/Wisp/Drake need new rigs.)_
-- [x] **C6. Animal roster** — 8 species already shipped: Sheep, Cow, Pig, Rabbit,
-  Squirrel, Deer, Fox, Chicken, each with a voxel rig, per-species speed, skittish
-  vs. calm AI, and biome-aware spawn tables. _(Predators/mounts — wolf, bear, boar,
-  horse — could extend it later.)_
+- [x] **C6. Animal roster** — 9 species: Sheep, Cow, Pig, Rabbit, Squirrel, Deer, Fox,
+  Chicken, and **Goat** (curved horns + chin beard; ambles the grasslands and the sparse
+  highlands) — each with a voxel rig, per-species speed, skittish vs. calm AI, and
+  biome-aware spawn tables. _(Predators/mounts — wolf, bear, boar, horse — could extend
+  it later.)_
 - [x] **C7. Elites & rares** — _(Added **elites**: ~12% of non-boss dungeon minions
   are promoted to elite — +2 levels, ~2x HP, a starred gold nameplate (`drawLevelTag`),
   1.8x XP and extra loot rolled a couple levels higher (`spawnLootForKill` elite arg). The

@@ -919,6 +919,12 @@ static void spawnPlayerFloatText(AppContext& ctx, const std::string& txt, Voxel 
 
 bool useConsumable(AppContext& ctx, Item* item) {
     if (!item || item->getKind() != ItemKind::Consumable) return false;
+    // Shared "potion sickness" cooldown — no chain-quaffing to full mid-fight.
+    if (ctx.potionCooldown > 0.0f) {
+        pushToast(ctx, "Potion not ready (" + std::to_string((int)ctx.potionCooldown + 1) + "s)",
+                  Voxel{200, 180, 120, 255}, 1.4f);
+        return false;
+    }
     auto* c = static_cast<ConsumableItem*>(item);
     float beforeHp = ctx.playerHealth;
     bool used = false;
@@ -942,6 +948,7 @@ bool useConsumable(AppContext& ctx, Item* item) {
                              Voxel{120, 230, 130, 255});
     std::string nm = item->getName();
     ctx.inventory.removeItem(item);
+    ctx.potionCooldown = 12.0f;            // start the shared cooldown
     pushToast(ctx, "Drank " + nm, Voxel{120, 220, 130, 255}, 1.8f);
     return true;
 }

@@ -95,6 +95,7 @@ struct AppContext {
     int  spawnX = 8, spawnZ = 8;   // world column the player spawns at
     float playerHealth     = 1.0f;   // fraction 0..1 of maxHpScaled
     float regenDelay       = 0.0f;   // delay before out-of-combat health regen
+    float potionCooldown   = 0.0f;   // shared consumable ("potion sickness") cooldown, secs
 
     // --- Role / archetype ---
     // Picked in the character editor. Drives body size, wearable armour tiers,

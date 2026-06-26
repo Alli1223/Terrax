@@ -564,6 +564,9 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
                        [](const AppContext::HudToast& t){ return t.lifeTime <= 0.0f; }),
         ctx.toasts.end());
 
+    // Tick the shared consumable cooldown down toward ready.
+    if (ctx.potionCooldown > 0.0f) ctx.potionCooldown -= ctx.deltaTime;
+
     // Age + prune floating combat-text numbers (spawned in syncNPCObjects).
     for (auto& f : ctx.floatingTexts) f.age += ctx.deltaTime;
     ctx.floatingTexts.erase(

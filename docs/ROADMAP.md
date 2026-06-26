@@ -184,7 +184,8 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
   `ItemKind::Consumable` + `ConsumableItem` (items.{h,cpp}); restore a % of max
   health/resource when right-clicked in the bag (`useConsumable`, client-side); every
   town apothecary stocks both at a fixed price (`vendorStock`/`vendorBuy`); bottle icon +
-  liquid colour + tooltip in the inventory UI. Repair / food / a use-cooldown still to
+  liquid colour + tooltip in the inventory UI. A shared **12s "potion sickness" cooldown**
+  (`ctx.potionCooldown`) now blocks chain-quaffing to full mid-fight. Repair / food still to
   come.)_
 - [ ] **G4. Bank/stash** — per-character persistent storage in town.
 

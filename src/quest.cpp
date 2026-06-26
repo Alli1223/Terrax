@@ -81,7 +81,12 @@ std::vector<Quest> buildTownQuests(uint32_t seed, int townIndex,
         bool kill = !boss && !explore &&
                     (tgt.isDungeon ? (pick(4) != 0) : (((s + pick(2)) & 1) == 0));
 
-        if (boss) {
+        if (tgt.isTown) {
+            q.kind          = QuestKind::Deliver;
+            q.requiredCount = 1;
+            q.title = std::string("Deliver a parcel to ") + tgt.name;
+            q.text  = "Carry the merchants' sealed parcel safely to " + tgt.name + ".";
+        } else if (boss) {
             q.kind          = QuestKind::SlayBoss;
             q.requiredCount = 1;
             q.title = std::string("Slay the master of ") + tgt.name;
@@ -120,6 +125,10 @@ std::vector<Quest> buildTownQuests(uint32_t seed, int townIndex,
             q.rewardXp   = 25 + 8 * q.recommendedLevel;
             q.rewardGold = 15 + 8 * tgt.tier + pick(15);
             q.rewardItem = pick(100) < 30;
+        } else if (tgt.isTown) {                       // courier's pay — gold-focused
+            q.rewardXp   = 20 + 6 * q.recommendedLevel;
+            q.rewardGold = 35 + 10 * tgt.tier + pick(25);
+            q.rewardItem = false;
         }
 
         out.push_back(std::move(q));
@@ -178,6 +187,26 @@ const std::vector<Quest>& getTownQuests(int townIndex) {
         t.tier      = dangerTierAt((float)wild.x, (float)wild.y);
         t.isDungeon = false;
         cands.push_back(std::move(t));
+    }
+    // A delivery destination: the nearest OTHER town, so couriers cross the world.
+    {
+        long long best = 0; int bestIdx = -1;
+        for (size_t i = 0; i < tp.towns.size(); ++i) {
+            if ((int)i == townIndex) continue;
+            long long dx = tp.towns[i].center.x - center.x, dz = tp.towns[i].center.y - center.y;
+            long long d2 = dx * dx + dz * dz;
+            if (bestIdx < 0 || d2 < best) { best = d2; bestIdx = (int)i; }
+        }
+        if (bestIdx >= 0) {
+            const Town& dt2 = tp.towns[bestIdx];
+            QuestTarget t;
+            t.anchor    = dt2.center;
+            t.name      = dt2.name.empty() ? "the neighbouring town" : dt2.name;
+            t.tier      = dangerTierAt((float)dt2.center.x, (float)dt2.center.y);
+            t.isDungeon = false;
+            t.isTown    = true;
+            cands.push_back(std::move(t));
+        }
     }
 
     cache[townIndex] = buildTownQuests(worldSeed() ^ (uint32_t)townIndex,

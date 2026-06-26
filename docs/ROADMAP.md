@@ -148,8 +148,11 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
   delivery between towns. _(Added: **boss-kill** quests (`QuestKind::SlayBoss`,
   credited via `questBossKillCounts`) and **exploration** quests (`QuestKind::Explore`,
   "Scout <region/dungeon>" — completed the instant the player reaches the target via
-  `questExploreReached`, checked each tick in updateGameplay; quick fair reward). Tracker/
-  journal show a "Scout" objective; map marker points the way. Escort/delivery to come.)_
+  `questExploreReached`, checked each tick in updateGameplay; quick fair reward) and
+  **delivery** quests (`QuestKind::Deliver`, "Deliver a parcel to <town>" — destination is
+  the nearest other town, completed on arrival via `questDeliverReached`; gold-focused
+  courier pay). Tracker/journal show Scout/Deliver objectives; map marker points the way.
+  Escort still to come.)_
 
 ## Track F — Dungeons & boss loop
 

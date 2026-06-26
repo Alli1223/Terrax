@@ -38,6 +38,7 @@ TEST_CASE(Quest_BoardIsNonEmptyAndAnchored) {
         else if (q.kind == QuestKind::CollectItems)  CHECK(!q.collectName.empty());
         else if (q.kind == QuestKind::SlayBoss)      CHECK_EQ(q.requiredCount, 1);
         else if (q.kind == QuestKind::Explore)       CHECK_EQ(q.requiredCount, 1);
+        else if (q.kind == QuestKind::Deliver)       CHECK_EQ(q.requiredCount, 1);
         CHECK(!q.title.empty());
         CHECK(!q.text.empty());
     }
@@ -146,4 +147,17 @@ TEST_CASE(Quest_ExploreReachedRule) {
     // Other kinds are never explore-credited.
     q.status = QuestStatus::Active; q.kind = QuestKind::KillEnemies;
     CHECK(!questExploreReached(q, 1000.0f, -500.0f));
+}
+
+TEST_CASE(Quest_DeliverReachedRule) {
+    Quest q;
+    q.kind = QuestKind::Deliver;
+    q.targetXZ = glm::ivec2(-2000, 800);
+    q.status = QuestStatus::Active;
+    CHECK(questDeliverReached(q, -2000.0f, 800.0f));        // arrived at the town
+    CHECK(questDeliverReached(q, -1975.0f, 820.0f));        // within the arrival radius
+    CHECK(!questDeliverReached(q, -1500.0f, 800.0f));       // still en route
+    CHECK(!questExploreReached(q, -2000.0f, 800.0f));       // Deliver isn't an Explore
+    q.status = QuestStatus::Complete;
+    CHECK(!questDeliverReached(q, -2000.0f, 800.0f));       // already done
 }

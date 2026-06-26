@@ -15,7 +15,8 @@
 // UI and rewards on top of this model.
 
 enum class QuestKind   : uint8_t { KillEnemies = 0, CollectItems = 1, SlayBoss = 2,
-                                   Explore = 3 };   // travel to + scout a region/dungeon
+                                   Explore = 3,     // travel to + scout a region/dungeon
+                                   Deliver = 4 };   // carry a parcel to another town
 enum class QuestStatus : uint8_t { Available = 0, Active = 1, Complete = 2, TurnedIn = 3 };
 
 // A place a quest sends the player: a named dungeon or a wilderness region.
@@ -24,6 +25,7 @@ struct QuestTarget {
     std::string name;           // "Gloomreach Crypt" / "the Frostpine wilds"
     int         tier      = 1;  // danger tier at the anchor (drives difficulty)
     bool        isDungeon = false;
+    bool        isTown    = false;  // a deliverable destination town (Deliver quests)
 };
 
 // One generated quest. Plain data so it serialises cleanly to clients later.
@@ -86,6 +88,15 @@ inline bool questBossKillCounts(const Quest& q, int killTier) {
 inline bool questExploreReached(const Quest& q, float px, float pz,
                                 float radius = 60.0f) {
     if (q.status != QuestStatus::Active || q.kind != QuestKind::Explore) return false;
+    float dx = px - (float)q.targetXZ.x, dz = pz - (float)q.targetXZ.y;
+    return dx * dx + dz * dz <= radius * radius;
+}
+
+// True when the player has reached a Deliver quest's destination town — same
+// arrival test as Explore, but for the parcel-delivery kind.
+inline bool questDeliverReached(const Quest& q, float px, float pz,
+                                float radius = 60.0f) {
+    if (q.status != QuestStatus::Active || q.kind != QuestKind::Deliver) return false;
     float dx = px - (float)q.targetXZ.x, dz = pz - (float)q.targetXZ.y;
     return dx * dx + dz * dz <= radius * radius;
 }

@@ -668,11 +668,12 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
         }
     }
 
-    // Explore quests: complete the moment the player reaches the scouted target.
+    // Explore / Deliver quests: complete the moment the player reaches the target
+    // region/dungeon (Explore) or destination town (Deliver).
     {
         float px = ctx.camera.position.x, pz = ctx.camera.position.z;
         for (Quest& q : ctx.activeQuests) {
-            if (!questExploreReached(q, px, pz)) continue;
+            if (!questExploreReached(q, px, pz) && !questDeliverReached(q, px, pz)) continue;
             q.progress = q.requiredCount;
             q.status   = QuestStatus::Complete;
             ctx.toasts.push_back({ std::string("Quest complete: ") + q.title

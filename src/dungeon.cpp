@@ -237,14 +237,16 @@ void Dungeon::buildLayout(uint32_t seed, glm::ivec2 a, int surf,
 
 void Dungeon::rosterFill(std::vector<DungeonSpawn>& out, uint32_t seed,
                          uint8_t minionType, uint8_t bossType, int perRoom,
-                         uint8_t minionType2, uint8_t minionType3) const {
+                         uint8_t minionType2, uint8_t minionType3,
+                         uint8_t minionType4) const {
     std::mt19937 r(seed ^ 0x00D0A6E0u);
     // Minions are drawn from the primary type (≈half) plus any secondaries, so
     // chambers read as a believable mix of species rather than a clone army.
-    uint8_t pool[3]; int poolN = 0;
+    uint8_t pool[4]; int poolN = 0;
     pool[poolN++] = minionType;
     if (minionType2 != 255) pool[poolN++] = minionType2;
     if (minionType3 != 255) pool[poolN++] = minionType3;
+    if (minionType4 != 255) pool[poolN++] = minionType4;
     auto minionPick = [&]() -> uint8_t {
         if (poolN == 1 || (r() % 100u) < 50u) return pool[0];
         return pool[1 + (int)(r() % (uint32_t)(poolN - 1))];
@@ -286,9 +288,10 @@ public:
     BlockType wallBlock()  const override { return BlockType::Stone; }
     BlockType floorBlock() const override { return BlockType::Stone; }
     void fillSpawnTable(std::vector<DungeonSpawn>& out, uint32_t seed) const override {
-        // Skeletons, shambling zombies + drifting wraiths, raised and ruled by a lich.
+        // Skeletons, shambling zombies, drifting wraiths + scuttling ghouls, raised
+        // and ruled by a lich.
         rosterFill(out, seed, (uint8_t)NPCType::Skeleton, (uint8_t)NPCType::Lich, 2,
-                   (uint8_t)NPCType::Zombie, (uint8_t)NPCType::Wraith);
+                   (uint8_t)NPCType::Zombie, (uint8_t)NPCType::Wraith, (uint8_t)NPCType::Ghoul);
     }
 };
 
@@ -302,9 +305,10 @@ public:
     BlockType wallBlock()  const override { return BlockType::Stone; }
     BlockType floorBlock() const override { return BlockType::Gravel; }
     void fillSpawnTable(std::vector<DungeonSpawn>& out, uint32_t seed) const override {
-        // A bandit den of cutthroats + brigands, with ghouls from the deep dark.
+        // A bandit den of cutthroats + brigands, with ghouls and the odd skeleton
+        // from the deep dark.
         rosterFill(out, seed, (uint8_t)NPCType::Enemy, (uint8_t)NPCType::Brute, 2,
-                   (uint8_t)NPCType::Brigand, (uint8_t)NPCType::Ghoul);
+                   (uint8_t)NPCType::Brigand, (uint8_t)NPCType::Ghoul, (uint8_t)NPCType::Skeleton);
     }
 };
 
@@ -318,9 +322,10 @@ public:
     BlockType wallBlock()  const override { return BlockType::Sandstone; }
     BlockType floorBlock() const override { return BlockType::Sandstone; }
     void fillSpawnTable(std::vector<DungeonSpawn>& out, uint32_t seed) const override {
-        // Cultists + shambling ghouls + conjured fire elementals, ruled by a necromancer.
+        // Cultists + ghouls + conjured fire elementals + drifting wraiths, ruled by
+        // a necromancer.
         rosterFill(out, seed, (uint8_t)NPCType::Cultist, (uint8_t)NPCType::Necromancer, 2,
-                   (uint8_t)NPCType::Ghoul, (uint8_t)NPCType::FireElemental);
+                   (uint8_t)NPCType::Ghoul, (uint8_t)NPCType::FireElemental, (uint8_t)NPCType::Wraith);
     }
 };
 

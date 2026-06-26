@@ -538,6 +538,7 @@ void syncLootDrops(AppContext& ctx) {
                     Voxel col = rarityUiColor(taken->rarity);
                     std::string name = taken->getName();
                     ctx.inventory.addItem(std::move(taken));
+                    if (g_audio) g_audio->play2D(SoundId::LootPickup, 0.5f);
                     pushToast(ctx, "Picked up: " + name, col, 3.0f);
                 }
             }

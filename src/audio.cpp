@@ -175,6 +175,19 @@ std::vector<float> genEnemyDeath() {
     }
     normalize(b, 0.45f); return b;
 }
+// A bright loot pickup: a quick two-note lift (A5 → E6) with a plucky decay.
+std::vector<float> genLootPickup() {
+    int N = (int)(SR * 0.28f); std::vector<float> b(N);
+    const float notes[2] = { 880.0f, 1318.5f };
+    for (int i = 0; i < N; i++) {
+        float t   = (float)i / SR;
+        int   seg = (t < 0.09f) ? 0 : 1;
+        float tn  = t - (seg ? 0.09f : 0.0f);
+        float env = std::exp(-tn * 9.0f);
+        b[i] = std::sin(PI2 * notes[seg] * t) * 0.7f * env;
+    }
+    normalize(b, 0.4f); return b;
+}
 // A seamless ~3 s wind bed: muffled noise under a periodic amplitude LFO, with
 // the tail crossfaded into the head so it loops without a click.
 std::vector<float> genWindLoop() {
@@ -284,6 +297,7 @@ bool AudioSystem::init() {
     impl->pcm[(int)SoundId::LevelUp]    = genLevelUp();
     impl->pcm[(int)SoundId::Quaff]      = genQuaff();
     impl->pcm[(int)SoundId::EnemyDeath] = genEnemyDeath();
+    impl->pcm[(int)SoundId::LootPickup] = genLootPickup();
 
     // Looping ambience beds, started at zero volume and modulated each frame.
     impl->windPcm = genWindLoop();

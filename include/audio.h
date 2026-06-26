@@ -22,6 +22,7 @@ enum class SoundId : uint8_t {
     LevelUp,      // triumphant rising chime on level-up
     Quaff,        // gulp when drinking a potion / eating food
     EnemyDeath,   // a falling groan when a foe drops
+    LootPickup,   // bright two-note chime when loot is collected
     Count
 };
 

@@ -87,9 +87,11 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
 - [ ] **C4. Beasts/monsters** — Wolf-pack, Bear, Spider, Slime, Golem, Troll, Ogre.
 - [~] **C5. Elementals & exotics** — Fire/Ice/Earth elementals, Imp, Wisp, Drake.
   _(Added: **Fire Elemental** — a being of living fire (no clothing/weapon; the rig's
-  `skinColor` recoloured molten-orange + `resetBaseBody`, the first non-humanoid-looking
-  foe), a ranged caster (`stepRangedEnemy`) conjured among the arcane Ruins. Ice/Earth
-  variants would be a palette swap; Imp/Wisp/Drake need new rigs.)_
+  `skinColor` recoloured molten-orange + `resetBaseBody`), a ranged caster
+  (`stepRangedEnemy`) conjured among the arcane Ruins. And **Stone Elemental** — a grey,
+  oversized (1.32×), slow but very tanky melee guardian (`stepBandit`) that stands sentinel
+  in Castles. Two elemental archetypes (caster + melee). Ice would be another palette swap;
+  Imp/Wisp/Drake need new rigs.)_
 - [x] **C6. Animal roster** — 8 species already shipped: Sheep, Cow, Pig, Rabbit,
   Squirrel, Deer, Fox, Chicken, each with a voxel rig, per-species speed, skittish
   vs. calm AI, and biome-aware spawn tables. _(Predators/mounts — wolf, bear, boar,

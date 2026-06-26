@@ -122,12 +122,18 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
     std::mt19937 rng(seed ? seed : 1u);
     auto pick = [&](int n) { return std::uniform_int_distribution<int>(0, n - 1)(rng); };
 
-    // A Fire Elemental is a being of living fire — no clothing, no weapon: just a
-    // molten-orange body. Recolour the "skin" to fire and rebuild the base body.
-    if (type == NPCType::FireElemental) {
-        rig.skinColor   = Voxel{255, 132, 40, 255};
+    // Elementals are bodies of living element — no clothing or weapon, just a
+    // recoloured "skin" rebuilt as the base body. Fire = molten orange (a brittle
+    // caster); Stone = grey rock (a big, slow, tanky guardian).
+    if (type == NPCType::FireElemental || type == NPCType::StoneElemental) {
+        if (type == NPCType::StoneElemental) {
+            rig.skinColor   = Voxel{120, 122, 130, 255};   // grey stone
+            rig.heightScale = 1.32f;                        // a looming boulder of a foe
+        } else {
+            rig.skinColor   = Voxel{255, 132, 40, 255};    // molten orange
+            rig.heightScale = 1.05f;
+        }
         rig.resetBaseBody();
-        rig.heightScale = 1.05f;
         rig.hasLantern  = false;
         return;
     }

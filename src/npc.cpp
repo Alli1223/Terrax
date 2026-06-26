@@ -357,7 +357,7 @@ void NpcDirector::update(float dt, const std::vector<DirectorPlayer>& players,
             n->type == NPCType::Brute || n->type == NPCType::Zombie ||
             n->type == NPCType::Knight || n->type == NPCType::Ghoul ||
             n->type == NPCType::Brigand || n->type == NPCType::Wraith ||
-            n->type == NPCType::Warlord)
+            n->type == NPCType::Warlord || n->type == NPCType::StoneElemental)
                                               stepBandit(*n, dt, world, players);
         else if (n->type == NPCType::Cultist ||
                  n->type == NPCType::Necromancer ||
@@ -1334,6 +1334,7 @@ void NpcDirector::stepBandit(NPC& n, float dt, World& world,
     else if (n.type == NPCType::Brigand)  { chaseSpeed = 3.3f; dmgPlayer = 13.0f; dmgGuard = 12.0f; atkCd = 1.5f; }  // hardened bandit
     else if (n.type == NPCType::Wraith)   { chaseSpeed = 4.0f; dmgPlayer = 9.0f;  dmgGuard = 8.0f;  atkCd = 1.0f; }  // fast, chilling
     else if (n.type == NPCType::Warlord)  { chaseSpeed = 3.4f; dmgPlayer = 22.0f; dmgGuard = 20.0f; atkCd = 1.9f; }  // armoured commander — heavy two-hander
+    else if (n.type == NPCType::StoneElemental) { chaseSpeed = 2.2f; dmgPlayer = 17.0f; dmgGuard = 15.0f; atkCd = 2.1f; }  // slow, crushing rock fists
     // Higher-level foes (further from spawn) hit harder.
     dmgPlayer *= npcDamageScaleForLevel(n.level);
     // An enraged boss (below 30% HP) presses the attack — faster and harder.

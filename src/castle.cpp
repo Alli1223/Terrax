@@ -69,9 +69,10 @@ void CastleDungeon::generateLayout(uint32_t seed, glm::ivec2 a, int surf) {
 }
 
 void CastleDungeon::fillSpawnTable(std::vector<DungeonSpawn>& out, uint32_t seed) const {
-    // A garrison of fallen knights stiffened with skeletal levies, under a warlord.
+    // A garrison of fallen knights + skeletal levies + animated stone guardians,
+    // under a warlord.
     rosterFill(out, seed, (uint8_t)NPCType::Knight, (uint8_t)NPCType::Warlord, 3,
-               (uint8_t)NPCType::Skeleton);
+               (uint8_t)NPCType::Skeleton, (uint8_t)NPCType::StoneElemental);
 }
 
 // --- Chunk stamping ----------------------------------------------------------

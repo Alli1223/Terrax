@@ -567,12 +567,18 @@ void NpcDirector::spawnDungeon(size_t di) {
         // Some non-boss minions are promoted to "elites": +2 levels, ~2x HP, a
         // star-marked nameplate and better loot — an occasional threat spike that
         // makes a pack worth scanning before you wade in. Deterministic per slot.
+        // A much rarer few become named "rares": purple plate, tougher still, the
+        // best non-boss loot — a hunt-worthy spawn.
         bool elite = !s.boss && (hashU32(aseed, 0x5E11E70Du) % 100u) < 12u;
+        bool rare  = !s.boss && (hashU32(aseed, 0x7A4E0B1Du) % 100u) < 3u;
+        if (rare) elite = true;                  // rares are elite-tier + named
         if (elite) lvl += 2;
+        if (rare)  lvl += 2;                      // rares sit a touch higher again
         n->level     = (uint8_t)std::min(lvl, 60);
         n->elite     = elite;
+        n->rare      = rare;
         n->health    = defaultNpcHealth((NPCType)s.npcType) * npcHpScaleForLevel(n->level)
-                     * (elite ? 2.0f : 1.0f);
+                     * (rare ? 3.0f : elite ? 2.0f : 1.0f);
         active.push_back(std::move(n));
     }
 }
@@ -1675,6 +1681,23 @@ std::string npcName(uint32_t seed) {
     };
     const int n = (int)(sizeof(kNames) / sizeof(kNames[0]));
     return kNames[seed % (uint32_t)n];
+}
+
+std::string rareName(uint32_t seed) {
+    static const char* kFirst[] = {
+        "Gorefang", "Mordreth", "Skarn", "Vexmaw", "Korgath", "Sythe", "Ulgrim",
+        "Naxxar", "Brundle", "Threx", "Galmoth", "Rendclaw", "Vorlash", "Hagra",
+        "Zuldak", "Crannox", "Mawgrim", "Sablefang", "Ironjaw", "Drakmor",
+    };
+    static const char* kEpithet[] = {
+        "the Cruel", "the Defiler", "Bonecrusher", "the Vile", "Dreadmaw",
+        "the Unhallowed", "Soulrender", "the Black", "Gravecaller", "the Ravenous",
+        "Doomspeaker", "the Wretched", "Skullsplitter", "the Forsaken",
+    };
+    uint32_t h = seed * 2654435761u + 0x9E3779B9u;
+    const int nf = (int)(sizeof(kFirst) / sizeof(kFirst[0]));
+    const int ne = (int)(sizeof(kEpithet) / sizeof(kEpithet[0]));
+    return std::string(kFirst[h % (uint32_t)nf]) + " " + kEpithet[(h / (uint32_t)nf) % (uint32_t)ne];
 }
 
 std::string npcFlavorLine(uint32_t seed, int variant) {

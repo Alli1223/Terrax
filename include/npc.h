@@ -148,6 +148,7 @@ public:
     bool      lootDropped = false;
     bool      boss        = false;  // dungeon boss — drops legendary loot on death
     bool      elite       = false;  // promoted elite minion — tougher, better loot, starred
+    bool      rare        = false;  // named "rare" spawn — uncommon, purple plate, top loot
     bool      enraged     = false;  // boss below 30% HP — frenzied: faster + hits harder
     float     bossSlamCd   = 3.0f;  // server: cooldown until the boss can slam again
     float     bossSlamWind = -1.0f; // server: >=0 while winding up a slam (telegraph), then impact
@@ -320,4 +321,8 @@ private:
 
 // Deterministic procedural villager identity, keyed off the appearance seed.
 std::string npcName(uint32_t seed);
+
+// Deterministic menacing name for a "rare" elite ("Gorefang the Cruel"), keyed
+// off its appearance seed so client + server agree without an extra packet.
+std::string rareName(uint32_t seed);
 std::string npcFlavorLine(uint32_t seed, int variant);

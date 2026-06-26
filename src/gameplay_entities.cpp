@@ -241,7 +241,11 @@ void awardEnemyKill(AppContext& ctx, const NPC* npc) {
     int diff = enemyLevel - ctx.playerLevel;
     if (diff < -8)     xp = std::max(1, xp / 5);
     else if (diff < 0) xp = std::max(1, (int)(xp * (1.0f + 0.06f * (float)diff)));
-    if (npc->elite) {                                 // elites are worth markedly more
+    if (npc->rare) {                                  // a named rare — a real prize
+        xp = (int)(xp * 2.5f);
+        pushToast(ctx, "Rare slain: " + rareName(npc->appearanceSeed) + "!",
+                  Voxel{200, 130, 245, 255}, 3.0f);
+    } else if (npc->elite) {                          // elites are worth markedly more
         xp = (int)(xp * 1.8f);
         pushToast(ctx, "Elite slain!", Voxel{255, 210, 120, 255}, 2.0f);
     }
@@ -405,6 +409,7 @@ void syncNPCObjects(AppContext& ctx) {
             n->attackFlag = (np.flags & 2) != 0;
             n->sitting    = (np.flags & 8) != 0;
             n->elite      = (np.flags & 16) != 0;
+            n->rare       = (np.flags & 32) != 0;
             n->dyingFlag  = nowDying;
             n->lastUpdate = now;
 

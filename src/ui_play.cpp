@@ -81,7 +81,8 @@ static ImU32 conColor(int enemyLevel, int playerLevel) {
 // Floating "Lv N" tag centred at a world position (above an enemy's head).
 static void drawLevelTag(const glm::vec3& worldPos, int level, ImU32 col,
                          const glm::mat4& view, const glm::mat4& proj,
-                         int fbW, int fbH, bool elite = false) {
+                         int fbW, int fbH, bool elite = false,
+                         const char* rareName = nullptr) {
     glm::vec4 clip = proj * view * glm::vec4(worldPos, 1.0f);
     if (clip.w <= 0.01f) return;
     glm::vec3 ndc = glm::vec3(clip) / clip.w;
@@ -92,10 +93,18 @@ static void drawLevelTag(const glm::vec3& worldPos, int level, ImU32 col,
     // Elites get a starred, gold tag so they stand out from the trash mob.
     if (elite) std::snprintf(buf, sizeof(buf), "* Lv %d *", level);
     else       std::snprintf(buf, sizeof(buf), "Lv %d", level);
-    ImU32 useCol = elite ? IM_COL32(255, 210, 120, 255) : col;
+    // Rares: purple tag, with a name banner above. Elite: gold. Otherwise con-colour.
+    ImU32 useCol = rareName ? IM_COL32(200, 130, 245, 255)
+                 : elite    ? IM_COL32(255, 210, 120, 255) : col;
     ImDrawList* dl = ImGui::GetForegroundDrawList();
     ImVec2 ts = ImGui::CalcTextSize(buf);
     ImVec2 p(sx - ts.x * 0.5f, sy - ts.y * 0.5f);
+    if (rareName) {                                   // purple name above the level
+        ImVec2 nts = ImGui::CalcTextSize(rareName);
+        ImVec2 np(sx - nts.x * 0.5f, p.y - nts.y - 1.0f);
+        dl->AddText(ImVec2(np.x + 1, np.y + 1), IM_COL32(0, 0, 0, 200), rareName);
+        dl->AddText(np, useCol, rareName);
+    }
     dl->AddText(ImVec2(p.x + 1, p.y + 1), IM_COL32(0, 0, 0, 200), buf);   // shadow
     dl->AddText(p, useCol, buf);
 }
@@ -1055,10 +1064,12 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
         bool hostile = isHostileNpc(n->type);
         float dist   = glm::distance(n->position, ctx.camera.position);
         if (hostile && dist < 45.0f) {
+            std::string rn = n->rare ? rareName(n->appearanceSeed) : std::string();
             drawLevelTag(n->position + glm::vec3(0.0f, 2.65f, 0.0f),
                          (int)n->level, conColor((int)n->level, ctx.playerLevel),
                          renderer.frameView, renderer.frameProj,
-                         renderer.frameFbW, renderer.frameFbH, n->elite);
+                         renderer.frameFbW, renderer.frameFbH, n->elite,
+                         n->rare ? rn.c_str() : nullptr);
         }
         if (frac >= 0.995f) continue;                     // hide the bar at full health
         drawHealthBar(n->position + glm::vec3(0.0f, 2.3f, 0.0f), frac,

@@ -228,6 +228,16 @@ static VoxelVolume* buildBaseWeaponMesh(WeaponType type, Voxel pri, Voxel acc) {
             v->setVoxel(1, 30, 1, pri);                                // point
             return v;
         }
+        case WeaponType::Halberd: {
+            // 6x34x3 — a long accent haft, a primary axe blade near the head and a
+            // primary spike on top: the classic polearm silhouette.
+            VoxelVolume* v = new VoxelVolume(6, 34, 3);
+            for (int y = 0; y < 31; y++) v->setVoxel(2, y, 1, acc);      // long haft
+            for (int x = 3; x < 6; x++)                                  // side axe blade
+                for (int y = 25; y < 30; y++) v->setVoxel(x, y, 1, pri);
+            for (int y = 30; y < 34; y++) v->setVoxel(2, y, 1, pri);     // top spike
+            return v;
+        }
         case WeaponType::Warhammer: {
             // 6x24x4 — a long haft topped by a broad rectangular hammer head with
             // darker striking faces on each end.
@@ -311,6 +321,7 @@ static void setWeaponPose(CharacterNode* node, WeaponType type, bool offHand) {
             node->localRot = glm::vec3(90, 0, offHand ? -10.0f : 10.0f);
             break;
         case WeaponType::Spear:      // long shaft, angled forward like a polearm
+        case WeaponType::Halberd:    // ditto — a long hafted polearm
             node->pivot    = glm::vec3(1, 4, 1);
             node->localPos = glm::vec3(0, -6, 0);
             node->localRot = glm::vec3(80, 0, 0);

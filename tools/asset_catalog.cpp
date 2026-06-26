@@ -79,6 +79,7 @@ const char* weaponName(WeaponType t) {
         case WeaponType::Spear:  return "Spear";
         case WeaponType::Greatsword: return "Greatsword";
         case WeaponType::Warhammer:  return "Warhammer";
+        case WeaponType::Halberd:    return "Halberd";
         default:                 return "None";
     }
 }
@@ -130,8 +131,9 @@ void writeWeapons(FILE* out) {
         "|--------|:----:|:------:|:-----:|-------:|\n");
     const WeaponType types[] = { WeaponType::Sword, WeaponType::Greatsword, WeaponType::Axe,
                                  WeaponType::Warhammer, WeaponType::Dagger, WeaponType::Mace,
-                                 WeaponType::Spear, WeaponType::Shield, WeaponType::Bow,
-                                 WeaponType::Staff, WeaponType::Hoe, WeaponType::Scythe };
+                                 WeaponType::Spear, WeaponType::Halberd, WeaponType::Shield,
+                                 WeaponType::Bow, WeaponType::Staff, WeaponType::Hoe,
+                                 WeaponType::Scythe };
     const ItemRarity rarities[] = { ItemRarity::Common, ItemRarity::Rare, ItemRarity::Legendary };
     const char* rarityStr[] = { "Common", "Rare", "Legendary" };
     const Voxel primary{ 180, 180, 200, 255 };

@@ -109,6 +109,9 @@ Dimensions are model-grid voxels (W = X, D = Z, H = Y).
 | Spear | Main-hand | Common | 3×1×31 | 37 |
 | Spear | Main-hand | Rare | 3×1×31 | 37 |
 | Spear | Main-hand | Legendary | 3×1×31 | 37 |
+| Halberd | Main-hand | Common | 4×1×34 | 49 |
+| Halberd | Main-hand | Rare | 4×1×34 | 49 |
+| Halberd | Main-hand | Legendary | 4×1×34 | 49 |
 | Shield | Off-hand | Common | 10×2×14 | 236 |
 | Shield | Off-hand | Rare | 10×2×14 | 236 |
 | Shield | Off-hand | Legendary | 10×2×14 | 236 |

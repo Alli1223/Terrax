@@ -63,6 +63,7 @@ enum class WeaponType {
     Spear,    // long reach polearm
     Greatsword, // huge two-handed blade
     Warhammer,  // heavy two-handed hammer
+    Halberd,    // long polearm — axe blade + top spike
 };
 
 // Elemental school carried by staves (and any future spell-casting

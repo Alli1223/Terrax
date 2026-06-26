@@ -162,6 +162,7 @@ WeaponItem::WeaponItem(std::string n, WeaponType t)
         case WeaponType::Spear:  attackPower  = 11.0f; break;   // reach
         case WeaponType::Greatsword: attackPower = 17.0f; break; // heavy two-hander
         case WeaponType::Warhammer:  attackPower = 16.0f; break; // crushing two-hander
+        case WeaponType::Halberd:    attackPower = 14.0f; break; // long-reach polearm
         default: break;
     }
 }
@@ -352,6 +353,7 @@ const char* weaponTypeName(WeaponType t) {
         case WeaponType::Spear:  return "Spear";
         case WeaponType::Greatsword: return "Greatsword";
         case WeaponType::Warhammer:  return "Warhammer";
+        case WeaponType::Halberd:    return "Halberd";
         default:                 return "";
     }
 }

@@ -148,6 +148,7 @@ public:
     bool      lootDropped = false;
     bool      boss        = false;  // dungeon boss — drops legendary loot on death
     bool      elite       = false;  // promoted elite minion — tougher, better loot, starred
+    bool      enraged     = false;  // boss below 30% HP — frenzied: faster + hits harder
     float     bossSlamCd   = 3.0f;  // server: cooldown until the boss can slam again
     float     bossSlamWind = -1.0f; // server: >=0 while winding up a slam (telegraph), then impact
 

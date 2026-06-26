@@ -156,8 +156,10 @@ a much larger **bestiary & animal roster** · a **town economy** (vendors) · an
 - [~] **F1. Boss mechanics** — dungeon bosses now do a **telegraphed ground-slam**
   (`stepBossSpecial`): a warning ring appears + the boss rears up (~0.95s), then a
   radius AoE booms on anyone still standing in it — dodgeable by stepping out.
-  Server-resolved, broadcast as SpellEffect for the visual. _(Enrage / per-type
-  specials could follow.)_
+  Server-resolved, broadcast as SpellEffect for the visual. Plus an **enrage**: once a
+  boss drops below 30% HP it frenzies (melee +50% dmg / +30% speed / faster swing; caster
+  bosses fire 50% harder + faster), flagged once with a red burst cue — a tense finish.
+  _(Per-type specials could still follow.)_
 - [x] **F2. Boss loot** — boss kills drop 2–4 guaranteed **legendaries** *plus* a
   guaranteed themed **set piece** (`generateSetClothing`) — a recognisable trophy you
   can only earn from bosses. _(Per-dungeon-kind themed tables still possible later.)_

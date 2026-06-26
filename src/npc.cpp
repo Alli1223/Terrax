@@ -1222,10 +1222,26 @@ void NpcDirector::stepBossSpecial(NPC& n, float dt,
         return best;
     };
 
+    // Enrage: once below 30% HP the boss flies into a frenzy (faster + harder hits,
+    // applied in the melee/ranged steps). One-shot trigger with a red burst cue.
+    if (!n.enraged) {
+        float maxHp = defaultNpcHealth(n.type) * npcHpScaleForLevel(n.level);
+        if (maxHp > 0.0f && n.health <= 0.30f * maxHp) {
+            n.enraged = true;
+            if (g_server) {
+                SpellEffectPacket se{};
+                se.casterID = n.id; se.kind = 2;          // reuse the AoE burst as the flash
+                se.x = n.position.x; se.y = n.position.y + 1.0f; se.z = n.position.z;
+                se.radius = 3.0f; se.ttl = 0.8f;
+                g_server->broadcast(PacketType::SpellEffect, &se, sizeof(se));
+            }
+        }
+    }
+
     if (n.bossSlamWind >= 0.0f) {                 // winding up → impact
         n.bossSlamWind -= dt;
         if (n.bossSlamWind <= 0.0f) {
-            float dmg = 16.0f * npcDamageScaleForLevel(n.level);
+            float dmg = 16.0f * npcDamageScaleForLevel(n.level) * (n.enraged ? 1.5f : 1.0f);
             for (const DirectorPlayer& p : players) {
                 glm::vec3 d = p.pos - n.position;
                 if (d.x * d.x + d.z * d.z <= SLAM_R * SLAM_R && std::fabs(d.y) < 4.0f)
@@ -1279,6 +1295,8 @@ void NpcDirector::stepBandit(NPC& n, float dt, World& world,
     else if (n.type == NPCType::Warlord)  { chaseSpeed = 3.4f; dmgPlayer = 22.0f; dmgGuard = 20.0f; atkCd = 1.9f; }  // armoured commander — heavy two-hander
     // Higher-level foes (further from spawn) hit harder.
     dmgPlayer *= npcDamageScaleForLevel(n.level);
+    // An enraged boss (below 30% HP) presses the attack — faster and harder.
+    if (n.enraged) { chaseSpeed *= 1.3f; dmgPlayer *= 1.5f; dmgGuard *= 1.5f; atkCd *= 0.7f; }
 
     // Acquire a target: the nearest aggro-range player outside a town, or a town
     // guard that has closed within striking distance — so a raiding or cornered
@@ -1471,7 +1489,7 @@ void NpcDirector::stepRangedEnemy(NPC& n, float dt, World& world,
             n.velocity = glm::vec3(0.0f);
             n.walking  = false;
             if (n.attackCooldown <= 0.0f) {
-                n.attackCooldown  = 2.0f;
+                n.attackCooldown  = n.enraged ? 1.3f : 2.0f;   // enraged caster bosses fire faster
                 n.attackAnimTimer = 0.6f;               // drives the cast pose on clients
                 // Fire a real bolt toward where the player is now. Damage is
                 // applied only when it arrives (stepEnemyProjectiles), so a
@@ -1482,7 +1500,8 @@ void NpcDirector::stepRangedEnemy(NPC& n, float dt, World& world,
                 float len = glm::length(dir3);
                 if (len > 0.001f)
                     spawnEnemyProjectile(origin, (dir3 / len) * 16.0f,
-                                         9.0f * npcDamageScaleForLevel(n.level));
+                                         9.0f * npcDamageScaleForLevel(n.level)
+                                              * (n.enraged ? 1.5f : 1.0f));
             }
         }
         n.path.clear(); n.pathIndex = 0;

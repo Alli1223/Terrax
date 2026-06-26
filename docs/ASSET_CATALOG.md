@@ -97,6 +97,9 @@ Dimensions are model-grid voxels (W = X, D = Z, H = Y).
 | Axe | Main-hand | Common | 6×2×20 | 128 |
 | Axe | Main-hand | Rare | 6×2×20 | 128 |
 | Axe | Main-hand | Legendary | 6×2×20 | 128 |
+| Warhammer | Main-hand | Common | 6×4×23 | 212 |
+| Warhammer | Main-hand | Rare | 6×4×23 | 212 |
+| Warhammer | Main-hand | Legendary | 6×4×23 | 212 |
 | Dagger | Main-hand | Common | 3×2×12 | 72 |
 | Dagger | Main-hand | Rare | 3×2×12 | 72 |
 | Dagger | Main-hand | Legendary | 3×2×12 | 72 |

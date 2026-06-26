@@ -142,6 +142,7 @@ WeaponItem::WeaponItem(std::string n, WeaponType t)
         case WeaponType::Mace:   attackPower  = 13.0f; break;   // heavy bludgeon
         case WeaponType::Spear:  attackPower  = 11.0f; break;   // reach
         case WeaponType::Greatsword: attackPower = 17.0f; break; // heavy two-hander
+        case WeaponType::Warhammer:  attackPower = 16.0f; break; // crushing two-hander
         default: break;
     }
 }
@@ -331,6 +332,7 @@ const char* weaponTypeName(WeaponType t) {
         case WeaponType::Mace:   return "Mace";
         case WeaponType::Spear:  return "Spear";
         case WeaponType::Greatsword: return "Greatsword";
+        case WeaponType::Warhammer:  return "Warhammer";
         default:                 return "";
     }
 }

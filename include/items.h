@@ -61,6 +61,7 @@ enum class WeaponType {
     Mace,     // heavy hafted bludgeon
     Spear,    // long reach polearm
     Greatsword, // huge two-handed blade
+    Warhammer,  // heavy two-handed hammer
 };
 
 // Elemental school carried by staves (and any future spell-casting

@@ -399,6 +399,7 @@ const char* pickWeaponAdj(WeaponType type, ItemRarity rarity,
                           STAFF_ADJ_LEGENDARY, arrLen(STAFF_ADJ_LEGENDARY));
         case WeaponType::Axe:
         case WeaponType::Mace:   // heavy weapons share the brutal adjective pool
+        case WeaponType::Warhammer:
             return choose(AXE_ADJ_COMMON, arrLen(AXE_ADJ_COMMON),
                           AXE_ADJ_RARE,   arrLen(AXE_ADJ_RARE),
                           AXE_ADJ_LEGENDARY, arrLen(AXE_ADJ_LEGENDARY));
@@ -666,6 +667,7 @@ std::unique_ptr<WeaponItem> generateRandomWeapon(uint32_t seed, WeaponType type,
         }
         case WeaponType::Axe:
         case WeaponType::Mace:
+        case WeaponType::Warhammer:
             item->primaryColor = metallic(150, 230);
             item->accentColor  = (rarity == ItemRarity::Legendary) ? glowAcc()
                                 : Voxel{ rndByte(80, 150), rndByte(50, 100), rndByte(30, 70), 255 };
@@ -695,7 +697,7 @@ std::unique_ptr<WeaponItem> generateRandomWeapon(uint32_t seed,
     static const WeaponType types[] = {
         WeaponType::Sword, WeaponType::Shield, WeaponType::Bow,
         WeaponType::Staff, WeaponType::Axe, WeaponType::Dagger, WeaponType::Mace,
-        WeaponType::Spear, WeaponType::Greatsword,
+        WeaponType::Spear, WeaponType::Greatsword, WeaponType::Warhammer,
     };
     WeaponType t = types[std::uniform_int_distribution<int>(
         0, (int)(sizeof(types) / sizeof(types[0])) - 1)(outer)];

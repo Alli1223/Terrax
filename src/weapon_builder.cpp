@@ -228,6 +228,20 @@ static VoxelVolume* buildBaseWeaponMesh(WeaponType type, Voxel pri, Voxel acc) {
             v->setVoxel(1, 30, 1, pri);                                // point
             return v;
         }
+        case WeaponType::Warhammer: {
+            // 6x24x4 — a long haft topped by a broad rectangular hammer head with
+            // darker striking faces on each end.
+            VoxelVolume* v = new VoxelVolume(6, 24, 4);
+            for (int y = 0; y < 18; y++)                       // haft down the centre
+                v->setVoxel(2, y, 1, acc), v->setVoxel(3, y, 1, acc),
+                v->setVoxel(2, y, 2, acc), v->setVoxel(3, y, 2, acc);
+            for (int x = 0; x < 6; x++) for (int y = 17; y < 23; y++) for (int z = 0; z < 4; z++)
+                v->setVoxel(x, y, z, pri);                     // broad hammer head
+            for (int y = 17; y < 23; y++) for (int z = 0; z < 4; z++) {
+                v->setVoxel(0, y, z, acc); v->setVoxel(5, y, z, acc);   // dark striking faces
+            }
+            return v;
+        }
         default: return nullptr;
     }
 }
@@ -291,6 +305,7 @@ static void setWeaponPose(CharacterNode* node, WeaponType type, bool offHand) {
             break;
         case WeaponType::Mace:       // gripped like an axe (heavy head up)
         case WeaponType::Greatsword: // huge blade, held like a sword
+        case WeaponType::Warhammer:  // heavy hammer, hefted like a maul
             node->pivot    = glm::vec3(1, 2, 1);
             node->localPos = glm::vec3(0, -6, 0);
             node->localRot = glm::vec3(90, 0, offHand ? -10.0f : 10.0f);

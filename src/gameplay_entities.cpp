@@ -9,6 +9,7 @@
 #include "physics.h"
 #include "network.h"
 #include "game_session.h"
+#include "audio.h"
 #include "town.h"
 #include "dungeon.h"
 #include "prop_placement.h"
@@ -195,6 +196,7 @@ static void grantPlayerXp(AppContext& ctx, int xp) {
                        + std::to_string(ctx.playerLevel) + "  (+1 skill point)",
                   Voxel{255, 220, 80, 255}, 5.5f);
     }
+    if (leveledUp && g_audio) g_audio->play2D(SoundId::LevelUp, 0.6f);
     // Resend the PlayerModel so the server knows our new level — future loot rolls
     // scale to it. Refresh cached role stats so the larger HP pool takes effect.
     if (leveledUp) {
@@ -234,6 +236,7 @@ void turnInQuest(AppContext& ctx, int activeIndex) {
 }
 
 void awardEnemyKill(AppContext& ctx, const NPC* npc) {
+    if (g_audio) g_audio->playAt(SoundId::EnemyDeath, npc->position, 0.6f);
     int enemyLevel = std::max(1, (int)npc->level);
     int xp = xpForEnemyKill(enemyLevel);
     // Con-based scaling: trivial (far-below) kills give a fraction; equal-or-above
@@ -945,6 +948,7 @@ bool useConsumable(AppContext& ctx, Item* item) {
         ctx.activeBuffs.push_back(b);
         std::string nm = item->getName();
         ctx.inventory.removeItem(item);
+        if (g_audio) g_audio->play2D(SoundId::Quaff, 0.5f);
         pushToast(ctx, "Well Fed (+" + std::to_string((int)(cc->buffPowerPct * 100)) + "% power)",
                   Voxel{210, 170, 110, 255}, 2.0f);
         return true;
@@ -979,6 +983,7 @@ bool useConsumable(AppContext& ctx, Item* item) {
     std::string nm = item->getName();
     ctx.inventory.removeItem(item);
     ctx.potionCooldown = 12.0f;            // start the shared cooldown
+    if (g_audio) g_audio->play2D(SoundId::Quaff, 0.5f);
     pushToast(ctx, "Drank " + nm, Voxel{120, 220, 130, 255}, 1.8f);
     return true;
 }

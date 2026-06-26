@@ -137,6 +137,44 @@ std::vector<float> genBird() {
     }
     normalize(b, 0.3f); return b;
 }
+// A triumphant level-up: three rising bell notes (C5-E5-G5) with a bright decay.
+std::vector<float> genLevelUp() {
+    int N = (int)(SR * 0.6f); std::vector<float> b(N);
+    const float notes[3] = { 523.25f, 659.25f, 783.99f };
+    for (int i = 0; i < N; i++) {
+        float t = (float)i / SR;
+        int seg = std::min(2, (int)(t / 0.16f));
+        float tn  = t - (float)seg * 0.16f;
+        float f   = notes[seg];
+        float env = std::exp(-tn * 6.0f);
+        b[i] = (std::sin(PI2 * f * t) * 0.7f + std::sin(PI2 * f * 2.0f * t) * 0.18f) * env;
+    }
+    normalize(b, 0.5f); return b;
+}
+// A potion gulp: a low wobbling tone pulsed into a couple of "glugs".
+std::vector<float> genQuaff() {
+    int N = (int)(SR * 0.42f); std::vector<float> b(N); float ph = 0.0f;
+    for (int i = 0; i < N; i++) {
+        float t = (float)i / SR, u = (float)i / N;
+        float pulse = std::exp(-std::fmod(t, 0.17f) * 28.0f);   // repeated glug
+        float f     = 150.0f + 55.0f * std::sin(PI2 * 6.0f * t);
+        ph += PI2 * f / SR;
+        b[i] = std::sin(ph) * pulse * (1.0f - u * 0.35f) * 0.8f;
+    }
+    normalize(b, 0.4f); return b;
+}
+// An enemy's death: a short pitch-falling groan with a noisy onset.
+std::vector<float> genEnemyDeath() {
+    int N = (int)(SR * 0.4f); std::vector<float> b(N); float ph = 0.0f;
+    for (int i = 0; i < N; i++) {
+        float t   = (float)i / SR;
+        float env = std::exp(-t * 7.0f);
+        float f   = 40.0f + 200.0f * std::exp(-t * 4.0f);   // pitch falls to a low groan
+        ph += PI2 * f / SR;
+        b[i] = (std::sin(ph) * 0.7f + nz() * 0.3f * std::exp(-t * 16.0f)) * env;
+    }
+    normalize(b, 0.45f); return b;
+}
 // A seamless ~3 s wind bed: muffled noise under a periodic amplitude LFO, with
 // the tail crossfaded into the head so it loops without a click.
 std::vector<float> genWindLoop() {
@@ -243,6 +281,9 @@ bool AudioSystem::init() {
     impl->pcm[(int)SoundId::DoorOpen]   = genDoor(true);
     impl->pcm[(int)SoundId::DoorClose]  = genDoor(false);
     impl->pcm[(int)SoundId::Bird]       = genBird();
+    impl->pcm[(int)SoundId::LevelUp]    = genLevelUp();
+    impl->pcm[(int)SoundId::Quaff]      = genQuaff();
+    impl->pcm[(int)SoundId::EnemyDeath] = genEnemyDeath();
 
     // Looping ambience beds, started at zero volume and modulated each frame.
     impl->windPcm = genWindLoop();

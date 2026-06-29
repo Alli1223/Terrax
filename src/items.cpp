@@ -146,6 +146,47 @@ std::unique_ptr<ConsumableItem> makeConsumable(ConsumableKind kind) {
     return p;
 }
 
+// --- VehicleItem ------------------------------------------------------------
+
+const char* vehicleKindName(VehicleKind k) {
+    switch (k) {
+        case VehicleKind::Horse: return "Horse";
+        case VehicleKind::Wagon: return "Wagon";
+        case VehicleKind::Kite:  return "Kite";
+        default:                 return "Vehicle";
+    }
+}
+
+VehicleItem::VehicleItem(std::string n, VehicleKind k)
+    : Item(std::move(n), ItemKind::Vehicle), vehicle(k) {
+    slot = EquipSlot::None;   // never equipped
+    switch (k) {
+        case VehicleKind::Horse: primaryColor = {120,  82,  48, 255}; accentColor = { 60,  40,  26, 255}; break; // chestnut + leather
+        case VehicleKind::Wagon: primaryColor = {150, 110,  66, 255}; accentColor = { 84,  56,  32, 255}; break; // timber + iron
+        case VehicleKind::Kite:  primaryColor = {200,  70,  70, 255}; accentColor = {230, 200,  90, 255}; break; // red sail + gold
+        default: break;
+    }
+}
+
+VoxelVolume* VehicleItem::buildVoxelVolume() {
+    // A small token mesh — the bag draws its own 2D icon (drawItemIcon) and the
+    // deployed vehicle uses a dedicated shared mesh, so this only needs to exist.
+    VoxelVolume* v = new VoxelVolume(6, 6, 6);
+    const Voxel body = primaryColor;
+    for (int x = 1; x <= 4; x++)
+        for (int z = 1; z <= 4; z++)
+            for (int y = 0; y <= 3; y++)
+                v->setVoxel(x, y, z, body);
+    return v;
+}
+
+std::unique_ptr<VehicleItem> makeVehicleItem(VehicleKind kind) {
+    auto p = std::make_unique<VehicleItem>(vehicleKindName(kind), kind);
+    p->level  = 1;
+    p->rarity = ItemRarity::Common;
+    return p;
+}
+
 // --- WeaponItem -------------------------------------------------------------
 
 WeaponItem::WeaponItem(std::string n, WeaponType t)

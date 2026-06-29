@@ -105,6 +105,7 @@ struct PlayerPosPacket {
     float pitch, yaw;
     uint8_t lanternHeld;
     uint8_t shieldRaised;   // 1 = off-hand shield in block stance
+    uint8_t vehicleKind;    // deployed vehicle (0=none,1=horse,2=wagon,3=kite)
 };
 
 struct BlockUpdatePacket {
@@ -362,6 +363,7 @@ struct RemotePlayer {
     float attackAnim = 0.0f;
     bool lanternHeld = false;
     bool shieldRaised = false;
+    uint8_t vehicleKind = 0;   // deployed vehicle to render under this player
 };
 
 class NetworkServer {

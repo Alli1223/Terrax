@@ -817,6 +817,134 @@ static void drawVendorWindow(AppContext& ctx) {
     ImGui::End();
 }
 
+// The Stablemaster window — opened by pressing E at a town stable trader. Sells
+// the three personal vehicles for gold; buying drops the item straight in the
+// bag (right-click it there to deploy). Fully client-side, like the Merchant.
+static void drawStableWindow(AppContext& ctx) {
+    if (!ctx.showStable) return;
+    struct StableWare { VehicleKind kind; int price; const char* blurb; };
+    static const StableWare WARES[] = {
+        { VehicleKind::Horse, 150, "A sturdy mount — ride to cross the world far faster." },
+        { VehicleKind::Wagon,  90, "A pull-along cart — a mobile storage stash for your loot." },
+        { VehicleKind::Kite,   70, "A canvas glider — leap off a ledge and soar." },
+    };
+    ImVec2 vp = vpPos(), vs = vpSize();
+    const float W = 480.0f, H = 360.0f;
+    ImGui::SetNextWindowPos(ImVec2(vp.x + (vs.x - W) * 0.5f, vp.y + (vs.y - H) * 0.5f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(W, H), ImGuiCond_Always);
+    ImGui::Begin("Stablemaster", &ctx.showStable,
+                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+
+    ImGui::TextColored(ImVec4(0.6f, 0.9f, 0.65f, 1.0f), "Horses, carts & gliders");
+    ImGui::SameLine(ImGui::GetWindowWidth() - 130.0f);
+    ImGui::TextColored(ImVec4(0.93f, 0.82f, 0.35f, 1.0f), "Gold: %d", ctx.playerGold);
+    ImGui::Separator();
+
+    for (const StableWare& w : WARES) {
+        ImGui::PushID((int)w.kind);
+        ImGui::TextColored(ImVec4(0.95f, 0.9f, 0.7f, 1.0f), "%s", vehicleKindName(w.kind));
+        ImGui::TextDisabled("%s", w.blurb);
+        bool afford = ctx.playerGold >= w.price;
+        if (!afford) ImGui::BeginDisabled();
+        char label[32]; snprintf(label, sizeof(label), "Buy  (%dg)", w.price);
+        if (ImGui::Button(label, ImVec2(140, 0))) {
+            auto item = makeVehicleItem(w.kind);
+            std::string nm = item->getName();
+            if (ctx.inventory.addItem(std::move(item))) {
+                ctx.playerGold -= w.price;
+                ctx.toasts.push_back(AppContext::HudToast{
+                    "Bought " + nm + " (-" + std::to_string(w.price) + "g)",
+                    Voxel{235, 205, 90, 255}, 2.5f });
+            } else {
+                ctx.toasts.push_back(AppContext::HudToast{
+                    "Your bags are full", Voxel{235, 120, 90, 255}, 2.5f });
+            }
+        }
+        if (!afford) ImGui::EndDisabled();
+        ImGui::Separator();
+        ImGui::PopID();
+    }
+
+    if (ImGui::Button("Close", ImVec2(-1, 0))) ctx.showStable = false;
+    ImGui::End();
+}
+
+// The Wagon stash window — opened with E while pulling a wagon (and no NPC in
+// reach). A simple two-column transfer: Store moves a bag item into the cart,
+// Take moves it back. Fully client-side, session-only storage.
+static void drawStashWindow(AppContext& ctx) {
+    if (!ctx.showStash) return;
+    ImVec2 vp = vpPos(), vs = vpSize();
+    const float W = 560.0f, H = 460.0f;
+    ImGui::SetNextWindowPos(ImVec2(vp.x + (vs.x - W) * 0.5f, vp.y + (vs.y - H) * 0.5f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(W, H), ImGuiCond_Always);
+    ImGui::Begin("Wagon Storage", &ctx.showStash,
+                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+
+    ImGui::TextColored(ImVec4(0.85f, 0.78f, 0.55f, 1.0f), "Stow loot in the cart");
+    ImGui::Separator();
+    ImGui::Columns(2, "stashcols", true);
+
+    Item* toStore = nullptr;   // bag -> stash
+    Item* toTake  = nullptr;   // stash -> bag
+
+    // --- Your bags --------------------------------------------------------
+    ImGui::TextColored(ImVec4(0.85f, 0.92f, 1.0f, 1.0f), "Your bags");
+    ImGui::BeginChild("bag", ImVec2(0, H - 110.0f), false);
+    const auto& bag = ctx.inventory.items();
+    for (int i = 0; i < (int)bag.size(); ++i) {
+        Item* it = bag[(size_t)i].get();
+        if (!it || ctx.inventory.isEquipped(it)) continue;   // don't stash worn gear
+        ImGui::PushID(i);
+        Voxel rc = rarityUiColor(it->rarity);
+        ImGui::TextColored(ImVec4(rc.r / 255.f, rc.g / 255.f, rc.b / 255.f, 1.f),
+                           "%s", it->getName().c_str());
+        ImGui::SameLine(ImGui::GetColumnWidth() - 70.0f);
+        if (ImGui::SmallButton("Store >>")) toStore = it;
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+
+    ImGui::NextColumn();
+
+    // --- Wagon stash ------------------------------------------------------
+    ImGui::TextColored(ImVec4(0.85f, 0.92f, 1.0f, 1.0f), "Wagon");
+    ImGui::BeginChild("stash", ImVec2(0, H - 110.0f), false);
+    const auto& cart = ctx.wagonStash.items();
+    for (int i = 0; i < (int)cart.size(); ++i) {
+        Item* it = cart[(size_t)i].get();
+        if (!it) continue;
+        ImGui::PushID(20000 + i);
+        if (ImGui::SmallButton("<< Take")) toTake = it;
+        ImGui::SameLine();
+        Voxel rc = rarityUiColor(it->rarity);
+        ImGui::TextColored(ImVec4(rc.r / 255.f, rc.g / 255.f, rc.b / 255.f, 1.f),
+                           "%s", it->getName().c_str());
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+
+    ImGui::Columns(1);
+    if (ImGui::Button("Close", ImVec2(-1, 0))) ctx.showStash = false;
+    ImGui::End();
+
+    // Apply transfers after drawing (mutating the bags mid-iteration is unsafe).
+    if (toStore) {
+        if (auto moved = ctx.inventory.extractItem(toStore)) {
+            if (!ctx.wagonStash.addItem(std::move(moved)))   // cart full — put it back
+                ctx.toasts.push_back(AppContext::HudToast{"Wagon is full",
+                                     Voxel{235, 120, 90, 255}, 2.0f});
+        }
+    }
+    if (toTake) {
+        if (auto moved = ctx.wagonStash.extractItem(toTake)) {
+            if (!ctx.inventory.addItem(std::move(moved)))     // bags full — put it back
+                ctx.toasts.push_back(AppContext::HudToast{"Your bags are full",
+                                     Voxel{235, 120, 90, 255}, 2.0f});
+        }
+    }
+}
+
 // A small always-on gold readout (bottom-left of the viewport).
 static void drawGoldChip(AppContext& ctx) {
     if (ctx.paused) return;
@@ -1164,6 +1292,10 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
     drawQuestGiverWindow(ctx);
     // Vendor shop window (E at a town merchant) — buy/sell gear for gold.
     drawVendorWindow(ctx);
+    // Stablemaster window (E at a town stable) — buy personal vehicles.
+    drawStableWindow(ctx);
+    // Wagon storage window (E while pulling a wagon) — stash loot.
+    drawStashWindow(ctx);
     // Always-on gold readout.
     drawGoldChip(ctx);
     // Active-quest tracker (top-right HUD).

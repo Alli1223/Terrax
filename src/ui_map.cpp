@@ -118,6 +118,24 @@ static void drawGraveyardMarker(ImDrawList* dl, ImVec2 p, float r) {
     dl->AddLine({ p.x - w * 0.5f, p.y + r * 0.12f }, { p.x + w * 0.5f, p.y + r * 0.12f }, edge, 1.3f);
 }
 
+// A stablemaster (vehicle trader) marker — a bright green horseshoe on a dark
+// disc, so the town's mount / cart / kite trader is easy to pick out.
+static void drawStableMarker(ImDrawList* dl, ImVec2 p, float r) {
+    const ImU32 disc = IM_COL32(18, 26, 16, 205);
+    const ImU32 shoe = IM_COL32(80, 205, 120, 250);   // trader green
+    dl->AddCircleFilled(p, r * 1.05f, disc, 16);
+    // Horseshoe: an open arc with the gap at the bottom (screen +y is down).
+    const float PI  = 3.14159265f;
+    const float rad = r * 0.70f;
+    const float a0 = PI * 0.5f + 0.55f;            // just past straight-down
+    const float a1 = PI * 0.5f - 0.55f + 2.0f * PI;
+    dl->PathClear();
+    dl->PathArcTo(p, rad, a0, a1, 18);
+    dl->PathStroke(shoe, 0, r * 0.34f);
+    dl->AddCircleFilled({ p.x + cosf(a0) * rad, p.y + sinf(a0) * rad }, r * 0.17f, shoe, 8);
+    dl->AddCircleFilled({ p.x + cosf(a1) * rad, p.y + sinf(a1) * rad }, r * 0.17f, shoe, 8);
+}
+
 void renderMapUI(AppContext& ctx) {
     if (!ctx.showMap) return;
 
@@ -327,6 +345,11 @@ void renderMapUI(AppContext& ctx) {
             float r = (t.size == TownSize::Town) ? 6.5f : 4.0f;
             drawTownMarker(dl, sp, t.type, r, townTypeColor(t.type));
 
+            // Every town has a Stablemaster (vehicle trader) — flag it with a
+            // small green horseshoe beside the settlement when zoomed in.
+            if (showNames)
+                drawStableMarker(dl, { sp.x + r + 6.0f, sp.y - r - 2.0f }, 5.0f);
+
             if (showNames && !t.name.empty()) {
                 ImVec2 ts = ImGui::CalcTextSize(t.name.c_str());
                 ImVec2 tp = { sp.x - ts.x * 0.5f, sp.y + 6.0f };
@@ -410,9 +433,9 @@ void renderMapUI(AppContext& ctx) {
     {
         float lx = canvasTL.x + 6.0f, ly = canvasTL.y + 6.0f;
         const float lineH = 18.0f;
-        dl->AddRectFilled({ lx - 4, ly - 4 }, { lx + 124, ly + lineH * 8 + 4},
+        dl->AddRectFilled({ lx - 4, ly - 4 }, { lx + 124, ly + lineH * 9 + 4},
                           IM_COL32(15, 10, 5, 180), 4.0f);
-        dl->AddRect({ lx - 4, ly - 4 }, { lx + 124, ly + lineH * 8 + 4},
+        dl->AddRect({ lx - 4, ly - 4 }, { lx + 124, ly + lineH * 9 + 4},
                     IM_COL32(180, 140, 60, 160), 4.0f, 0, 1.0f);
         const TownType types[3]   = { TownType::Grassland, TownType::Mountain, TownType::Coastal };
         const char*    labels[3]  = { "Grassland", "Mountain", "Coastal" };
@@ -437,6 +460,9 @@ void renderMapUI(AppContext& ctx) {
         float gyv = ly + lineH * 7 + lineH * 0.5f;   // graveyard swatch
         drawGraveyardMarker(dl, { lx + 9, gyv }, 5.0f);
         dl->AddText({ lx + 24, gyv - 7 }, IM_COL32(235, 225, 200, 235), "Graveyard");
+        float syv = ly + lineH * 8 + lineH * 0.5f;   // stablemaster swatch
+        drawStableMarker(dl, { lx + 9, syv }, 5.0f);
+        dl->AddText({ lx + 24, syv - 7 }, IM_COL32(235, 225, 200, 235), "Stablemaster");
     }
 
     // Local player: white triangle pointing in facing direction

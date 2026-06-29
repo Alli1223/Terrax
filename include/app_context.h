@@ -91,6 +91,18 @@ struct AppContext {
     Player*     localPlayer = nullptr;   // GameObject wrapper over camera + rig
     char playerName[MAX_PLAYER_NAME + 1] = {};
     float playerYaw        = 0.0f;
+
+    // The personal vehicle the player currently has deployed (horse / wagon /
+    // kite), or None. Toggled by right-clicking a VehicleItem in the bag; read
+    // by the movement code and the renderer, and networked so others see it.
+    VehicleKind activeVehicle = VehicleKind::None;
+    // Pull-along wagon (when activeVehicle == Wagon): a mobile storage stash and
+    // its trailing world position (lerped behind the player each frame).
+    Inventory wagonStash;
+    bool       showStash = false;       // wagon storage window open
+    glm::vec3  wagonPos{0.0f};
+    float      wagonYaw = 0.0f;
+    bool       wagonPosInit = false;    // false until first placed behind player
     bool spawnedOnGround   = false;
     int  spawnX = 8, spawnZ = 8;   // world column the player spawns at
     float playerHealth     = 1.0f;   // fraction 0..1 of maxHpScaled
@@ -185,6 +197,8 @@ struct AppContext {
     int  questGiverTown       = -1;     // town index whose board is shown
     bool showVendor           = false;  // Vendor NPC window (buy/sell shop)
     int  vendorTown           = -1;     // town index whose shop is shown
+    bool showStable           = false;  // Stablemaster NPC window (vehicle trader)
+    int  stableTown           = -1;     // town index whose stable is shown
     bool showQuestLog         = false;  // J — quest journal panel
     std::vector<Quest> activeQuests;    // quests the player has accepted
     int  playerGold           = 0;      // currency earned from quests / kills (Track G)

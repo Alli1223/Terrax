@@ -31,7 +31,8 @@ enum class NPCType : uint8_t { Villager = 0, Enemy = 1, Guard = 2, Farmer = 3,
                               Lich = 16,        // undead arch-caster — frost bolts (crypt boss)
                               Warlord = 17,     // armoured war-commander — greatsword (castle boss)
                               FireElemental = 18,   // conjured being of living fire — hurls bolts (ruins)
-                              StoneElemental = 19 }; // animated rock guardian — slow, tanky melee (castle)
+                              StoneElemental = 19,  // animated rock guardian — slow, tanky melee (castle)
+                              Stablemaster = 20 }; // static town trader — sells personal vehicles (horse/wagon/kite)
 
 // True for hostile NPC types — the town watch fights them and the player can
 // kill them for loot/XP. Extended as new enemy types are added.

@@ -46,3 +46,15 @@ public:
 VoxelVolume* getFerryMesh();
 // Builds the ferry voxel model (CPU only — caller uploads with updateMesh()).
 VoxelVolume* buildFerryVolume();
+
+// --- Personal vehicles (horse / wagon / kite) ------------------------------
+// Shared voxel models for the player-attached vehicles. Lazily built once on
+// the main thread (mirrors getFerryMesh) and rendered under/behind/above the
+// player by Player::draw. The CPU-only builders are exposed for the asset
+// catalog / tests; gameplay uses the cached getXMesh() singletons.
+VoxelVolume* buildHorseVolume();
+VoxelVolume* buildWagonVolume();
+VoxelVolume* buildKiteVolume();
+VoxelVolume* getHorseMesh();
+VoxelVolume* getWagonMesh();
+VoxelVolume* getKiteMesh();

@@ -112,6 +112,13 @@ const Palette WARLORD_PALETTES[] = {
     { { 60,  58,  64, 255}, {200, 170,  80, 255} },   // dark iron + warlord's gold
     { { 44,  50,  58, 255}, {120, 140, 175, 255} },   // gunmetal + steel-blue plume
 };
+// Stablemaster — the town's vehicle trader. A rich green traveller's coat with
+// tan leather trim + a flat cap, so they read at a glance as distinct from the
+// robed Merchant / Trainer.
+const Palette STABLEMASTER_PALETTES[] = {
+    { { 46, 112,  66, 255}, {175, 140,  85, 255} },   // forest green + tan leather
+    { { 40,  96,  92, 255}, {190, 160, 100, 255} },   // teal-green + buckskin
+};
 
 template <typename T, size_t N>
 constexpr int arrLen(T (&)[N]) { return (int)N; }
@@ -144,7 +151,8 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
     // sits on the body.
     ClothingTier tier = ClothingTier::Cloth;
     if (type == NPCType::Enemy || type == NPCType::Brute || type == NPCType::Zombie ||
-        type == NPCType::Ghoul || type == NPCType::Brigand)
+        type == NPCType::Ghoul || type == NPCType::Brigand ||
+        type == NPCType::Stablemaster)   // a sturdy traveller's leather coat
         tier = ClothingTier::Leather;
     else if (type == NPCType::Guard || type == NPCType::Knight ||
              type == NPCType::Warlord)
@@ -187,6 +195,8 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
             palettes = LICH_PALETTES;     palCount = arrLen(LICH_PALETTES);     break;
         case NPCType::Warlord:
             palettes = WARLORD_PALETTES;  palCount = arrLen(WARLORD_PALETTES);  break;
+        case NPCType::Stablemaster:
+            palettes = STABLEMASTER_PALETTES; palCount = arrLen(STABLEMASTER_PALETTES); break;
         default: break;
     }
     const Palette& pal = palettes[pick(palCount)];
@@ -219,6 +229,12 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
         wear[2] = true;             // robe / apron
         wear[3] = true;             // robe skirt
         wear[4] = true;             // boots
+    } else if (type == NPCType::Stablemaster) {
+        wear[0] = true;             // flat cap
+        wear[1] = true;             // coat shoulders / cape
+        wear[2] = true;             // traveller's coat
+        wear[3] = true;             // breeches
+        wear[4] = true;             // riding boots
     } else {
         wear[0] = (pick(2) == 0);   // ~50% have a helmet
         wear[1] = true;

@@ -2,6 +2,8 @@
 #include "camera.h"
 #include "voxel_model.h"
 #include "network.h"
+#include "items.h"      // VehicleKind
+#include "vehicle.h"    // getHorseMesh / getKiteMesh / getWagonMesh
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 #include <cmath>
@@ -64,13 +66,78 @@ void Player::update(float dt, World& world) {
         p->rig->updateLean(dv.x * fwd.x + dv.z * fwd.z, dv.x * right.x + dv.z * right.z, dt);
     }
 
-    position = p->position;
-    yaw      = p->yaw;
+    position    = p->position;
+    yaw         = p->yaw;
+    vehicleKind = static_cast<VehicleKind>(p->vehicleKind);   // render their mount
+
+    // Trail a pulled wagon a few metres behind the remote player so other
+    // clients see it follow (the exact stash position isn't networked).
+    {
+        float yr = glm::radians(p->yaw);
+        glm::vec3 fwd(sinf(yr), 0.0f, cosf(yr));
+        glm::vec3 target = p->position - fwd * 3.0f;
+        if (!trailInit) { trailPos = target; trailYaw = p->yaw; trailInit = true; }
+        else {
+            float k = std::min(1.0f, 4.0f * dt);
+            trailPos = glm::mix(trailPos, target, k);
+            float dy = p->yaw - trailYaw;
+            while (dy > 180.0f) dy -= 360.0f;
+            while (dy < -180.0f) dy += 360.0f;
+            trailYaw += dy * k;
+        }
+    }
+}
+
+// Draw a vehicle mesh attached to the player. `meshOffset` is the voxel in the
+// mesh that should land on the player's ground position; `extraLift` raises the
+// whole model. Shared by the local player (set from ctx.activeVehicle) and
+// remotes (from RemotePlayer.vehicleKind). Returns how far to lift the rider.
+float Player::drawVehicle(GLuint modelLoc) const {
+    const float VS = 0.06f;            // vehicle voxel scale (block/voxel)
+    auto blit = [&](VoxelVolume* mv, glm::vec3 meshOffset, glm::vec3 extraWorld) {
+        if (!mv) return;
+        glm::mat4 m = baseMatrix(VS);
+        m = glm::translate(m, extraWorld);   // extra placement in the mesh frame
+        m = glm::translate(m, -meshOffset);
+        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, &m[0][0]);
+        mv->draw();
+    };
+    switch (vehicleKind) {
+        case VehicleKind::Horse: {
+            VoxelVolume* hv = getHorseMesh();
+            if (hv) blit(hv, glm::vec3((float)hv->sizeX * 0.5f, 0.0f, 25.0f), glm::vec3(0.0f));
+            return VS * 24.0f;        // lift the rider onto the saddle
+        }
+        case VehicleKind::Kite: {
+            VoxelVolume* kv = getKiteMesh();
+            // Held overhead, tilted back a little, centred on the player.
+            if (kv) blit(kv, glm::vec3((float)kv->sizeX * 0.5f, 0.0f, 0.0f),
+                         glm::vec3(0.0f, 34.0f, -6.0f));
+            return 0.0f;
+        }
+        case VehicleKind::Wagon: {
+            // The wagon trails behind, so it's drawn at its own world transform
+            // (trailPos/trailYaw), not attached to the player's baseMatrix.
+            VoxelVolume* wv = getWagonMesh();
+            if (wv) {
+                glm::mat4 m = glm::translate(glm::mat4(1.0f), trailPos);
+                m = glm::rotate(m, glm::radians(trailYaw), glm::vec3(0, 1, 0));
+                m = glm::scale(m, glm::vec3(VS));
+                m = glm::translate(m, glm::vec3(-(float)wv->sizeX * 0.5f, 0.0f,
+                                                -(float)wv->sizeZ * 0.5f));
+                glUniformMatrix4fv(modelLoc, 1, GL_FALSE, &m[0][0]);
+                wv->draw();
+            }
+            return 0.0f;
+        }
+        default: return 0.0f;
+    }
 }
 
 void Player::draw(GLuint modelLoc) const {
     BipedalRig* r = isLocal ? localRig : (remote ? remote->rig : nullptr);
     if (!r) return;
+    float riderLift = (vehicleKind != VehicleKind::None) ? drawVehicle(modelLoc) : 0.0f;
     glm::mat4 base = baseMatrix(0.06f * r->heightScale);
     // Whole-body tilt: lean into movement, or a forward somersault while
     // rolling. Applied in world space around a pivot above the feet so the body
@@ -94,6 +161,8 @@ void Player::draw(GLuint modelLoc) const {
             base = tilt(base, 0.55f, fwd,   r->leanRoll);    // bank sideways
         }
     }
+    if (riderLift > 0.0f)              // seat the rider on a mount
+        base = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, riderLift, 0.0f)) * base;
     r->draw(base, modelLoc);
 }
 

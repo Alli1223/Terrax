@@ -50,6 +50,11 @@ bool        vendorSell(AppContext& ctx, int inventoryIndex);
 // resource are local player state, so no packet is needed.
 bool        useConsumable(AppContext& ctx, Item* item);
 
+// --- Personal vehicles -----------------------------------------------------
+// Toggle (deploy / stow) a personal vehicle item (horse / wagon / kite) from
+// the bag. The item is not consumed. Only one vehicle is active at a time.
+bool        deployVehicle(AppContext& ctx, Item* item);
+
 // --- Healing staff abilities ----------------------------------------------
 // Invoked by HealingStaffItem's primary / secondary attacks. They own the
 // heal targeting, particle visuals and heal/effect packets so the item class

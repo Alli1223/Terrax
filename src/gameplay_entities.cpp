@@ -683,7 +683,8 @@ void updateNpcInteraction(AppContext& ctx) {
         if (o->dead || o->kind != ObjectKind::NPC) continue;
         NPC* n = static_cast<NPC*>(o.get());
         if (n->type != NPCType::Villager && n->type != NPCType::Trainer &&
-            n->type != NPCType::Questgiver && n->type != NPCType::Vendor) continue;
+            n->type != NPCType::Questgiver && n->type != NPCType::Vendor &&
+            n->type != NPCType::Stablemaster) continue;
         glm::vec3 to = n->position - eye; to.y = 0.0f;
         float d2 = to.x * to.x + to.z * to.z;
         if (d2 > bestD2) continue;
@@ -693,9 +694,10 @@ void updateNpcInteraction(AppContext& ctx) {
     }
 
     if (best) {
-        ctx.talkTargetName = (best->type == NPCType::Trainer)    ? "Class Trainer"
-                           : (best->type == NPCType::Questgiver) ? "Quest Giver"
-                           : (best->type == NPCType::Vendor)     ? "Merchant"
+        ctx.talkTargetName = (best->type == NPCType::Trainer)      ? "Class Trainer"
+                           : (best->type == NPCType::Questgiver)   ? "Quest Giver"
+                           : (best->type == NPCType::Vendor)       ? "Merchant"
+                           : (best->type == NPCType::Stablemaster) ? "Stablemaster"
                            : npcName(best->appearanceSeed);
         ctx.talkTargetSeed = best->appearanceSeed;
         ctx.talkTargetPos  = best->position;
@@ -707,9 +709,10 @@ void updateNpcInteraction(AppContext& ctx) {
         if (best->type == NPCType::Trainer) {
             // Open the class-change window instead of a flavour line.
             ctx.showTrainer = true;
-        } else if (best->type == NPCType::Questgiver || best->type == NPCType::Vendor) {
-            // Open the town board/shop. Client NPCs don't carry the town index,
-            // so map the NPC's position to the nearest town in the plan.
+        } else if (best->type == NPCType::Questgiver || best->type == NPCType::Vendor ||
+                   best->type == NPCType::Stablemaster) {
+            // Open the town board/shop/stable. Client NPCs don't carry the town
+            // index, so map the NPC's position to the nearest town in the plan.
             const TownPlan& tp = getTownPlan();
             int bestT = -1; long long bestTD = -1;
             for (size_t i = 0; i < tp.towns.size(); ++i) {
@@ -718,14 +721,18 @@ void updateNpcInteraction(AppContext& ctx) {
                 long long d2 = dx * dx + dz * dz;
                 if (bestTD < 0 || d2 < bestTD) { bestTD = d2; bestT = (int)i; }
             }
-            if (best->type == NPCType::Questgiver) { ctx.questGiverTown = bestT; ctx.showQuestGiver = true; }
-            else                                   { ctx.vendorTown = bestT;     ctx.showVendor = true; }
+            if      (best->type == NPCType::Questgiver)   { ctx.questGiverTown = bestT; ctx.showQuestGiver = true; }
+            else if (best->type == NPCType::Vendor)       { ctx.vendorTown = bestT;     ctx.showVendor = true; }
+            else                                          { ctx.stableTown = bestT;     ctx.showStable = true; }
         } else {
             ctx.talkName  = npcName(best->appearanceSeed);
             ctx.talkLine  = npcFlavorLine(best->appearanceSeed, ctx.talkCount);
             ctx.talkTimer = 6.0f;
             ctx.talkCount++;
         }
+    } else if (ctx.interactPressed && !best && ctx.activeVehicle == VehicleKind::Wagon) {
+        // No NPC in reach but pulling a wagon — E opens/closes its storage stash.
+        ctx.showStash = !ctx.showStash;
     }
     ctx.interactPressed = false;
     if (ctx.talkTimer > 0.0f) ctx.talkTimer -= ctx.deltaTime;
@@ -986,6 +993,30 @@ bool useConsumable(AppContext& ctx, Item* item) {
     ctx.potionCooldown = 12.0f;            // start the shared cooldown
     if (g_audio) g_audio->play2D(SoundId::Quaff, 0.5f);
     pushToast(ctx, "Drank " + nm, Voxel{120, 220, 130, 255}, 1.8f);
+    return true;
+}
+
+// Toggle a personal vehicle on/off ("deploy"). The item is NOT consumed — it
+// stays in the bag and can be re-deployed. Only one vehicle is active at a time,
+// so deploying a new one replaces the current. Right-clicking the active
+// vehicle's item stows it. Fully client-side; the active kind is networked so
+// other players see the horse/wagon/kite (Phase 5).
+bool deployVehicle(AppContext& ctx, Item* item) {
+    if (!item || item->getKind() != ItemKind::Vehicle) return false;
+    VehicleKind k = static_cast<VehicleItem*>(item)->getVehicle();
+    if (ctx.activeVehicle == k) {
+        ctx.activeVehicle = VehicleKind::None;          // stow the active one
+        if (k == VehicleKind::Wagon) ctx.showStash = false;
+        pushToast(ctx, std::string("Put away the ") + vehicleKindName(k),
+                  Voxel{205, 205, 215, 255}, 1.8f);
+        return true;
+    }
+    if (ctx.activeVehicle == VehicleKind::Wagon) ctx.showStash = false;  // switching away
+    ctx.activeVehicle = k;
+    const char* verb = (k == VehicleKind::Horse) ? "Mounted the "
+                     : (k == VehicleKind::Kite)  ? "Readied the "
+                                                 : "Hitched the ";
+    pushToast(ctx, std::string(verb) + vehicleKindName(k), Voxel{150, 220, 160, 255}, 1.8f);
     return true;
 }
 

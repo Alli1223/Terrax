@@ -930,7 +930,8 @@ void NetworkClient::update(World& world, std::unordered_map<uint32_t, RemotePlay
                 rp.targetYaw      = p->yaw;
                 rp.lanternHeld    = p->lanternHeld != 0;
                 rp.shieldRaised   = p->shieldRaised != 0;
-                
+                rp.vehicleKind    = p->vehicleKind;
+
                 if (rp.lastUpdate == 0) {
                     rp.position = rp.targetPosition;
                     rp.pitch = rp.targetPitch;

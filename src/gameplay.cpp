@@ -71,6 +71,7 @@ void disconnectFromGame(AppContext& ctx) {
     ctx.showTrainer       = false;
     ctx.showQuestGiver    = false;
     ctx.showVendor        = false;
+    ctx.showStable        = false;
     ctx.showQuestLog      = false;
     ctx.spawnedOnGround   = false;
     ctx.keyFwd = ctx.keyBack = ctx.keyLeft = ctx.keyRight = ctx.keyJump = 0;
@@ -183,7 +184,8 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
     const bool gameplayActive = (ctx.state == GameState::Playing && !ctx.chatOpen
                                  && !ctx.showInventory && !ctx.showCharacterLoadout
                                  && !ctx.showMap && !ctx.showTrainer && !ctx.showQuestGiver
-                                 && !ctx.showVendor && !ctx.showQuestLog);
+                                 && !ctx.showVendor && !ctx.showStable && !ctx.showStash
+                                 && !ctx.showQuestLog);
 
     // Combat input — branches by equipped main-hand weapon.
     //   * Bow: left mouse held charges the shot (rig.bowDrawAmount), and
@@ -402,6 +404,7 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
             p.yaw         = ctx.playerYaw;
             p.lanternHeld  = ctx.lanternHeld ? 1 : 0;
             p.shieldRaised = ctx.shieldRaised ? 1 : 0;
+            p.vehicleKind  = (uint8_t)ctx.activeVehicle;
             ctx.client->sendUDP(&p, sizeof(p));
             ctx.posSendTimer = 0.0f;
         }
@@ -516,16 +519,31 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
             ctx.camera.onGround  = false;
         } else {
             float walkSpeed = ctx.keySprint ? 20.0f : 10.0f;
+            if (ctx.activeVehicle == VehicleKind::Horse)        // mounted — gallop
+                walkSpeed = ctx.keySprint ? 38.0f : 22.0f;
             if (ctx.castTimer > 0.0f) walkSpeed *= 0.35f;       // slowed while channelling a cast
+            // Kite glide: while airborne with a kite, sail forward in the facing
+            // direction (movement keys steer by turning playerYaw) and clamp the
+            // descent to a slow, steady sink — so jumping off a ledge soars.
+            bool kiteGliding = (ctx.activeVehicle == VehicleKind::Kite &&
+                                !ctx.camera.onGround && ctx.rollTimer <= 0.0f);
             if (ctx.rollTimer > 0.0f) {                          // dodge roll: dash in the locked dir
                 ctx.camera.velocity.x = ctx.rollDir.x * 13.0f;
                 ctx.camera.velocity.z = ctx.rollDir.z * 13.0f;
+            } else if (kiteGliding) {
+                float glideSpeed = ctx.keySprint ? 20.0f : 15.0f;
+                glm::vec3 look(sinf(glm::radians(ctx.playerYaw)), 0.0f,
+                               cosf(glm::radians(ctx.playerYaw)));
+                ctx.camera.velocity.x = look.x * glideSpeed;
+                ctx.camera.velocity.z = look.z * glideSpeed;
             } else {
                 ctx.camera.velocity.x = moveDir.x * walkSpeed;
                 ctx.camera.velocity.z = moveDir.z * walkSpeed;
             }
             if (ctx.keyJump && ctx.camera.onGround && ctx.rollTimer <= 0.0f) ctx.camera.velocity.y = 8.0f;
             ctx.camera.applyGravity(ctx.deltaTime);
+            if (kiteGliding && ctx.camera.velocity.y < -4.0f)   // slow the fall to a glide
+                ctx.camera.velocity.y = -4.0f;
             ctx.camera.position = resolveCollision(ctx.camera.position, ctx.camera, hw, ph, ctx.world, ctx.deltaTime);
         }
 
@@ -640,6 +658,29 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
                                      + glm::vec3(0.0f, ctx.camera.stepSmoothOffset, 0.0f);
         ctx.localPlayer->yaw         = ctx.playerYaw;
         ctx.localPlayer->lanternHeld = ctx.lanternHeld;
+        ctx.localPlayer->vehicleKind = ctx.activeVehicle;
+        // Pulled wagon: lerp the cart a few metres behind the player so it
+        // follows smoothly instead of snapping when you turn.
+        if (ctx.activeVehicle == VehicleKind::Wagon) {
+            float yr = glm::radians(ctx.playerYaw);
+            glm::vec3 fwd(sinf(yr), 0.0f, cosf(yr));
+            glm::vec3 target = ctx.localPlayer->position - fwd * 3.0f;
+            if (!ctx.wagonPosInit) {
+                ctx.wagonPos = target; ctx.wagonYaw = ctx.playerYaw; ctx.wagonPosInit = true;
+            } else {
+                float k = std::min(1.0f, 4.0f * ctx.deltaTime);
+                ctx.wagonPos = glm::mix(ctx.wagonPos, target, k);
+                float dy = ctx.playerYaw - ctx.wagonYaw;
+                while (dy > 180.0f) dy -= 360.0f;
+                while (dy < -180.0f) dy += 360.0f;
+                ctx.wagonYaw += dy * k;
+            }
+            ctx.localPlayer->trailPos  = ctx.wagonPos;
+            ctx.localPlayer->trailYaw  = ctx.wagonYaw;
+            ctx.localPlayer->trailInit = true;
+        } else {
+            ctx.wagonPosInit = false;
+        }
         ctx.localPlayer->update(ctx.deltaTime, ctx.world);
     }
 
@@ -722,6 +763,22 @@ void updateGameplay(AppContext& ctx, GLFWwindow* window) {
             if (ctx.showVendor) ctx.keyFwd = ctx.keyBack = ctx.keyLeft = ctx.keyRight = ctx.keyJump = 0;
             else                ctx.firstMouse = true;
             prevShowVendor = ctx.showVendor;
+        }
+        static bool prevShowStable = false;
+        if (ctx.showStable != prevShowStable) {
+            glfwSetInputMode(window, GLFW_CURSOR,
+                             ctx.showStable ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
+            if (ctx.showStable) ctx.keyFwd = ctx.keyBack = ctx.keyLeft = ctx.keyRight = ctx.keyJump = 0;
+            else                ctx.firstMouse = true;
+            prevShowStable = ctx.showStable;
+        }
+        static bool prevShowStash = false;
+        if (ctx.showStash != prevShowStash) {
+            glfwSetInputMode(window, GLFW_CURSOR,
+                             ctx.showStash ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
+            if (ctx.showStash) ctx.keyFwd = ctx.keyBack = ctx.keyLeft = ctx.keyRight = ctx.keyJump = 0;
+            else               ctx.firstMouse = true;
+            prevShowStash = ctx.showStash;
         }
     }
 

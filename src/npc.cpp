@@ -367,7 +367,8 @@ void NpcDirector::update(float dt, const std::vector<DirectorPlayer>& players,
         else if (n->type == NPCType::Farmer)  stepFarmer(*n, dt, world, gameTime);
         else if (n->type == NPCType::Trainer ||
                  n->type == NPCType::Questgiver ||
-                 n->type == NPCType::Vendor)   n->velocity = glm::vec3(0.0f);  // static — never wanders
+                 n->type == NPCType::Vendor ||
+                 n->type == NPCType::Stablemaster) n->velocity = glm::vec3(0.0f);  // static — never wanders
         else                                  stepVillager(*n, dt, world, gameTime);
     }
 
@@ -750,6 +751,24 @@ void NpcDirector::populateTown(int ti) {
         vn->position = glm::vec3(sp.x, vn->groundY, sp.y);
         vn->idleTimer = 0.0f;
         active.push_back(std::move(vn));
+        local++;
+    }
+
+    // One static "Stablemaster" near the town centre. Talking to it opens the
+    // vehicle trader (buy a horse / wagon / kite). Placed a few tiles from the
+    // merchant so the two don't overlap.
+    {
+        auto sm = std::make_unique<NPC>();
+        sm->id             = 0x40000000u + (uint32_t)ti * 128u + (uint32_t)local;
+        sm->type           = NPCType::Stablemaster;
+        sm->appearanceSeed = hashU32((uint32_t)ti * 7411u, 0x57A8u);
+        sm->townIndex      = ti;
+        sm->groundY        = (float)t.baseY + 1.0f;
+        glm::vec2 sp = nav.nearestWalkable(centre + glm::vec2(5.0f, 1.5f));
+        sm->homePos  = sp;
+        sm->position = glm::vec3(sp.x, sm->groundY, sp.y);
+        sm->idleTimer = 0.0f;
+        active.push_back(std::move(sm));
         local++;
     }
 

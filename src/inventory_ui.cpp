@@ -52,6 +52,10 @@ void itemColors(const Item* item, Voxel& pri, Voxel& acc) {
         const ConsumableItem* c = static_cast<const ConsumableItem*>(item);
         pri = c->liquidColor;            // the potion liquid
         acc = {185, 205, 210, 255};      // glass
+    } else if (item && item->getKind() == ItemKind::Vehicle) {
+        const VehicleItem* v = static_cast<const VehicleItem*>(item);
+        pri = v->primaryColor;
+        acc = v->accentColor;
     } else {
         pri = {180, 180, 180, 255};
         acc = {120, 120, 120, 255};
@@ -77,6 +81,15 @@ std::string itemSubtitle(const Item* item) {
         if (c->restoreHealthPct > 0.0f)
             return "Potion — restores " + std::to_string((int)(c->restoreHealthPct * 100)) + "% health";
         return "Potion — restores " + std::to_string((int)(c->restoreResourcePct * 100)) + "% resource";
+    }
+    if (item->getKind() == ItemKind::Vehicle) {
+        const VehicleItem* v = static_cast<const VehicleItem*>(item);
+        switch (v->getVehicle()) {
+            case VehicleKind::Horse: return "Vehicle — ride to travel faster (right-click to mount)";
+            case VehicleKind::Wagon: return "Vehicle — pull a storage wagon (right-click to deploy)";
+            case VehicleKind::Kite:  return "Vehicle — glide off ledges (right-click to ready)";
+            default:                 return "Vehicle";
+        }
     }
     return {};
 }
@@ -345,6 +358,46 @@ void drawItemIcon(ImDrawList* dl, ImVec2 c, float size, const Item* item) {
             rect(-0.16f, -0.52f, 0.16f, 0.05f, acc);                         // neck
             rect(-0.20f, -0.70f, 0.20f, -0.50f, IM_COL32(120, 85, 50, 255)); // cork
         }
+    } else if (item->getKind() == ItemKind::Vehicle) {
+        const VehicleItem* vi = static_cast<const VehicleItem*>(item);
+        switch (vi->getVehicle()) {
+            case VehicleKind::Horse:
+                // Body + raised neck/head + four legs.
+                rect(-0.70f, -0.25f, 0.45f, 0.20f, pri);                       // barrel
+                rect( 0.30f, -0.70f, 0.70f, 0.05f, pri);                       // neck
+                rect( 0.45f, -0.80f, 0.85f, -0.45f, pri);                      // head
+                rect(-0.60f, 0.20f, -0.45f, 0.75f, acc);                       // legs
+                rect(-0.25f, 0.20f, -0.10f, 0.75f, acc);
+                rect( 0.10f, 0.20f, 0.25f, 0.75f, acc);
+                rect( 0.35f, 0.20f, 0.50f, 0.75f, acc);
+                dl->AddLine(ImVec2(c.x - h*0.70f, c.y - h*0.20f),
+                            ImVec2(c.x - h*0.85f, c.y + h*0.10f), acc, 2.0f);  // tail
+                break;
+            case VehicleKind::Wagon:
+                // Open box on two wheels + a tongue.
+                rect(-0.75f, -0.55f, 0.55f, 0.20f, pri);                       // bed/box
+                rect(-0.75f, -0.55f, 0.55f, -0.40f, acc);                      // top rail
+                dl->AddCircleFilled(ImVec2(c.x - h*0.45f, c.y + h*0.45f), h*0.28f, acc, 16);
+                dl->AddCircleFilled(ImVec2(c.x + h*0.30f, c.y + h*0.45f), h*0.28f, acc, 16);
+                dl->AddLine(ImVec2(c.x + h*0.55f, c.y - h*0.15f),
+                            ImVec2(c.x + h*0.90f, c.y + h*0.05f), acc, 2.5f);  // tongue
+                break;
+            case VehicleKind::Kite: {
+                // A diamond sail + cross-spars + a tail.
+                ImVec2 pts[4] = {
+                    ImVec2(c.x,             c.y - h * 0.80f),
+                    ImVec2(c.x + h * 0.60f, c.y),
+                    ImVec2(c.x,             c.y + h * 0.55f),
+                    ImVec2(c.x - h * 0.60f, c.y),
+                };
+                dl->AddConvexPolyFilled(pts, 4, pri);
+                dl->AddLine(pts[0], pts[2], acc, 1.5f);
+                dl->AddLine(pts[1], pts[3], acc, 1.5f);
+                dl->AddLine(ImVec2(c.x, c.y + h*0.55f), ImVec2(c.x, c.y + h*0.90f), acc, 1.5f);
+                break;
+            }
+            default: break;
+        }
     }
 
     // Legendary items get a small star spark in the corner — quick hint
@@ -588,10 +641,13 @@ bool drawItemCell(AppContext& ctx, ImVec2 size, int cellIdx, Item* item,
         }
     }
 
-    // Right-click on an equipped item = quick unequip; on a consumable = use it.
+    // Right-click on an equipped item = quick unequip; on a consumable = use it;
+    // on a vehicle = deploy/stow it.
     if (item && ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
         if (item->getKind() == ItemKind::Consumable) {
             useConsumable(ctx, item);   // applies restore + spends one (no rig rebuild)
+        } else if (item->getKind() == ItemKind::Vehicle) {
+            deployVehicle(ctx, item);   // toggle the horse/wagon/kite (not consumed)
         } else if (ctx.inventory.isEquipped(item)) {
             auto rev = ctx.inventory.equippedIds().find(item->getId());
             if (rev != ctx.inventory.equippedIds().end()) {

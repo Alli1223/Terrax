@@ -36,6 +36,20 @@ bool Inventory::removeItem(Item* item) {
     return false;
 }
 
+std::unique_ptr<Item> Inventory::extractItem(Item* item) {
+    if (!item) return nullptr;
+    // Drop any equip pointer first so we never leave a dangling slot ref.
+    auto rev = equippedById.find(item->getId());
+    if (rev != equippedById.end()) {
+        equippedSlots.erase(rev->second);
+        equippedById.erase(rev);
+    }
+    for (auto& cell : bag) {
+        if (cell.get() == item) return std::move(cell);   // detach, keep alive
+    }
+    return nullptr;
+}
+
 void Inventory::swap(int i, int j) {
     if (i == j) return;
     if (i < 0 || j < 0 || i >= (int)bag.size() || j >= (int)bag.size()) return;

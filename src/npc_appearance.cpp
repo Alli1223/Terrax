@@ -69,6 +69,56 @@ const Palette CULTIST_PALETTES[] = {
     { { 48,  38,  62, 255}, {135,  75, 155, 255} },   // dusk violet
     { { 36,  34,  44, 255}, {120,  45,  45, 255} },   // black + crimson
 };
+const Palette ZOMBIE_PALETTES[] = {
+    { { 96, 120,  72, 255}, { 70,  88,  52, 255} },   // rotting moss-green
+    { { 82, 102,  78, 255}, { 58,  74,  56, 255} },   // sickly grey-green
+    { {110, 116,  80, 255}, { 78,  84,  56, 255} },   // jaundiced ochre
+};
+const Palette KNIGHT_PALETTES[] = {
+    { { 70,  74,  84, 255}, {150,  40,  40, 255} },   // dark iron + crimson sash
+    { { 58,  60,  70, 255}, {120, 120, 140, 255} },   // blackened steel
+    { { 80,  82,  92, 255}, {200, 180,  90, 255} },   // tarnished gilt
+};
+const Palette VENDOR_PALETTES[] = {
+    { {120,  70,  45, 255}, {210, 175,  80, 255} },   // merchant brown + gold trim
+    { { 70,  95,  80, 255}, {200, 170, 110, 255} },   // travelling-trader green
+    { {110,  60,  80, 255}, {225, 200, 150, 255} },   // wine-red bolt of cloth
+};
+const Palette NECRO_PALETTES[] = {
+    { { 26,  30,  40, 255}, { 90, 200, 130, 255} },   // black robe + necrotic green
+    { { 34,  26,  44, 255}, {150,  90, 210, 255} },   // dark violet + soul-light
+};
+const Palette GHOUL_PALETTES[] = {
+    { {120, 130, 100, 255}, { 80,  92,  70, 255} },   // pallid sickly flesh
+    { {138, 132, 110, 255}, { 96,  86,  64, 255} },   // grey carrion hide
+};
+const Palette BRIGAND_PALETTES[] = {
+    { { 64,  52,  40, 255}, {140,  40,  40, 255} },   // dark leather + blood-red sash
+    { { 52,  56,  48, 255}, {110,  95,  60, 255} },   // mottled olive + brass
+    { { 70,  58,  50, 255}, { 40,  44,  52, 255} },   // worn brown + iron grey
+};
+const Palette WRAITH_PALETTES[] = {
+    { {150, 170, 200, 255}, {200, 220, 245, 255} },   // pale spectral blue
+    { {130, 150, 170, 255}, {180, 200, 220, 255} },   // ghostly grey-cyan
+};
+// Regal undead arch-caster — frostbitten robes lit by cold soul-fire.
+const Palette LICH_PALETTES[] = {
+    { { 40,  52,  70, 255}, {120, 200, 230, 255} },   // dark slate robe + frost-blue soul-light
+    { { 56,  58,  78, 255}, {180, 210, 235, 255} },   // frostbitten violet-grey + pale ice
+};
+// Armoured war-commander — heavy dark plate with bold heraldic accents.
+const Palette WARLORD_PALETTES[] = {
+    { { 52,  54,  62, 255}, {170,  40,  40, 255} },   // blackened steel + crimson heraldry
+    { { 60,  58,  64, 255}, {200, 170,  80, 255} },   // dark iron + warlord's gold
+    { { 44,  50,  58, 255}, {120, 140, 175, 255} },   // gunmetal + steel-blue plume
+};
+// Stablemaster — the town's vehicle trader. A rich green traveller's coat with
+// tan leather trim + a flat cap, so they read at a glance as distinct from the
+// robed Merchant / Trainer.
+const Palette STABLEMASTER_PALETTES[] = {
+    { { 46, 112,  66, 255}, {175, 140,  85, 255} },   // forest green + tan leather
+    { { 40,  96,  92, 255}, {190, 160, 100, 255} },   // teal-green + buckskin
+};
 
 template <typename T, size_t N>
 constexpr int arrLen(T (&)[N]) { return (int)N; }
@@ -79,13 +129,34 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
     std::mt19937 rng(seed ? seed : 1u);
     auto pick = [&](int n) { return std::uniform_int_distribution<int>(0, n - 1)(rng); };
 
+    // Elementals are bodies of living element — no clothing or weapon, just a
+    // recoloured "skin" rebuilt as the base body. Fire = molten orange (a brittle
+    // caster); Stone = grey rock (a big, slow, tanky guardian).
+    if (type == NPCType::FireElemental || type == NPCType::StoneElemental) {
+        if (type == NPCType::StoneElemental) {
+            rig.skinColor   = Voxel{120, 122, 130, 255};   // grey stone
+            rig.heightScale = 1.32f;                        // a looming boulder of a foe
+        } else {
+            rig.skinColor   = Voxel{255, 132, 40, 255};    // molten orange
+            rig.heightScale = 1.05f;
+        }
+        rig.resetBaseBody();
+        rig.hasLantern  = false;
+        return;
+    }
+
     // Clothing tier per type — villagers run around in cloth, bandits
     // in leather, guards in plate. This drives both the shape of the
     // armour (clothing_painter does the actual rendering) and how it
     // sits on the body.
     ClothingTier tier = ClothingTier::Cloth;
-    if (type == NPCType::Enemy || type == NPCType::Brute) tier = ClothingTier::Leather;
-    else if (type == NPCType::Guard) tier = ClothingTier::Plate;
+    if (type == NPCType::Enemy || type == NPCType::Brute || type == NPCType::Zombie ||
+        type == NPCType::Ghoul || type == NPCType::Brigand ||
+        type == NPCType::Stablemaster)   // a sturdy traveller's leather coat
+        tier = ClothingTier::Leather;
+    else if (type == NPCType::Guard || type == NPCType::Knight ||
+             type == NPCType::Warlord)
+        tier = ClothingTier::Plate;
 
     // Single palette picked once — used for every slot so the outfit
     // reads as one coherent set instead of five mismatched pieces.
@@ -106,6 +177,26 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
             palettes = CULTIST_PALETTES;  palCount = arrLen(CULTIST_PALETTES);  break;
         case NPCType::Trainer:
             palettes = CULTIST_PALETTES;  palCount = arrLen(CULTIST_PALETTES);  break;  // robed mentor
+        case NPCType::Zombie:
+            palettes = ZOMBIE_PALETTES;   palCount = arrLen(ZOMBIE_PALETTES);   break;
+        case NPCType::Knight:
+            palettes = KNIGHT_PALETTES;   palCount = arrLen(KNIGHT_PALETTES);   break;
+        case NPCType::Vendor:
+            palettes = VENDOR_PALETTES;   palCount = arrLen(VENDOR_PALETTES);   break;
+        case NPCType::Necromancer:
+            palettes = NECRO_PALETTES;    palCount = arrLen(NECRO_PALETTES);    break;
+        case NPCType::Ghoul:
+            palettes = GHOUL_PALETTES;    palCount = arrLen(GHOUL_PALETTES);    break;
+        case NPCType::Brigand:
+            palettes = BRIGAND_PALETTES;  palCount = arrLen(BRIGAND_PALETTES);  break;
+        case NPCType::Wraith:
+            palettes = WRAITH_PALETTES;   palCount = arrLen(WRAITH_PALETTES);   break;
+        case NPCType::Lich:
+            palettes = LICH_PALETTES;     palCount = arrLen(LICH_PALETTES);     break;
+        case NPCType::Warlord:
+            palettes = WARLORD_PALETTES;  palCount = arrLen(WARLORD_PALETTES);  break;
+        case NPCType::Stablemaster:
+            palettes = STABLEMASTER_PALETTES; palCount = arrLen(STABLEMASTER_PALETTES); break;
         default: break;
     }
     const Palette& pal = palettes[pick(palCount)];
@@ -132,12 +223,18 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
         wear[2] = true;             // overalls / shirt
         wear[3] = true;             // trousers
         wear[4] = true;             // work boots
-    } else if (type == NPCType::Trainer) {
+    } else if (type == NPCType::Trainer || type == NPCType::Vendor) {
         wear[0] = false;            // no helm — face visible
-        wear[1] = true;             // hooded mantle
-        wear[2] = true;             // robe
+        wear[1] = true;             // hooded mantle / shopkeeper's shawl
+        wear[2] = true;             // robe / apron
         wear[3] = true;             // robe skirt
         wear[4] = true;             // boots
+    } else if (type == NPCType::Stablemaster) {
+        wear[0] = true;             // flat cap
+        wear[1] = true;             // coat shoulders / cape
+        wear[2] = true;             // traveller's coat
+        wear[3] = true;             // breeches
+        wear[4] = true;             // riding boots
     } else {
         wear[0] = (pick(2) == 0);   // ~50% have a helmet
         wear[1] = true;
@@ -146,8 +243,12 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
         wear[4] = true;
     }
 
-    // A hood / helm is part of the silhouette for cultists and skeletons.
-    if (type == NPCType::Cultist || type == NPCType::Skeleton) wear[0] = true;
+    // A hood / helm is part of the silhouette for cultists, skeletons, knights,
+    // and the hooded necromancer.
+    if (type == NPCType::Cultist || type == NPCType::Skeleton ||
+        type == NPCType::Knight || type == NPCType::Necromancer ||
+        type == NPCType::Wraith || type == NPCType::Lich ||
+        type == NPCType::Warlord) wear[0] = true;
 
     // Wipe the rig back to bare skin then layer the chosen clothing
     // pieces in slot order so accents stack correctly.
@@ -207,7 +308,33 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
         mainW   = WeaponType::Staff;      // a mentor's staff of office
         mainPri = {120,  95,  60, 255};   // carved wood
         mainAcc = {210, 185, 110, 255};   // gilded tip
+    } else if (type == NPCType::Zombie) {
+        mainW   = (pick(2) == 0) ? WeaponType::Sword : WeaponType::None;  // a rusty blade, or bare claws
+        mainPri = {120, 118,  96, 255};   // corroded iron
+        mainAcc = { 70,  62,  44, 255};
+    } else if (type == NPCType::Knight) {
+        mainW   = (pick(3) == 0) ? WeaponType::Axe : WeaponType::Sword;
+        offW    = WeaponType::Shield;     // sword/axe + shield, shield in livery
+        mainPri = {200, 205, 215, 255};   // polished steel
+        mainAcc = { 80,  55,  30, 255};
+    } else if (type == NPCType::Necromancer) {
+        mainW   = WeaponType::Staff;      // raises bolts; uses the cast pose
+        mainPri = { 60,  50,  70, 255};   // dark bone staff
+        mainAcc = {120, 220, 150, 255};   // necrotic green focus
+    } else if (type == NPCType::Brigand) {
+        mainW   = (pick(2) == 0) ? WeaponType::Axe : WeaponType::Mace;  // brutal arms
+        mainPri = {165, 168, 178, 255};
+        mainAcc = { 70,  50,  35, 255};
+    } else if (type == NPCType::Lich) {
+        mainW   = WeaponType::Staff;      // frost staff; uses the cast pose
+        mainPri = {205, 210, 220, 255};   // bleached bone shaft
+        mainAcc = {130, 210, 240, 255};   // icy soul focus
+    } else if (type == NPCType::Warlord) {
+        mainW   = (pick(2) == 0) ? WeaponType::Greatsword : WeaponType::Axe;  // heavy two-hander
+        mainPri = {210, 212, 222, 255};   // polished blade
+        mainAcc = { 60,  45,  30, 255};   // dark wrapped grip
     }
+    // Ghoul / Wraith: no weapon — they claw with bare/spectral hands (mainW None).
 
     applyWeaponsToRig(rig,
         mainW, ItemRarity::Common, mainPri, mainAcc,
@@ -227,4 +354,12 @@ void applyNpcThemedLoadout(BipedalRig& rig, uint32_t seed, NPCType type) {
 
     // A brute towers over everyone else (height scale is applied at draw time).
     if (type == NPCType::Brute) rig.heightScale = 1.4f;
+    else if (type == NPCType::Zombie) rig.heightScale = 0.95f;   // a slight shamble-hunch
+    else if (type == NPCType::Knight) rig.heightScale = 1.08f;   // an imposing, armoured frame
+    else if (type == NPCType::Ghoul)  rig.heightScale = 0.90f;   // small, hunched scavenger
+    else if (type == NPCType::Necromancer) rig.heightScale = 1.05f;
+    else if (type == NPCType::Brigand) rig.heightScale = 1.06f;  // burly bandit
+    else if (type == NPCType::Wraith)  rig.heightScale = 1.10f;  // tall, drifting
+    else if (type == NPCType::Lich)    rig.heightScale = 1.12f;  // gaunt, regal
+    else if (type == NPCType::Warlord) rig.heightScale = 1.16f;  // a towering, imposing commander
 }

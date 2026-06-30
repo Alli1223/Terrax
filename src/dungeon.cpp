@@ -236,8 +236,21 @@ void Dungeon::buildLayout(uint32_t seed, glm::ivec2 a, int surf,
 }
 
 void Dungeon::rosterFill(std::vector<DungeonSpawn>& out, uint32_t seed,
-                         uint8_t minionType, uint8_t bossType, int perRoom) const {
+                         uint8_t minionType, uint8_t bossType, int perRoom,
+                         uint8_t minionType2, uint8_t minionType3,
+                         uint8_t minionType4) const {
     std::mt19937 r(seed ^ 0x00D0A6E0u);
+    // Minions are drawn from the primary type (≈half) plus any secondaries, so
+    // chambers read as a believable mix of species rather than a clone army.
+    uint8_t pool[4]; int poolN = 0;
+    pool[poolN++] = minionType;
+    if (minionType2 != 255) pool[poolN++] = minionType2;
+    if (minionType3 != 255) pool[poolN++] = minionType3;
+    if (minionType4 != 255) pool[poolN++] = minionType4;
+    auto minionPick = [&]() -> uint8_t {
+        if (poolN == 1 || (r() % 100u) < 50u) return pool[0];
+        return pool[1 + (int)(r() % (uint32_t)(poolN - 1))];
+    };
     for (const DungeonRoom& rm : rooms) {
         int ccx = (rm.mn.x + rm.mx.x) / 2, ccz = (rm.mn.z + rm.mx.z) / 2;
         // Spawn within the central ~50% of the room so enemies land inside the
@@ -254,7 +267,7 @@ void Dungeon::rosterFill(std::vector<DungeonSpawn>& out, uint32_t seed,
             out.push_back({ glm::ivec3(ccx, rm.mn.y, ccz), bossType, true });   // the main boss
             n = std::max(1, perRoom - 1);
         }
-        for (int k = 0; k < n; k++) spawnIn(minionType);
+        for (int k = 0; k < n; k++) spawnIn(minionPick());
         // A tougher "champion" (boss=false → a hard elite, not THE boss) stalks
         // some chambers: throne rooms always, other non-entrance rooms ~25%.
         if (rm.purpose != 1 && rm.purpose != 2 &&
@@ -275,7 +288,10 @@ public:
     BlockType wallBlock()  const override { return BlockType::Stone; }
     BlockType floorBlock() const override { return BlockType::Stone; }
     void fillSpawnTable(std::vector<DungeonSpawn>& out, uint32_t seed) const override {
-        rosterFill(out, seed, (uint8_t)NPCType::Skeleton, (uint8_t)NPCType::Brute, 2);
+        // Skeletons, shambling zombies, drifting wraiths + scuttling ghouls, raised
+        // and ruled by a lich.
+        rosterFill(out, seed, (uint8_t)NPCType::Skeleton, (uint8_t)NPCType::Lich, 2,
+                   (uint8_t)NPCType::Zombie, (uint8_t)NPCType::Wraith, (uint8_t)NPCType::Ghoul);
     }
 };
 
@@ -289,7 +305,10 @@ public:
     BlockType wallBlock()  const override { return BlockType::Stone; }
     BlockType floorBlock() const override { return BlockType::Gravel; }
     void fillSpawnTable(std::vector<DungeonSpawn>& out, uint32_t seed) const override {
-        rosterFill(out, seed, (uint8_t)NPCType::Enemy, (uint8_t)NPCType::Brute, 2);
+        // A bandit den of cutthroats + brigands, with ghouls and the odd skeleton
+        // from the deep dark.
+        rosterFill(out, seed, (uint8_t)NPCType::Enemy, (uint8_t)NPCType::Brute, 2,
+                   (uint8_t)NPCType::Brigand, (uint8_t)NPCType::Ghoul, (uint8_t)NPCType::Skeleton);
     }
 };
 
@@ -303,7 +322,28 @@ public:
     BlockType wallBlock()  const override { return BlockType::Sandstone; }
     BlockType floorBlock() const override { return BlockType::Sandstone; }
     void fillSpawnTable(std::vector<DungeonSpawn>& out, uint32_t seed) const override {
-        rosterFill(out, seed, (uint8_t)NPCType::Cultist, (uint8_t)NPCType::Brute, 2);
+        // Cultists + ghouls + conjured fire elementals + drifting wraiths, ruled by
+        // a necromancer.
+        rosterFill(out, seed, (uint8_t)NPCType::Cultist, (uint8_t)NPCType::Necromancer, 2,
+                   (uint8_t)NPCType::Ghoul, (uint8_t)NPCType::FireElemental, (uint8_t)NPCType::Wraith);
+    }
+};
+
+// Ancient barrow: a winding warren of earthen burial chambers packed with the
+// restless dead, under a hulking barrow-wight.
+class BarrowDungeon : public Dungeon {
+public:
+    DungeonKind kind() const override { return DungeonKind::Barrow; }
+    void generateLayout(uint32_t seed, glm::ivec2 a, int surf) override {
+        buildLayout(seed, a, surf, 10 + (int)(seed % 6u), 12, 22, true);   // winding, organic
+    }
+    BlockType wallBlock()  const override { return BlockType::Stone; }
+    BlockType floorBlock() const override { return BlockType::Dirt; }       // packed earth
+    void fillSpawnTable(std::vector<DungeonSpawn>& out, uint32_t seed) const override {
+        // The restless dead — zombies, ghouls, wraiths + skeletal remains — guard
+        // a hulking barrow-wight.
+        rosterFill(out, seed, (uint8_t)NPCType::Zombie, (uint8_t)NPCType::Brute, 2,
+                   (uint8_t)NPCType::Ghoul, (uint8_t)NPCType::Wraith, (uint8_t)NPCType::Skeleton);
     }
 };
 
@@ -316,6 +356,7 @@ std::unique_ptr<Dungeon> makeDungeon(DungeonKind kind) {
         case DungeonKind::Cave:   return std::make_unique<CaveDungeon>();
         case DungeonKind::Ruins:  return std::make_unique<RuinsDungeon>();
         case DungeonKind::Castle: return std::make_unique<CastleDungeon>();
+        case DungeonKind::Barrow: return std::make_unique<BarrowDungeon>();
         default:                  return std::make_unique<CryptDungeon>();
     }
 }
@@ -348,6 +389,8 @@ static std::string makeDungeonName(uint32_t seed, DungeonKind kind) {
             switch (nx() % 3u) { case 0: return nm + " Caverns"; case 1: return "Caves of " + nm; default: return nm + " Hollow"; }
         case DungeonKind::Castle:
             switch (nx() % 3u) { case 0: return "Castle " + nm; case 1: return nm + " Keep"; default: return "Fortress of " + nm; }
+        case DungeonKind::Barrow:
+            switch (nx() % 3u) { case 0: return "Barrow of " + nm; case 1: return nm + " Mound"; default: return nm + " Barrows"; }
         default: // Ruins
             switch (nx() % 3u) { case 0: return "Ruins of " + nm; case 1: return "Lost " + nm; default: return nm + " Ruins"; }
     }
@@ -375,8 +418,10 @@ static DungeonPlan buildDungeonPlan() {
             }
             if (nearTown) continue;
             uint32_t kr = (h >> 20) % 100u;
+            static const DungeonKind kUnderground[] = {
+                DungeonKind::Crypt, DungeonKind::Cave, DungeonKind::Ruins, DungeonKind::Barrow };
             DungeonKind kind = (kr < 28) ? DungeonKind::Castle    // ~28% are overground castles (easy to spot)
-                                         : (DungeonKind)(kr % 3u); // else Crypt / Cave / Ruins
+                                         : kUnderground[kr % 4u]; // else Crypt / Cave / Ruins / Barrow
             uint32_t sr = (h >> 12) % 100u;
             int tier = (sr < 25) ? 0 : (sr < 70) ? 1 : (sr < 92) ? 2 : 3;   // 25/45/22/8 — massive is rare
             // Reject sites whose ground is too uneven across the footprint: an

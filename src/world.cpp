@@ -283,6 +283,30 @@ void Chunk::buildMesh(World* world) {
         dst.push_back(q[0]); dst.push_back(q[3]); dst.push_back(q[2]);
     };
 
+    // Classic voxel per-vertex ambient occlusion. For a face vertex, sample the
+    // two edge neighbours + the corner block on the face's air side; the more of
+    // them are solid, the darker the vertex (deepening concave corners so the
+    // blocky terrain reads as 3D instead of flat-lit).
+    static const float AO_TBL[4] = { 0.42f, 0.64f, 0.82f, 1.0f };
+    auto aoSolid = [&](int wx2, int wy2, int wz2) -> bool {
+        return isOpaque(worldGet(wx2, wy2, wz2));
+    };
+    auto vertexAO = [&](int face, int vi, int bwx, int bwy, int bwz) -> float {
+        int bx = bwx + FDX[face], by = bwy + FDY[face], bz = bwz + FDZ[face]; // air side
+        int nAxis = (face < 2) ? 0 : (face < 4) ? 1 : 2;
+        int aAxis = (nAxis == 0) ? 1 : 0;
+        int bAxis = (nAxis == 2) ? 1 : 2;
+        int oa = (FV[face][vi][aAxis] > 0.5f) ? 1 : -1;
+        int ob = (FV[face][vi][bAxis] > 0.5f) ? 1 : -1;
+        int da[3] = {0,0,0}; da[aAxis] = oa;
+        int db[3] = {0,0,0}; db[bAxis] = ob;
+        bool s1 = aoSolid(bx + da[0], by + da[1], bz + da[2]);
+        bool s2 = aoSolid(bx + db[0], by + db[1], bz + db[2]);
+        bool co = aoSolid(bx + da[0] + db[0], by + da[1] + db[1], bz + da[2] + db[2]);
+        int level = (s1 && s2) ? 0 : 3 - ((int)s1 + (int)s2 + (int)co);
+        return AO_TBL[level];
+    };
+
     for (int y = 0; y < CHUNK_HEIGHT; y++) {
         for (int z = 0; z < CHUNK_SIZE; z++) {
             for (int x = 0; x < CHUNK_SIZE; x++) {
@@ -345,11 +369,13 @@ void Chunk::buildMesh(World* world) {
                         float wd = (isWater && face == 2)
                             ? waterDepthAt(wx + (int)FV[face][vi][0], y, wz + (int)FV[face][vi][2])
                             : 0.0f;
+                        // AO only on opaque cubes; water/glass stay un-occluded.
+                        float ao = (isWater || isGlass) ? 1.0f : vertexAO(face, vi, wx, y, wz);
                         quad[vi] = {
                             (float)wx + FV[face][vi][0], (float)y + FV[face][vi][1], (float)wz + FV[face][vi][2],
                             FNX[face], FNY[face], FNZ[face],
                             u0 + LU[vi] * (u1 - u0), v0 + LV[vi] * (v1 - v0),
-                            (float)bt, skyL, blockL, sd, snowable, wd
+                            (float)bt, skyL, blockL, sd, snowable, wd, ao
                         };
                     }
                     pushQuad(isWater ? wverts : (isGlass ? gverts : verts), quad);
@@ -439,6 +465,8 @@ static void setupVertexAttribs() {
     glEnableVertexAttribArray(7);
     glVertexAttribPointer(8, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, waterDepth));
     glEnableVertexAttribArray(8);
+    glVertexAttribPointer(9, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, ao));
+    glEnableVertexAttribArray(9);
 }
 
 static void setupVegVertexAttribs() {

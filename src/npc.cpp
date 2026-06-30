@@ -149,7 +149,8 @@ void NPC::update(float dt, World& world) {
         if (attackFlag && !prevAttackFlag) {
             if (type == NPCType::Farmer) {
                 rig->playClip(ClipKind::Hoe, 0.7f);
-            } else if (type == NPCType::Cultist) {
+            } else if (type == NPCType::Cultist || type == NPCType::Necromancer ||
+                       type == NPCType::Lich || type == NPCType::FireElemental) {
                 rig->isCasting = true;
                 rig->castAnim  = 0.0f;
             } else {
@@ -351,12 +352,23 @@ void NpcDirector::update(float dt, const std::vector<DirectorPlayer>& players,
             if (n->dyingTimer <= 0.0f) n->dead = true;
             continue;
         }
+        if (n->boss && isHostileNpc(n->type)) stepBossSpecial(*n, dt, players);
         if (n->type == NPCType::Enemy || n->type == NPCType::Skeleton ||
-            n->type == NPCType::Brute)        stepBandit(*n, dt, world, players);
-        else if (n->type == NPCType::Cultist) stepRangedEnemy(*n, dt, world, players);
+            n->type == NPCType::Brute || n->type == NPCType::Zombie ||
+            n->type == NPCType::Knight || n->type == NPCType::Ghoul ||
+            n->type == NPCType::Brigand || n->type == NPCType::Wraith ||
+            n->type == NPCType::Warlord || n->type == NPCType::StoneElemental)
+                                              stepBandit(*n, dt, world, players);
+        else if (n->type == NPCType::Cultist ||
+                 n->type == NPCType::Necromancer ||
+                 n->type == NPCType::Lich ||
+                 n->type == NPCType::FireElemental) stepRangedEnemy(*n, dt, world, players);
         else if (n->type == NPCType::Guard)   stepGuard(*n, dt, world, players);
         else if (n->type == NPCType::Farmer)  stepFarmer(*n, dt, world, gameTime);
-        else if (n->type == NPCType::Trainer) n->velocity = glm::vec3(0.0f);  // static — never wanders
+        else if (n->type == NPCType::Trainer ||
+                 n->type == NPCType::Questgiver ||
+                 n->type == NPCType::Vendor ||
+                 n->type == NPCType::Stablemaster) n->velocity = glm::vec3(0.0f);  // static — never wanders
         else                                  stepVillager(*n, dt, world, gameTime);
     }
 
@@ -551,7 +563,24 @@ void NpcDirector::spawnDungeon(size_t di) {
         n->position  = glm::vec3((float)s.pos.x + 0.5f, (float)s.pos.y, (float)s.pos.z + 0.5f);
         n->groundY   = (float)s.pos.y;
         n->homePos   = glm::vec2((float)s.pos.x, (float)s.pos.z);
-        n->health    = defaultNpcHealth((NPCType)s.npcType);
+        // Level scales with how far out the dungeon sits; the boss leads its pack.
+        int tier = dangerTierAt((float)s.pos.x, (float)s.pos.z);
+        int lvl  = enemyLevelForTier(tier) + (s.boss ? 3 : 0);
+        // Some non-boss minions are promoted to "elites": +2 levels, ~2x HP, a
+        // star-marked nameplate and better loot — an occasional threat spike that
+        // makes a pack worth scanning before you wade in. Deterministic per slot.
+        // A much rarer few become named "rares": purple plate, tougher still, the
+        // best non-boss loot — a hunt-worthy spawn.
+        bool elite = !s.boss && (hashU32(aseed, 0x5E11E70Du) % 100u) < 12u;
+        bool rare  = !s.boss && (hashU32(aseed, 0x7A4E0B1Du) % 100u) < 3u;
+        if (rare) elite = true;                  // rares are elite-tier + named
+        if (elite) lvl += 2;
+        if (rare)  lvl += 2;                      // rares sit a touch higher again
+        n->level     = (uint8_t)std::min(lvl, 60);
+        n->elite     = elite;
+        n->rare      = rare;
+        n->health    = defaultNpcHealth((NPCType)s.npcType) * npcHpScaleForLevel(n->level)
+                     * (rare ? 3.0f : elite ? 2.0f : 1.0f);
         active.push_back(std::move(n));
     }
 }
@@ -688,6 +717,58 @@ void NpcDirector::populateTown(int ti) {
         tr->position = glm::vec3(sp.x, tr->groundY, sp.y);
         tr->idleTimer = 0.0f;
         active.push_back(std::move(tr));
+        local++;
+    }
+
+    // One static "Quest Giver" near the town centre (opposite the trainer).
+    // Talking to it opens the town's deterministic quest board.
+    {
+        auto qg = std::make_unique<NPC>();
+        qg->id             = 0x40000000u + (uint32_t)ti * 128u + (uint32_t)local;
+        qg->type           = NPCType::Questgiver;
+        qg->appearanceSeed = hashU32((uint32_t)ti * 6271u, 0x9E57u);
+        qg->townIndex      = ti;
+        qg->groundY        = (float)t.baseY + 1.0f;
+        glm::vec2 sp = nav.nearestWalkable(centre + glm::vec2(-2.5f, -2.5f));
+        qg->homePos  = sp;
+        qg->position = glm::vec3(sp.x, qg->groundY, sp.y);
+        qg->idleTimer = 0.0f;
+        active.push_back(std::move(qg));
+        local++;
+    }
+
+    // One static "Vendor" merchant near the town centre. Talking to it opens a
+    // buy/sell shop (gear for gold).
+    {
+        auto vn = std::make_unique<NPC>();
+        vn->id             = 0x40000000u + (uint32_t)ti * 128u + (uint32_t)local;
+        vn->type           = NPCType::Vendor;
+        vn->appearanceSeed = hashU32((uint32_t)ti * 5113u, 0x5E11u);
+        vn->townIndex      = ti;
+        vn->groundY        = (float)t.baseY + 1.0f;
+        glm::vec2 sp = nav.nearestWalkable(centre + glm::vec2(2.5f, -2.5f));
+        vn->homePos  = sp;
+        vn->position = glm::vec3(sp.x, vn->groundY, sp.y);
+        vn->idleTimer = 0.0f;
+        active.push_back(std::move(vn));
+        local++;
+    }
+
+    // One static "Stablemaster" near the town centre. Talking to it opens the
+    // vehicle trader (buy a horse / wagon / kite). Placed a few tiles from the
+    // merchant so the two don't overlap.
+    {
+        auto sm = std::make_unique<NPC>();
+        sm->id             = 0x40000000u + (uint32_t)ti * 128u + (uint32_t)local;
+        sm->type           = NPCType::Stablemaster;
+        sm->appearanceSeed = hashU32((uint32_t)ti * 7411u, 0x57A8u);
+        sm->townIndex      = ti;
+        sm->groundY        = (float)t.baseY + 1.0f;
+        glm::vec2 sp = nav.nearestWalkable(centre + glm::vec2(5.0f, 1.5f));
+        sm->homePos  = sp;
+        sm->position = glm::vec3(sp.x, sm->groundY, sp.y);
+        sm->idleTimer = 0.0f;
+        active.push_back(std::move(sm));
         local++;
     }
 
@@ -971,6 +1052,10 @@ void NpcDirector::spawnCamp(uint64_t key, const Camp& camp) {
         n->campKey       = key;
         n->homePos       = camp.center;
         n->groundY       = gy;
+        // Bandit camps grow deadlier the further they sit from spawn.
+        int tier = dangerTierAt(camp.center.x, camp.center.y);
+        n->level    = (uint8_t)std::min(enemyLevelForTier(tier), 60);
+        n->health   = defaultNpcHealth(NPCType::Enemy) * npcHpScaleForLevel(n->level);
         float ang = frand01(rng) * 6.2831853f, r = frand01(rng) * 6.0f;
         n->position = glm::vec3(camp.center.x + cosf(ang) * r, gy,
                                 camp.center.y + sinf(ang) * r);
@@ -1054,7 +1139,7 @@ void NpcDirector::applyPlayerDamageToNpc(NPC& n, uint32_t attackerId,
         // bandits (Enemy) drop loot — villagers and guards don't.
         if (!n.lootDropped && isHostileNpc(n.type) && g_server) {
             n.lootDropped = true;
-            g_server->spawnLootForKill(attackerId, n.position, n.boss);   // boss → legendary
+            g_server->spawnLootForKill(attackerId, n.position, n.boss, n.level, n.elite);  // boss → legendary; elite → extra rolls; loot scales with foe level
         }
     }
 }
@@ -1150,6 +1235,106 @@ void NpcDirector::stepEnemyProjectiles(float dt, const std::vector<DirectorPlaye
         enemyProjectiles.end());
 }
 
+void NpcDirector::stepBossSpecial(NPC& n, float dt,
+                                  const std::vector<DirectorPlayer>& players) {
+    const float SLAM_R   = 5.5f;     // impact radius
+    const float WIND     = 0.95f;    // telegraph window (seconds to step out)
+    auto nearestPlayerDist2 = [&]() {
+        float best = 1e18f;
+        for (const DirectorPlayer& p : players) {
+            glm::vec3 d = p.pos - n.position; d.y = 0.0f;
+            best = std::min(best, d.x * d.x + d.z * d.z);
+        }
+        return best;
+    };
+
+    // Enrage: once below 30% HP the boss flies into a frenzy (faster + harder hits,
+    // applied in the melee/ranged steps). One-shot trigger with a red burst cue.
+    if (!n.enraged) {
+        float maxHp = defaultNpcHealth(n.type) * npcHpScaleForLevel(n.level);
+        if (maxHp > 0.0f && n.health <= 0.30f * maxHp) {
+            n.enraged = true;
+            if (g_server) {
+                SpellEffectPacket se{};
+                se.casterID = n.id; se.kind = 2;          // reuse the AoE burst as the flash
+                se.x = n.position.x; se.y = n.position.y + 1.0f; se.z = n.position.z;
+                se.radius = 3.0f; se.ttl = 0.8f;
+                g_server->broadcast(PacketType::SpellEffect, &se, sizeof(se));
+            }
+        }
+    }
+
+    // Per-type special: caster bosses (Lich / Necromancer / Cultist) hurl a
+    // telegraphed bolt VOLLEY (a fan of projectiles) from range; melee bosses do
+    // the ground-slam. Both reuse the bossSlam wind-up/cooldown timers.
+    const bool caster = (n.type == NPCType::Cultist || n.type == NPCType::Necromancer ||
+                         n.type == NPCType::Lich);
+    auto nearestPlayer = [&]() -> const DirectorPlayer* {
+        const DirectorPlayer* best = nullptr; float bd = 1e18f;
+        for (const DirectorPlayer& p : players) {
+            glm::vec3 d = p.pos - n.position; d.y = 0.0f;
+            float d2 = d.x * d.x + d.z * d.z;
+            if (d2 < bd) { bd = d2; best = &p; }
+        }
+        return best;
+    };
+
+    if (n.bossSlamWind >= 0.0f) {                 // winding up → impact
+        n.bossSlamWind -= dt;
+        if (n.bossSlamWind <= 0.0f) {
+            if (caster) {                         // bolt volley — a 5-bolt fan at the target
+                const DirectorPlayer* tp = nearestPlayer();
+                if (tp) {
+                    glm::vec3 origin = n.position + glm::vec3(0.0f, 1.4f, 0.0f);
+                    glm::vec3 aim    = (tp->pos + glm::vec3(0.0f, 1.0f, 0.0f)) - origin;
+                    float len = glm::length(aim);
+                    if (len > 0.001f) {
+                        glm::vec3 fwd = aim / len;
+                        float bdmg = 8.0f * npcDamageScaleForLevel(n.level) * (n.enraged ? 1.5f : 1.0f);
+                        for (int k = -2; k <= 2; k++) {     // ±22° spread, yaw-rotated
+                            float a = glm::radians((float)k * 11.0f), cs = cosf(a), sn = sinf(a);
+                            glm::vec3 dir(fwd.x * cs - fwd.z * sn, fwd.y, fwd.x * sn + fwd.z * cs);
+                            spawnEnemyProjectile(origin, dir * 16.0f, bdmg);
+                        }
+                    }
+                }
+            } else {                              // ground slam — radius AoE
+                float dmg = 16.0f * npcDamageScaleForLevel(n.level) * (n.enraged ? 1.5f : 1.0f);
+                for (const DirectorPlayer& p : players) {
+                    glm::vec3 d = p.pos - n.position;
+                    if (d.x * d.x + d.z * d.z <= SLAM_R * SLAM_R && std::fabs(d.y) < 4.0f)
+                        pendingDamage.push_back({ p.id, dmg });
+                }
+                if (g_server) {                   // impact burst (kind 2 = AoE)
+                    SpellEffectPacket se{};
+                    se.casterID = n.id; se.kind = 2;
+                    se.x = n.position.x; se.y = n.position.y; se.z = n.position.z;
+                    se.radius = SLAM_R; se.ttl = 0.6f;
+                    g_server->broadcast(PacketType::SpellEffect, &se, sizeof(se));
+                }
+            }
+            n.bossSlamWind = -1.0f;
+            n.bossSlamCd   = caster ? 5.0f : 6.0f;
+        }
+        return;
+    }
+
+    n.bossSlamCd -= dt;
+    // Wind up the special when a player is in range (casters reach much further).
+    float trigR = caster ? 20.0f : 9.0f;
+    if (n.bossSlamCd <= 0.0f && nearestPlayerDist2() < trigR * trigR) {
+        n.bossSlamWind    = WIND;
+        n.attackAnimTimer = WIND;                 // a visible rear-up / cast wind
+        if (g_server) {                           // telegraph ring (kind 3)
+            SpellEffectPacket se{};
+            se.casterID = n.id; se.kind = 3;
+            se.x = n.position.x; se.y = n.position.y; se.z = n.position.z;
+            se.radius = caster ? 2.5f : SLAM_R; se.ttl = WIND;
+            g_server->broadcast(PacketType::SpellEffect, &se, sizeof(se));
+        }
+    }
+}
+
 void NpcDirector::stepBandit(NPC& n, float dt, World& world,
                              const std::vector<DirectorPlayer>& players) {
     groundSnap(n, world);
@@ -1162,6 +1347,17 @@ void NpcDirector::stepBandit(NPC& n, float dt, World& world,
     float chaseSpeed = 3.4f, dmgPlayer = 7.0f, dmgGuard = 8.0f, atkCd = 1.5f;
     if (n.type == NPCType::Brute)         { chaseSpeed = 2.6f; dmgPlayer = 18.0f; dmgGuard = 16.0f; atkCd = 2.2f; }
     else if (n.type == NPCType::Skeleton) { chaseSpeed = 3.8f; dmgPlayer = 6.0f;  dmgGuard = 7.0f;  atkCd = 1.3f; }
+    else if (n.type == NPCType::Zombie)   { chaseSpeed = 2.1f; dmgPlayer = 12.0f; dmgGuard = 10.0f; atkCd = 1.8f; }  // slow, heavy
+    else if (n.type == NPCType::Knight)   { chaseSpeed = 3.2f; dmgPlayer = 15.0f; dmgGuard = 14.0f; atkCd = 1.6f; }  // disciplined, hard-hitting
+    else if (n.type == NPCType::Ghoul)    { chaseSpeed = 4.4f; dmgPlayer = 7.0f;  dmgGuard = 6.0f;  atkCd = 0.9f; }  // fast, frenzied claws
+    else if (n.type == NPCType::Brigand)  { chaseSpeed = 3.3f; dmgPlayer = 13.0f; dmgGuard = 12.0f; atkCd = 1.5f; }  // hardened bandit
+    else if (n.type == NPCType::Wraith)   { chaseSpeed = 4.0f; dmgPlayer = 9.0f;  dmgGuard = 8.0f;  atkCd = 1.0f; }  // fast, chilling
+    else if (n.type == NPCType::Warlord)  { chaseSpeed = 3.4f; dmgPlayer = 22.0f; dmgGuard = 20.0f; atkCd = 1.9f; }  // armoured commander — heavy two-hander
+    else if (n.type == NPCType::StoneElemental) { chaseSpeed = 2.2f; dmgPlayer = 17.0f; dmgGuard = 15.0f; atkCd = 2.1f; }  // slow, crushing rock fists
+    // Higher-level foes (further from spawn) hit harder.
+    dmgPlayer *= npcDamageScaleForLevel(n.level);
+    // An enraged boss (below 30% HP) presses the attack — faster and harder.
+    if (n.enraged) { chaseSpeed *= 1.3f; dmgPlayer *= 1.5f; dmgGuard *= 1.5f; atkCd *= 0.7f; }
 
     // Acquire a target: the nearest aggro-range player outside a town, or a town
     // guard that has closed within striking distance — so a raiding or cornered
@@ -1197,6 +1393,8 @@ void NpcDirector::stepBandit(NPC& n, float dt, World& world,
     // Prefer whichever hostile is closer; the guard's range is tighter, so a
     // guard only wins the contest once it has genuinely closed in.
     const bool hitGuard = gTarget && (!pTarget || gBest < pBest);
+
+    n.aggro = (pTarget != nullptr);   // hunting a player this tick → show the alert
 
     if (pTarget || gTarget) {
         glm::vec2 cur(n.position.x, n.position.z);
@@ -1338,6 +1536,7 @@ void NpcDirector::stepRangedEnemy(NPC& n, float dt, World& world,
     // Only engage a target the caster can actually see; otherwise it holds its
     // room and loiters. Approaching only happens along a clear line, so it never
     // shoots — or charges — through a wall.
+    n.aggro = (tgt != nullptr && hasLineOfSight(world, n.position, tgt->pos));
     if (tgt && hasLineOfSight(world, n.position, tgt->pos)) {
         glm::vec2 cur(n.position.x, n.position.z);
         glm::vec2 d(tgt->pos.x - cur.x, tgt->pos.z - cur.y);
@@ -1354,7 +1553,7 @@ void NpcDirector::stepRangedEnemy(NPC& n, float dt, World& world,
             n.velocity = glm::vec3(0.0f);
             n.walking  = false;
             if (n.attackCooldown <= 0.0f) {
-                n.attackCooldown  = 2.0f;
+                n.attackCooldown  = n.enraged ? 1.3f : 2.0f;   // enraged caster bosses fire faster
                 n.attackAnimTimer = 0.6f;               // drives the cast pose on clients
                 // Fire a real bolt toward where the player is now. Damage is
                 // applied only when it arrives (stepEnemyProjectiles), so a
@@ -1364,7 +1563,9 @@ void NpcDirector::stepRangedEnemy(NPC& n, float dt, World& world,
                 glm::vec3 dir3   = aim - origin;
                 float len = glm::length(dir3);
                 if (len > 0.001f)
-                    spawnEnemyProjectile(origin, (dir3 / len) * 16.0f, 9.0f);
+                    spawnEnemyProjectile(origin, (dir3 / len) * 16.0f,
+                                         9.0f * npcDamageScaleForLevel(n.level)
+                                              * (n.enraged ? 1.5f : 1.0f));
             }
         }
         n.path.clear(); n.pathIndex = 0;
@@ -1461,7 +1662,7 @@ void NpcDirector::stepGuard(NPC& n, float dt, World& world,
                         banditTgt->dyingTimer = 2.0f;
                     }
                 } else {
-                    pendingDamage.push_back({ playerTgt, 6.0f });
+                    pendingDamage.push_back({ playerTgt, 6.0f * npcDamageScaleForLevel(n.level) });
                 }
             }
         }
@@ -1538,6 +1739,23 @@ std::string npcName(uint32_t seed) {
     };
     const int n = (int)(sizeof(kNames) / sizeof(kNames[0]));
     return kNames[seed % (uint32_t)n];
+}
+
+std::string rareName(uint32_t seed) {
+    static const char* kFirst[] = {
+        "Gorefang", "Mordreth", "Skarn", "Vexmaw", "Korgath", "Sythe", "Ulgrim",
+        "Naxxar", "Brundle", "Threx", "Galmoth", "Rendclaw", "Vorlash", "Hagra",
+        "Zuldak", "Crannox", "Mawgrim", "Sablefang", "Ironjaw", "Drakmor",
+    };
+    static const char* kEpithet[] = {
+        "the Cruel", "the Defiler", "Bonecrusher", "the Vile", "Dreadmaw",
+        "the Unhallowed", "Soulrender", "the Black", "Gravecaller", "the Ravenous",
+        "Doomspeaker", "the Wretched", "Skullsplitter", "the Forsaken",
+    };
+    uint32_t h = seed * 2654435761u + 0x9E3779B9u;
+    const int nf = (int)(sizeof(kFirst) / sizeof(kFirst[0]));
+    const int ne = (int)(sizeof(kEpithet) / sizeof(kEpithet[0]));
+    return std::string(kFirst[h % (uint32_t)nf]) + " " + kEpithet[(h / (uint32_t)nf) % (uint32_t)ne];
 }
 
 std::string npcFlavorLine(uint32_t seed, int variant) {

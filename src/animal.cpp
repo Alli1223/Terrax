@@ -646,6 +646,63 @@ static float buildChicken(QuadrupedRig& rig, std::mt19937& rng) {
     return 0.026f;
 }
 
+static float buildGoat(QuadrupedRig& rig, std::mt19937& rng) {
+    int coatRoll = (int)(rng() % 3u);
+    Voxel coat = coatRoll == 0 ? Voxel{225, 222, 212, 255}    // white
+               : coatRoll == 1 ? Voxel{150, 138, 120, 255}    // tan
+               :                 Voxel{ 92,  82,  72, 255};   // brown
+    const Voxel hoof  { 44, 40, 34, 255};
+    const Voxel eyeP  { 16, 14, 12, 255};
+    const Voxel horn  {210, 200, 175, 255};
+    const Voxel beard {236, 233, 224, 255};
+    const int BW = 12, BH = 12, BL = 22, LH = 9;
+
+    VoxelVolume* bv = new VoxelVolume(BW, BH, BL);
+    buildBody(bv, coat, coat, rng, 6, 3);                      // lean, level back
+    bv->updateMesh();
+    rig.body->volume   = bv;
+    rig.body->pivot    = glm::vec3(BW*0.5f, BH*0.5f, BL*0.5f);
+    rig.restY          = LH + BH*0.5f - 3.0f;
+    rig.body->localPos = glm::vec3(0.0f, rig.restY, 0.0f);
+
+    makeLeg(rig.flLeg, 4, LH, 4, coat, hoof, 2);
+    makeLeg(rig.frLeg, 4, LH, 4, coat, hoof, 2);
+    makeLeg(rig.blLeg, 4, LH, 4, coat, hoof, 2);
+    makeLeg(rig.brLeg, 4, LH, 4, coat, hoof, 2);
+    float lx = BW*0.5f - 2.5f, lz = BL*0.5f - 4.0f, hy = -BH*0.5f + 3.0f;
+    rig.flLeg->localPos = glm::vec3(-lx, hy,  lz);
+    rig.frLeg->localPos = glm::vec3( lx, hy,  lz);
+    rig.blLeg->localPos = glm::vec3(-lx, hy, -lz);
+    rig.brLeg->localPos = glm::vec3( lx, hy, -lz);
+
+    const int HW = 9, HH = 10, HD = 11;
+    VoxelVolume* hv = new VoxelVolume(HW, HH, HD);
+    roundBlob(hv, coat, coat, rng, 6, 1.0f);
+    box(hv, 3, 2, HD - 2, HW - 4, 5, HD - 1, coat);            // muzzle
+    hv->setVoxel(2, 7, HD - 1, eyeP);  hv->setVoxel(HW - 3, 7, HD - 1, eyeP);
+    box(hv, 0, 6, 3, 1, 8, 5, coat);                           // ears
+    box(hv, HW - 2, 6, 3, HW - 1, 8, 5, coat);
+    // Backward-swept horns — a short ridge curling up and back off the crown.
+    hv->setVoxel(3, HH - 1, 4, horn);  hv->setVoxel(HW - 4, HH - 1, 4, horn);
+    hv->setVoxel(3, HH - 1, 2, horn);  hv->setVoxel(HW - 4, HH - 1, 2, horn);
+    hv->setVoxel(3, HH - 2, 1, horn);  hv->setVoxel(HW - 4, HH - 2, 1, horn);
+    box(hv, 4, 0, HD - 2, HW - 5, 2, HD - 1, beard);           // chin beard
+    hv->updateMesh();
+    rig.head->volume   = hv;
+    rig.head->pivot    = glm::vec3(HW*0.5f, HH*0.5f, 1.0f);
+    rig.head->localPos = glm::vec3(0.0f, BH*0.5f - 2.0f, BL*0.5f - 2.0f);
+
+    const int TS = 3;
+    VoxelVolume* tv = new VoxelVolume(TS, TS, TS);
+    box(tv, 0, 0, 0, TS - 1, TS - 1, TS - 1, coat);
+    tv->updateMesh();
+    rig.tail->volume   = tv;
+    rig.tail->pivot    = glm::vec3(TS*0.5f, TS*0.5f, (float)TS);
+    rig.tail->localPos = glm::vec3(0.0f, BH*0.5f, -BL*0.5f + 1.0f);
+
+    return 0.040f;
+}
+
 float buildAnimalRig(QuadrupedRig& rig, AnimalSpecies species, uint32_t variant) {
     std::mt19937 rng(variant ? variant : 1u);
     float baseScale;
@@ -657,6 +714,7 @@ float buildAnimalRig(QuadrupedRig& rig, AnimalSpecies species, uint32_t variant)
         case AnimalSpecies::Fox:      baseScale = buildFox(rig, rng);      break;
         case AnimalSpecies::Pig:      baseScale = buildPig(rig, rng);      break;
         case AnimalSpecies::Chicken:  baseScale = buildChicken(rig, rng);  break;
+        case AnimalSpecies::Goat:     baseScale = buildGoat(rig, rng);     break;
         case AnimalSpecies::Sheep:
         default:                      baseScale = buildSheep(rig, rng);   break;
     }
@@ -672,6 +730,7 @@ float animalSpeed(AnimalSpecies species) {
         case AnimalSpecies::Chicken:  return 1.8f;
         case AnimalSpecies::Cow:      return 1.5f;
         case AnimalSpecies::Pig:      return 1.8f;
+        case AnimalSpecies::Goat:     return 1.9f;
         case AnimalSpecies::Sheep:
         default:                      return 1.6f;
     }
@@ -689,18 +748,20 @@ static bool isSkittish(AnimalSpecies s) {
 static AnimalSpecies pickSpecies(int biome, std::mt19937& rng) {
     static const AnimalSpecies grassland[] = {
         AnimalSpecies::Sheep,  AnimalSpecies::Cow,     AnimalSpecies::Pig,
-        AnimalSpecies::Rabbit, AnimalSpecies::Chicken, AnimalSpecies::Deer };
+        AnimalSpecies::Rabbit, AnimalSpecies::Chicken, AnimalSpecies::Deer,
+        AnimalSpecies::Goat };
     static const AnimalSpecies woodland[] = {
         AnimalSpecies::Squirrel, AnimalSpecies::Fox, AnimalSpecies::Deer,
         AnimalSpecies::Rabbit,   AnimalSpecies::Pig };
     static const AnimalSpecies sparse[] = {
-        AnimalSpecies::Rabbit, AnimalSpecies::Fox, AnimalSpecies::Deer };
+        AnimalSpecies::Rabbit, AnimalSpecies::Fox, AnimalSpecies::Deer,
+        AnimalSpecies::Goat };
     const AnimalSpecies* set;
     uint32_t n;
     switch (biome) {
         case 1: case 6: set = woodland;  n = 5; break;   // Forest, Jungle
-        case 0: case 5: set = grassland; n = 6; break;   // Plains, Savanna
-        default:        set = sparse;    n = 3; break;   // Desert / Mtn / Tundra
+        case 0: case 5: set = grassland; n = 7; break;   // Plains, Savanna
+        default:        set = sparse;    n = 4; break;   // Desert / Mtn / Tundra
     }
     return set[rng() % n];
 }

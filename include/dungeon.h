@@ -11,7 +11,7 @@ class Chunk;
 // The dungeon archetypes. A new type is one subclass + one line in
 // makeDungeon() — the same polymorphic rule the Building/Projectile
 // hierarchies follow (see CLAUDE.md). Append new values only.
-enum class DungeonKind : uint8_t { Crypt = 0, Cave = 1, Ruins = 2, Castle = 3, Count };
+enum class DungeonKind : uint8_t { Crypt = 0, Cave = 1, Ruins = 2, Castle = 3, Barrow = 4, Count };
 
 // The carved silhouette of a chamber within its mn..mx bounding box. Non-rect
 // shapes leave the surrounding rock as natural curved/angled walls.
@@ -99,9 +99,13 @@ protected:
     void buildLayout(uint32_t seed, glm::ivec2 anchorXZ, int surfaceY,
                      int roomCount, int roomMin, int roomMax, bool wander);
     // Roster helper: `perRoom` minions in each room, a boss in the boss room,
-    // and a couple of guards around the surface mouth.
+    // and a champion in some chambers. Minions are drawn from `minionType` plus
+    // the optional `minionType2` (255 = none) so a dungeon is populated by a
+    // mix of two species instead of one.
     void rosterFill(std::vector<DungeonSpawn>& out, uint32_t seed,
-                    uint8_t minionType, uint8_t bossType, int perRoom) const;
+                    uint8_t minionType, uint8_t bossType, int perRoom,
+                    uint8_t minionType2 = 255, uint8_t minionType3 = 255,
+                    uint8_t minionType4 = 255) const;
 };
 
 // Factory — the only place that maps a DungeonKind to its concrete class.

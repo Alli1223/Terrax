@@ -128,6 +128,8 @@ void GL_APIENTRY glBlendFunc(GLenum,GLenum) {}
 void GL_APIENTRY glLineWidth(GLfloat) {}
 void GL_APIENTRY glPolygonMode(GLenum,GLenum) {}
 void GL_APIENTRY glScissor(GLint,GLint,GLsizei,GLsizei) {}
+void GL_APIENTRY glReadPixels(GLint,GLint,GLsizei,GLsizei,GLenum,GLenum,void*) {}
+void GL_APIENTRY glPixelStorei(GLenum,GLint) {}
 }
 
 bool gl_load() { return true; }

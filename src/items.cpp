@@ -82,6 +82,111 @@ VoxelVolume* ClothingItem::buildVoxelVolume() {
     return v;
 }
 
+// --- ConsumableItem ---------------------------------------------------------
+
+ConsumableItem::ConsumableItem(std::string n, ConsumableKind k)
+    : Item(std::move(n), ItemKind::Consumable), consumable(k) {
+    slot = EquipSlot::None;   // never equipped
+    switch (k) {
+        case ConsumableKind::HealthPotion:
+            restoreHealthPct   = 0.5f;  liquidColor = {210,  55,  55, 255}; break;  // red
+        case ConsumableKind::ManaPotion:
+            restoreResourcePct = 0.6f;  liquidColor = { 70, 110, 220, 255}; break;  // blue
+        case ConsumableKind::FoodRation:
+            buffPowerPct = 0.25f; buffSeconds = 300.0f;                            // +25% power, 5 min
+            liquidColor = {170, 110,  60, 255}; break;                            // roast brown
+    }
+}
+
+VoxelVolume* ConsumableItem::buildVoxelVolume() {
+    if (consumable == ConsumableKind::FoodRation) {
+        // A roast on a platter — a rounded brown meat loaf with a darker crust.
+        VoxelVolume* v = new VoxelVolume(8, 6, 8);
+        const Voxel meat  = liquidColor;                  // roast brown
+        const Voxel crust = {120,  72,  40, 255};
+        const Voxel bone  = {225, 220, 205, 255};
+        for (int x = 1; x <= 6; x++)
+            for (int z = 1; z <= 6; z++)
+                for (int y = 0; y <= 3; y++) {
+                    bool edge = (x == 1 || x == 6 || z == 1 || z == 6 || y == 3);
+                    v->setVoxel(x, y, z, edge ? crust : meat);
+                }
+        v->setVoxel(0, 1, 3, bone); v->setVoxel(7, 1, 4, bone);   // little bone ends
+        return v;
+    }
+    // A small glass potion bottle: a liquid-filled rounded body, a narrow
+    // glass neck and a cork stopper. Coloured by the liquid (red / blue).
+    VoxelVolume* v = new VoxelVolume(6, 9, 6);
+    const Voxel glass = {185, 205, 210, 255};
+    const Voxel cork  = {120,  85,  50, 255};
+    for (int x = 1; x <= 4; x++)            // body (liquid behind a glass rim)
+        for (int z = 1; z <= 4; z++)
+            for (int y = 0; y <= 4; y++) {
+                bool rim = (x == 1 || x == 4) && (z == 1 || z == 4);
+                v->setVoxel(x, y, z, rim ? glass : liquidColor);
+            }
+    for (int x = 2; x <= 3; x++)            // neck
+        for (int z = 2; z <= 3; z++)
+            for (int y = 5; y <= 6; y++)
+                v->setVoxel(x, y, z, glass);
+    for (int x = 2; x <= 3; x++)            // cork
+        for (int z = 2; z <= 3; z++)
+            for (int y = 7; y <= 8; y++)
+                v->setVoxel(x, y, z, cork);
+    return v;
+}
+
+std::unique_ptr<ConsumableItem> makeConsumable(ConsumableKind kind) {
+    std::string nm = (kind == ConsumableKind::HealthPotion) ? "Health Potion"
+                   : (kind == ConsumableKind::ManaPotion)   ? "Mana Potion"
+                                                            : "Hearty Meal";
+    auto p = std::make_unique<ConsumableItem>(std::move(nm), kind);
+    p->level  = 1;
+    p->rarity = ItemRarity::Common;
+    return p;
+}
+
+// --- VehicleItem ------------------------------------------------------------
+
+const char* vehicleKindName(VehicleKind k) {
+    switch (k) {
+        case VehicleKind::Horse: return "Horse";
+        case VehicleKind::Wagon: return "Wagon";
+        case VehicleKind::Kite:  return "Kite";
+        default:                 return "Vehicle";
+    }
+}
+
+VehicleItem::VehicleItem(std::string n, VehicleKind k)
+    : Item(std::move(n), ItemKind::Vehicle), vehicle(k) {
+    slot = EquipSlot::None;   // never equipped
+    switch (k) {
+        case VehicleKind::Horse: primaryColor = {120,  82,  48, 255}; accentColor = { 60,  40,  26, 255}; break; // chestnut + leather
+        case VehicleKind::Wagon: primaryColor = {150, 110,  66, 255}; accentColor = { 84,  56,  32, 255}; break; // timber + iron
+        case VehicleKind::Kite:  primaryColor = {200,  70,  70, 255}; accentColor = {230, 200,  90, 255}; break; // red sail + gold
+        default: break;
+    }
+}
+
+VoxelVolume* VehicleItem::buildVoxelVolume() {
+    // A small token mesh — the bag draws its own 2D icon (drawItemIcon) and the
+    // deployed vehicle uses a dedicated shared mesh, so this only needs to exist.
+    VoxelVolume* v = new VoxelVolume(6, 6, 6);
+    const Voxel body = primaryColor;
+    for (int x = 1; x <= 4; x++)
+        for (int z = 1; z <= 4; z++)
+            for (int y = 0; y <= 3; y++)
+                v->setVoxel(x, y, z, body);
+    return v;
+}
+
+std::unique_ptr<VehicleItem> makeVehicleItem(VehicleKind kind) {
+    auto p = std::make_unique<VehicleItem>(vehicleKindName(kind), kind);
+    p->level  = 1;
+    p->rarity = ItemRarity::Common;
+    return p;
+}
+
 // --- WeaponItem -------------------------------------------------------------
 
 WeaponItem::WeaponItem(std::string n, WeaponType t)
@@ -93,6 +198,12 @@ WeaponItem::WeaponItem(std::string n, WeaponType t)
         case WeaponType::Bow:    attackPower  =  8.0f; break;
         case WeaponType::Staff:  attackPower  =  6.0f; break;
         case WeaponType::Shield: defenseValue =  6.0f; break;
+        case WeaponType::Dagger: attackPower  =  8.0f; break;   // light + fast
+        case WeaponType::Mace:   attackPower  = 13.0f; break;   // heavy bludgeon
+        case WeaponType::Spear:  attackPower  = 11.0f; break;   // reach
+        case WeaponType::Greatsword: attackPower = 17.0f; break; // heavy two-hander
+        case WeaponType::Warhammer:  attackPower = 16.0f; break; // crushing two-hander
+        case WeaponType::Halberd:    attackPower = 14.0f; break; // long-reach polearm
         default: break;
     }
 }
@@ -278,6 +389,12 @@ const char* weaponTypeName(WeaponType t) {
         case WeaponType::Axe:    return "Axe";
         case WeaponType::Hoe:    return "Hoe";
         case WeaponType::Scythe: return "Scythe";
+        case WeaponType::Dagger: return "Dagger";
+        case WeaponType::Mace:   return "Mace";
+        case WeaponType::Spear:  return "Spear";
+        case WeaponType::Greatsword: return "Greatsword";
+        case WeaponType::Warhammer:  return "Warhammer";
+        case WeaponType::Halberd:    return "Halberd";
         default:                 return "";
     }
 }

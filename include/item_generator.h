@@ -1,6 +1,7 @@
 #pragma once
 #include "items.h"
 #include <memory>
+#include <vector>
 #include <cstdint>
 
 // ---------------------------------------------------------------------------
@@ -41,6 +42,21 @@ std::unique_ptr<Item> generateRandomItem(uint32_t seed, int targetLevel = 1);
 // Generate a guaranteed-Legendary item (re-rolls until a legendary turns up).
 // Used for dungeon-boss drops.
 std::unique_ptr<Item> generateLegendaryItem(uint32_t seed, int targetLevel = 1);
+
+// A themed armour set's public identity: the name, material tier and the
+// signature palette every piece rolled under it inherits. Surfaced by the
+// asset catalog (`make catalog`); the authoritative table is KNOWN_SETS in
+// item_generator.cpp.
+struct ArmorSetInfo {
+    const char*  name;
+    ClothingTier tier;
+    Voxel        primary;
+    Voxel        accent;
+};
+
+// The full themed-set table, in declaration order. A reference for content
+// work — which named sets exist, their tier and palette.
+const std::vector<ArmorSetInfo>& armorSetCatalog();
 
 // Roll a single themed-set clothing piece. The generator picks a random
 // set from a fixed table (Wolfblood / Frostweave / Dragonscale / ...),

@@ -11,7 +11,7 @@ class World;
 
 // The wildlife species. Sheep and Rabbit ship in phase 1; the rest follow.
 enum class AnimalSpecies : uint8_t {
-    Sheep = 0, Cow, Rabbit, Squirrel, Deer, Fox, Pig, Chicken
+    Sheep = 0, Cow, Rabbit, Squirrel, Deer, Fox, Pig, Chicken, Goat
 };
 
 // A wandering wild animal. Server-authoritative, like NPC and Ferry: the server

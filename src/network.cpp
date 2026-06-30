@@ -218,24 +218,27 @@ static void itemToLootPacket(const Item* item, LootSpawnPacket& pkt) {
     }
 }
 
-void NetworkServer::spawnLootForKill(uint32_t attackerId, const glm::vec3& pos, bool legendary) {
-    int level = getPlayerLevel(attackerId);
+void NetworkServer::spawnLootForKill(uint32_t attackerId, const glm::vec3& pos,
+                                     bool legendary, int enemyLevel, bool elite) {
+    int level = std::max(getPlayerLevel(attackerId), enemyLevel);
     static std::mt19937 rng((uint32_t)std::chrono::steady_clock::now()
                               .time_since_epoch().count());
+    // Elites drop a little more than trash (but well short of a boss's haul) and
+    // roll a couple of levels higher, so a starred kill feels worth the fight.
     int dropCount = legendary ? std::uniform_int_distribution<int>(2, 4)(rng)
+                  : elite     ? std::uniform_int_distribution<int>(2, 3)(rng)
                               : std::uniform_int_distribution<int>(1, 3)(rng);
+    if (elite) level += 2;
     auto frand = [&](float lo, float hi) {
         return std::uniform_real_distribution<float>(lo, hi)(rng);
     };
 
     std::vector<LootSpawnPacket> toBroadcast;
-    toBroadcast.reserve(dropCount);
+    toBroadcast.reserve(dropCount + 1);
     {
         std::lock_guard<std::mutex> lock(lootMutex);
-        for (int i = 0; i < dropCount; i++) {
-            auto item = legendary ? generateLegendaryItem(rng(), level + 2)
-                                  : generateRandomItem(rng(), level);
-            if (!item) continue;
+        auto pushDrop = [&](std::unique_ptr<Item> item) {
+            if (!item) return;
             LootSpawnPacket pkt {};
             pkt.dropId = nextLootId++;
             pkt.x = pos.x + frand(-0.4f, 0.4f);
@@ -248,7 +251,13 @@ void NetworkServer::spawnLootForKill(uint32_t attackerId, const glm::vec3& pos, 
                 std::chrono::steady_clock::now().time_since_epoch()).count();
             activeLoot.push_back(entry);
             toBroadcast.push_back(pkt);
-        }
+        };
+        for (int i = 0; i < dropCount; i++)
+            pushDrop(legendary ? generateLegendaryItem(rng(), level + 2)
+                               : generateRandomItem(rng(), level));
+        // Bosses (legendary drops) always also yield a themed armour-SET piece —
+        // a recognisable trophy you can only really earn by killing them.
+        if (legendary) pushDrop(generateSetClothing(rng(), level + 1));
     }
     for (auto& pkt : toBroadcast)
         broadcast(PacketType::LootSpawn, &pkt, sizeof(pkt));
@@ -921,7 +930,8 @@ void NetworkClient::update(World& world, std::unordered_map<uint32_t, RemotePlay
                 rp.targetYaw      = p->yaw;
                 rp.lanternHeld    = p->lanternHeld != 0;
                 rp.shieldRaised   = p->shieldRaised != 0;
-                
+                rp.vehicleKind    = p->vehicleKind;
+
                 if (rp.lastUpdate == 0) {
                     rp.position = rp.targetPosition;
                     rp.pitch = rp.targetPitch;

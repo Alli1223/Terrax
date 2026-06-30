@@ -13,6 +13,7 @@
 #include "interactable.h"
 #include "role.h"
 #include "ability.h"
+#include "quest.h"
 #include <glm/glm.hpp>
 #include <string>
 #include <unordered_map>
@@ -90,10 +91,23 @@ struct AppContext {
     Player*     localPlayer = nullptr;   // GameObject wrapper over camera + rig
     char playerName[MAX_PLAYER_NAME + 1] = {};
     float playerYaw        = 0.0f;
+
+    // The personal vehicle the player currently has deployed (horse / wagon /
+    // kite), or None. Toggled by right-clicking a VehicleItem in the bag; read
+    // by the movement code and the renderer, and networked so others see it.
+    VehicleKind activeVehicle = VehicleKind::None;
+    // Pull-along wagon (when activeVehicle == Wagon): a mobile storage stash and
+    // its trailing world position (lerped behind the player each frame).
+    Inventory wagonStash;
+    bool       showStash = false;       // wagon storage window open
+    glm::vec3  wagonPos{0.0f};
+    float      wagonYaw = 0.0f;
+    bool       wagonPosInit = false;    // false until first placed behind player
     bool spawnedOnGround   = false;
     int  spawnX = 8, spawnZ = 8;   // world column the player spawns at
     float playerHealth     = 1.0f;   // fraction 0..1 of maxHpScaled
     float regenDelay       = 0.0f;   // delay before out-of-combat health regen
+    float potionCooldown   = 0.0f;   // shared consumable ("potion sickness") cooldown, secs
 
     // --- Role / archetype ---
     // Picked in the character editor. Drives body size, wearable armour tiers,
@@ -179,6 +193,20 @@ struct AppContext {
     bool showInventory       = false;   // I key
     bool showCharacterLoadout = false;  // C key
     bool showTrainer          = false;  // Class Trainer NPC window (role swap)
+    bool showQuestGiver       = false;  // Quest Giver NPC window (town quest board)
+    int  questGiverTown       = -1;     // town index whose board is shown
+    bool showVendor           = false;  // Vendor NPC window (buy/sell shop)
+    int  vendorTown           = -1;     // town index whose shop is shown
+    bool showStable           = false;  // Stablemaster NPC window (vehicle trader)
+    int  stableTown           = -1;     // town index whose stable is shown
+    bool showQuestLog         = false;  // J — quest journal panel
+    std::vector<Quest> activeQuests;    // quests the player has accepted
+    int  playerGold           = 0;      // currency earned from quests / kills (Track G)
+    std::unordered_set<int> discoveredDungeons;  // dungeon indices the player has entered
+    // Dungeon index -> seconds the "Cleared" marker lingers before the dungeon
+    // re-populates (its pack already respawns on re-entry; this just keeps the map
+    // honest, reverting the label to "available" so the player knows to return).
+    std::unordered_map<int, float> clearedDungeons;
 
     // --- Progression ---
     int   playerLevel = 1;
@@ -201,6 +229,18 @@ struct AppContext {
         float       lifeTime = 3.5f;   // seconds remaining
     };
     std::vector<HudToast> toasts;
+
+    // Floating combat text — damage numbers that rise off an enemy as it is hit
+    // and fade out. Spawned client-side from each enemy's per-tick health delta
+    // (no packet needed); aged + pruned in updateGameplay, drawn in the play HUD.
+    struct FloatingText {
+        glm::vec3   worldPos{0.0f};
+        std::string text;
+        Voxel       color = {255, 240, 200, 255};
+        float       age   = 0.0f;
+        float       life  = 1.1f;    // total seconds before it fades out
+    };
+    std::vector<FloatingText> floatingTexts;
 
     // --- Camera / mouse ---
     Camera camera;
@@ -240,6 +280,8 @@ struct AppContext {
     char chatInput[MAX_CHAT_TEXT + 1] = {};
     bool showPlayerList   = false;
     bool showDebugOverlay = true;    // F3 — session/debug stats overlay
+    bool requestScreenshot = false;  // F2 — capture the next rendered frame to a PNG
+    std::string screenshotTag;       // folded into the screenshot filename
 
     // --- Character / house editor ---
     float editorRotX = 0.0f, editorRotY = 0.0f;
@@ -323,6 +365,8 @@ struct AppContext {
 
     // --- NPC interaction ---
     bool        interactPressed = false;   // E pressed this frame (set by input)
+    uint32_t    targetNpcId       = 0;     // sticky combat target (network id; 0 = none)
+    bool        cycleTargetPressed = false; // T pressed this frame (cycle target)
     std::string talkTargetName;            // villager currently faced ("" = none)
     uint32_t    talkTargetSeed = 0;
     glm::vec3   talkTargetPos{0.0f};

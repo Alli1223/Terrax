@@ -442,10 +442,10 @@ VegetationType Vegetation::pick(int biome, int wx, int wz) {
         case 2:  maxCov = 0.14f; break;   // Desert
         case 3:  maxCov = 0.30f; break;   // Mountains
         case 4:  maxCov = 0.26f; break;   // Tundra
-        case 5:  maxCov = 0.50f; break;   // Savanna
-        case 1:  maxCov = 0.62f; break;   // Forest
-        case 6:  maxCov = 0.66f; break;   // Jungle
-        default: maxCov = 0.62f; break;   // Plains
+        case 5:  maxCov = 0.58f; break;   // Savanna
+        case 1:  maxCov = 0.68f; break;   // Forest
+        case 6:  maxCov = 0.72f; break;   // Jungle
+        default: maxCov = 0.72f; break;   // Plains — lusher open meadows
     }
     if (cov > clump * maxCov) return VegetationType::None;
 

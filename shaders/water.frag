@@ -209,9 +209,10 @@ void main() {
                         clamp(u_sunDir.y * 2.0, 0.0, 1.0));
     result += (spec + sparkle * 0.7) * sunGlint;
 
-    // Saturation boost — eased back toward grey as a storm sets in.
+    // Saturation boost — eased back toward grey as a storm sets in. Kept a touch
+    // calmer than before so open water reads less neon next to muted snow/sand.
     float lum = dot(result, vec3(0.299, 0.587, 0.114));
-    result = mix(vec3(lum), result, mix(1.45, 1.02, u_weather));
+    result = mix(vec3(lum), result, mix(1.30, 1.02, u_weather));
 
     // Warm crest sheen
     result = mix(result, result * vec3(1.06, 1.03, 0.96), crestT * sunFactor * 0.35);

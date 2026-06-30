@@ -19,13 +19,31 @@ struct Town;
 // Append new values only — npcType is serialised by value in NPCState.
 enum class NPCType : uint8_t { Villager = 0, Enemy = 1, Guard = 2, Farmer = 3,
                               Skeleton = 4, Brute = 5, Cultist = 6,
-                              Trainer = 7 };   // static town "Class Trainer" — role swap
+                              Trainer = 7,      // static town "Class Trainer" — role swap
+                              Questgiver = 8,   // static town quest-giver
+                              Zombie = 9,       // shambling undead melee (crypts/ruins)
+                              Knight = 10,      // fallen plate knight — sword + shield (castles)
+                              Vendor = 11,      // static town merchant — buy/sell gear
+                              Necromancer = 12, // ranged undead caster — staff bolts (ruins boss)
+                              Ghoul = 13,       // fast, fragile undead melee — claws
+                              Brigand = 14,     // tougher bandit — axe, more HP (caves/camps)
+                              Wraith = 15,      // fast ethereal undead — chilling claws
+                              Lich = 16,        // undead arch-caster — frost bolts (crypt boss)
+                              Warlord = 17,     // armoured war-commander — greatsword (castle boss)
+                              FireElemental = 18,   // conjured being of living fire — hurls bolts (ruins)
+                              StoneElemental = 19,  // animated rock guardian — slow, tanky melee (castle)
+                              Stablemaster = 20 }; // static town trader — sells personal vehicles (horse/wagon/kite)
 
 // True for hostile NPC types — the town watch fights them and the player can
 // kill them for loot/XP. Extended as new enemy types are added.
 inline bool isHostileNpc(NPCType t) {
     return t == NPCType::Enemy || t == NPCType::Skeleton ||
-           t == NPCType::Brute || t == NPCType::Cultist;
+           t == NPCType::Brute || t == NPCType::Cultist ||
+           t == NPCType::Zombie || t == NPCType::Knight ||
+           t == NPCType::Necromancer || t == NPCType::Ghoul ||
+           t == NPCType::Brigand || t == NPCType::Wraith ||
+           t == NPCType::Lich || t == NPCType::Warlord ||
+           t == NPCType::FireElemental || t == NPCType::StoneElemental;
 }
 
 // Spawn health by type — brutes are tanky, skeletons brittle.
@@ -34,9 +52,34 @@ inline float defaultNpcHealth(NPCType t) {
         case NPCType::Brute:    return 220.0f;
         case NPCType::Skeleton: return 60.0f;
         case NPCType::Cultist:  return 90.0f;
-        default:                return 100.0f;   // bandits and the rest
+        case NPCType::Zombie:      return 130.0f;   // slow but soaks hits
+        case NPCType::Knight:      return 200.0f;   // armoured, near-boss durability
+        case NPCType::Necromancer: return 140.0f;   // caster boss — chunky
+        case NPCType::Ghoul:       return 70.0f;    // fast and fragile
+        case NPCType::Brigand:     return 150.0f;   // a hardened bandit
+        case NPCType::Wraith:      return 80.0f;    // ethereal, brittle
+        case NPCType::Lich:        return 180.0f;   // undead arch-caster boss
+        case NPCType::Warlord:     return 260.0f;   // heavily armoured boss
+        case NPCType::FireElemental:  return 110.0f; // a caster — burns bright but brittle
+        case NPCType::StoneElemental: return 210.0f; // a rock guardian — slow and very tanky
+        default:                   return 100.0f;   // bandits and the rest
     }
 }
+
+// --- Level scaling (Track B) -------------------------------------------------
+// An enemy's level is derived from the danger tier of its spawn point (see
+// dangerTierAt in world.h): tier 1 (home) → level 1, each further tier adds 5,
+// so the outermost tier 12 fields ~level 56 foes. Bosses sit a few levels above
+// the trash around them.
+inline int enemyLevelForTier(int tier) {
+    int lv = 1 + (tier - 1) * 5;
+    return lv < 1 ? 1 : lv;
+}
+
+// HP / damage multipliers as a function of enemy level. Gentle linear ramps so a
+// level-50 foe is meaningfully tankier and hits harder, without being absurd.
+inline float npcHpScaleForLevel(int level)     { return 1.0f + 0.12f * (float)(level - 1); }
+inline float npcDamageScaleForLevel(int level) { return 1.0f + 0.08f * (float)(level - 1); }
 
 // A non-player character. Server-authoritative, exactly like Ferry: the server
 // owns motion / AI and broadcasts NPCState packets; each client creates one NPC
@@ -56,6 +99,7 @@ public:
 
     NPCType  type           = NPCType::Villager;
     float    health         = 100.0f;
+    uint8_t  level          = 1;      // hostile-NPC level (from spawn danger tier)
     uint32_t appearanceSeed = 0;
     bool     walking        = false;
     bool     sitting        = false;  // server→client (flags bit 3): seated pose
@@ -109,6 +153,12 @@ public:
     // NPC's death so we don't spawn loot on every overkill swing.
     bool      lootDropped = false;
     bool      boss        = false;  // dungeon boss — drops legendary loot on death
+    bool      elite       = false;  // promoted elite minion — tougher, better loot, starred
+    bool      rare        = false;  // named "rare" spawn — uncommon, purple plate, top loot
+    bool      enraged     = false;  // boss below 30% HP — frenzied: faster + hits harder
+    bool      aggro       = false;  // currently hunting a player — drives the threat alert
+    float     bossSlamCd   = 3.0f;  // server: cooldown until the boss can slam again
+    float     bossSlamWind = -1.0f; // server: >=0 while winding up a slam (telegraph), then impact
 
     // Read-only access for systems that need to inspect a dying NPC's
     // voxels (e.g. the death-explosion particle spawner).
@@ -232,6 +282,9 @@ private:
     void despawnCamp(uint64_t key);
     void stepBandit(NPC& n, float dt, World& world,
                     const std::vector<DirectorPlayer>& players);
+    // Dungeon-boss signature move: a telegraphed ground-slam that booms an AoE on
+    // nearby players after a brief wind-up (so they can step out of the ring).
+    void stepBossSpecial(NPC& n, float dt, const std::vector<DirectorPlayer>& players);
     void stepRangedEnemy(NPC& n, float dt, World& world,
                          const std::vector<DirectorPlayer>& players);
 
@@ -275,4 +328,8 @@ private:
 
 // Deterministic procedural villager identity, keyed off the appearance seed.
 std::string npcName(uint32_t seed);
+
+// Deterministic menacing name for a "rare" elite ("Gorefang the Cruel"), keyed
+// off its appearance seed so client + server agree without an extra packet.
+std::string rareName(uint32_t seed);
 std::string npcFlavorLine(uint32_t seed, int variant);

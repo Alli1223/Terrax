@@ -7,6 +7,7 @@ layout(location = 3) in float aMaterialID;
 layout(location = 4) in float aSkyLight;
 layout(location = 5) in float aBlockLight;
 layout(location = 7) in float aSnowable;    // 1.0 = top of a roof/chimney, accepts snow
+layout(location = 9) in float aAO;          // per-vertex ambient occlusion (1 = open)
 
 uniform mat4 model;
 uniform mat4 view;
@@ -22,6 +23,7 @@ out vec3  FragNormal;
 out vec4  FragPosLightSpace;
 out float Snowable;
 out float MaterialID;
+out float AO;
 
 void main() {
     vec4 worldPos = model * vec4(aPos, 1.0);
@@ -33,6 +35,7 @@ void main() {
     FragPosLightSpace = lightSpaceMatrix * worldPos;
     Snowable          = aSnowable;
     MaterialID        = aMaterialID;
+    AO                = aAO;
 
     gl_ClipDistance[0] = dot(worldPos.xyz, u_clipPlane.xyz) + u_clipPlane.w;
     gl_Position        = projection * view * worldPos;

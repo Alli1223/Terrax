@@ -33,6 +33,20 @@ void setWorldSeed(unsigned int seed) {
 
 unsigned int worldSeed() { return g_worldSeed; }
 
+// ---- Danger tiers ----
+// Pure distance-from-origin model (see world.h). No seed dependence: the tier
+// is the same in every world so progression reads consistently.
+float distanceFromSpawn(float worldX, float worldZ) {
+    return std::sqrt(worldX * worldX + worldZ * worldZ);
+}
+
+int dangerTierAt(float worldX, float worldZ) {
+    float dist = distanceFromSpawn(worldX, worldZ);
+    if (dist <= DANGER_SAFE_RADIUS) return 1;
+    int tier = 1 + (int)((dist - DANGER_SAFE_RADIUS) / DANGER_TIER_WIDTH);
+    return tier < 1 ? 1 : (tier > DANGER_MAX_TIER ? DANGER_MAX_TIER : tier);
+}
+
 // ---- Biome system ----
 
 

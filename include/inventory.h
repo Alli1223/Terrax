@@ -24,6 +24,11 @@ public:
     Item* addItem(std::unique_ptr<Item> item);
     bool  removeItem(Item* item);
 
+    // Detach an item from the bag WITHOUT destroying it, transferring ownership
+    // to the caller (auto-unequips it first). Returns null if not found. Used to
+    // move items between inventories (e.g. into the wagon stash).
+    std::unique_ptr<Item> extractItem(Item* item);
+
     // Swap the contents of two grid cells. Either or both can be empty.
     // No-op if indices are out of range or equal.
     void  swap(int i, int j);

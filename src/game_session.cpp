@@ -134,10 +134,14 @@ static void serverThreadMain(unsigned short port) {
                     NPCStatePacket np{};
                     np.entityId       = n->id;
                     np.npcType        = (uint8_t)n->type;
+                    np.level          = n->level;
                     np.flags          = (uint8_t)((n->walking ? 1 : 0)
                                        | (n->attackAnimTimer > 0.0f ? 2 : 0)
                                        | (n->dyingTimer > 0.0f ? 4 : 0)
-                                       | (n->sitting ? 8 : 0));
+                                       | (n->sitting ? 8 : 0)
+                                       | (n->elite ? 16 : 0)
+                                       | (n->rare ? 32 : 0)
+                                       | (n->aggro ? 64 : 0));
                     np.appearanceSeed = n->appearanceSeed;
                     np.x = n->position.x; np.y = n->position.y; np.z = n->position.z;
                     np.yaw = n->yaw;

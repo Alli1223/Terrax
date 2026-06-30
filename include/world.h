@@ -72,6 +72,8 @@ struct Vertex {
                          // proportion to u_snowAmount so roofs go white when snowing.
     float waterDepth;    // [0,1] sea-surface→floor depth, water top faces only. The
                          // water shader fades deep ocean to opaque so its floor is hidden.
+    float ao;            // [0,1] per-vertex ambient occlusion (1 = open, <1 darkened in
+                         // concave corners); baked from neighbour solidity at mesh time.
 };
 
 struct ChunkPos {
@@ -227,6 +229,23 @@ SurfaceSample sampleSurface(int wx, int wz);
 int sampleSurfaceSolid(int wx, int wz);
 
 unsigned int  worldSeed();
+
+// --- Danger tiers ------------------------------------------------------------
+// The world gets more dangerous the further you travel from spawn (the home
+// town sits near the world origin). The danger tier is a pure function of the
+// distance from the origin (0,0), so client and server agree with no
+// networking — exactly like the town / dungeon plans. Tier 1 is the safe
+// starting zone; the tier rises by one every DANGER_TIER_WIDTH blocks beyond
+// DANGER_SAFE_RADIUS, capped at DANGER_MAX_TIER. Enemy levels, loot levels and
+// (later) quest target regions are derived from this tier.
+constexpr int   DANGER_MAX_TIER    = 12;
+constexpr float DANGER_SAFE_RADIUS = 800.0f;     // radius of the tier-1 home zone
+constexpr float DANGER_TIER_WIDTH  = 2200.0f;    // blocks per tier past the safe zone
+
+// Danger tier (1..DANGER_MAX_TIER) at a world XZ.
+int   dangerTierAt(float worldX, float worldZ);
+// Straight-line distance in blocks from spawn (the world origin).
+float distanceFromSpawn(float worldX, float worldZ);
 
 // Rebuild a lazily-built, seed-derived cache whenever the world seed changes.
 // `built` records the seed the cache was last built from (~0ull = never built);

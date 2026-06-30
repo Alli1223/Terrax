@@ -8,6 +8,7 @@ in vec3  FragNormal;
 in vec4  FragPosLightSpace;
 in float Snowable;
 in float MaterialID;
+in float AO;
 
 out vec4 FragColor;
 
@@ -157,8 +158,14 @@ void main() {
     float shadow      = calcShadow(FragPosLightSpace, NdotL) * shadowFade;
     float cloudAtten  = getCloudShadow(FragWorldPos, u_sunDir, time);
 
-    // Sky ambient (indirect light, not shadowed)
-    vec3 skyAmb = SkyLight * sunFactor * skyAmbient * 0.22;
+    // Sky ambient (indirect light, not shadowed). Hemispheric: surfaces opening
+    // upward to the sky catch more indirect light than vertical / under faces, so
+    // voxel slopes keep their form even when the sun is high overhead (a purely
+    // flat ambient makes terrain tops + sides read as one tone). Top faces are
+    // left at full strength, so overall scene brightness is preserved.
+    float upFace = FragNormal.y * 0.5 + 0.5;        // 1 = up, 0.5 = side, 0 = down
+    float hemi   = mix(0.62, 1.0, upFace);
+    vec3 skyAmb = SkyLight * sunFactor * skyAmbient * 0.22 * hemi;
 
     // Direct sun only reaches surfaces open to the sky. Enclosed spaces (house
     // interiors, caves) get no direct sun and stay dark — they are lit only by
@@ -175,6 +182,10 @@ void main() {
     light = max(light, blockContrib);
     light = max(light, lanternContrib);
     light = max(light, vec3(0.013, 0.011, 0.016));
+
+    // Ambient occlusion: darken concave corners/edges so the voxel terrain reads
+    // as 3D rather than flat-lit. Baked per-vertex at mesh time (1 = open).
+    light *= AO;
 
     vec3 result = base * light;
 

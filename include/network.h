@@ -105,6 +105,7 @@ struct PlayerPosPacket {
     float pitch, yaw;
     uint8_t lanternHeld;
     uint8_t shieldRaised;   // 1 = off-hand shield in block stance
+    uint8_t vehicleKind;    // deployed vehicle (0=none,1=horse,2=wagon,3=kite)
 };
 
 struct BlockUpdatePacket {
@@ -163,6 +164,7 @@ struct NPCStatePacket {
     uint32_t entityId;
     uint8_t  npcType;        // NPCType value
     uint8_t  flags;          // bit 0 = walking
+    uint8_t  level;          // hostile-NPC level (from spawn danger tier); 0 for townsfolk
     uint32_t appearanceSeed; // seed for deterministic procedural appearance
     float    x, y, z;
     float    yaw;
@@ -361,6 +363,7 @@ struct RemotePlayer {
     float attackAnim = 0.0f;
     bool lanternHeld = false;
     bool shieldRaised = false;
+    uint8_t vehicleKind = 0;   // deployed vehicle to render under this player
 };
 
 class NetworkServer {
@@ -403,9 +406,12 @@ public:
     int  getPlayerLevel(uint32_t clientId);
 
     // Spawn server-side loot for an enemy killed by `attackerId` at `pos`.
-    // Rolls items using the attacker's level (or fallback 1), records each
-    // entry in `activeLoot`, and broadcasts a LootSpawnPacket per drop.
-    void spawnLootForKill(uint32_t attackerId, const glm::vec3& pos, bool legendary = false);
+    // Rolls items at max(attacker level, enemyLevel) so a low-level player who
+    // bags a high-tier foe still gets level-appropriate loot. Records each entry
+    // in `activeLoot`, and broadcasts a LootSpawnPacket per drop.
+    void spawnLootForKill(uint32_t attackerId, const glm::vec3& pos,
+                          bool legendary = false, int enemyLevel = 1,
+                          bool elite = false);
 
     // Try to honour a client's pickup request. If the drop still exists
     // and the requester is within range, removes it and broadcasts

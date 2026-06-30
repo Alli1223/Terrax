@@ -40,6 +40,10 @@ enum class PropType : uint8_t {
     // Graveyard dressing — mounds of dug earth, a gravedigger's spade, laid
     // flowers, a wreath, a stone urn, and a bare dead tree.
     SoilMound, Spade, GraveFlowers, FlowerWreath, StoneUrn, DeadTree,
+    // More home furnishings
+    Chest, Stool, Candelabra, Bookpile, WallShelf, WallClock,
+    // Dungeon dressing
+    BonePile, TreasurePile, Brazier,
     Count
 };
 

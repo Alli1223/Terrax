@@ -158,6 +158,8 @@
     <ClCompile Include="src\atlas.cpp" />
     <ClCompile Include="src\gl_loader.cpp" />
     <ClCompile Include="src\audio.cpp" />
+    <ClCompile Include="src\screenshot.cpp" />
+    <ClCompile Include="src\quest.cpp" />
   </ItemGroup>
   <!-- ImGui + miniaudio source files -->
   <ItemGroup>
@@ -176,6 +178,8 @@
     <ClInclude Include="include\app_context.h" />
     <ClInclude Include="include\atlas.h" />
     <ClInclude Include="include\camera.h" />
+    <ClInclude Include="include\screenshot.h" />
+    <ClInclude Include="include\quest.h" />
     <ClInclude Include="include\game_session.h" />
     <ClInclude Include="include\game_settings.h" />
     <ClInclude Include="include\game_types.h" />

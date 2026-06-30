@@ -157,11 +157,11 @@ TEST_CASE(Dungeon_SpawnTableHasOneBossAndChampions) {
     auto d = makeLayout(DungeonKind::Crypt, 2, 0x3030u);
     std::vector<DungeonSpawn> spawns;
     d->fillSpawnTable(spawns, 0x3030u);
-    int bosses = 0, brutes = 0;
+    int bosses = 0, lords = 0;
     for (const DungeonSpawn& s : spawns) {
         if (s.boss) bosses++;
-        if (s.npcType == (uint8_t)NPCType::Brute) brutes++;
+        if (s.npcType == (uint8_t)NPCType::Lich) lords++;   // the Crypt's boss type
     }
     CHECK_EQ(bosses, 1);     // exactly one true boss (legendary loot)
-    CHECK(brutes >= 2);      // the boss plus at least one elite "champion"
+    CHECK(lords >= 2);       // the boss plus at least one elite "champion"
 }

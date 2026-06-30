@@ -67,7 +67,79 @@ static void drawHealthBar(const glm::vec3& worldPos, float frac,
                       ImVec2(sx - W * 0.5f + W * frac, sy + H), IM_COL32(200, 45, 40, 255));
 }
 
+// WoW-style "con" colour for an enemy `level` relative to the player: red/orange
+// (above), yellow (even), green/grey (below — trivial). Drives the level tag.
+static ImU32 conColor(int enemyLevel, int playerLevel) {
+    int d = enemyLevel - playerLevel;
+    if (d >= 5)  return IM_COL32(210,  60,  50, 255);   // much higher — deadly
+    if (d >= 3)  return IM_COL32(230, 140,  40, 255);   // higher — tough
+    if (d >= -2) return IM_COL32(228, 214,  70, 255);   // even — fair fight
+    if (d >= -7) return IM_COL32( 95, 200,  85, 255);   // lower — easy
+    return IM_COL32(165, 165, 165, 255);                // trivial — grey
+}
+
+// Floating "Lv N" tag centred at a world position (above an enemy's head).
+static void drawLevelTag(const glm::vec3& worldPos, int level, ImU32 col,
+                         const glm::mat4& view, const glm::mat4& proj,
+                         int fbW, int fbH, bool elite = false,
+                         const char* rareName = nullptr, bool aggro = false) {
+    glm::vec4 clip = proj * view * glm::vec4(worldPos, 1.0f);
+    if (clip.w <= 0.01f) return;
+    glm::vec3 ndc = glm::vec3(clip) / clip.w;
+    if (ndc.z < -1.0f || ndc.z > 1.0f) return;
+    float sx = (ndc.x * 0.5f + 0.5f) * (float)fbW;
+    float sy = (1.0f - (ndc.y * 0.5f + 0.5f)) * (float)fbH;
+    char buf[24];
+    // Elites get a starred, gold tag so they stand out from the trash mob.
+    if (elite) std::snprintf(buf, sizeof(buf), "* Lv %d *", level);
+    else       std::snprintf(buf, sizeof(buf), "Lv %d", level);
+    // Rares: purple tag, with a name banner above. Elite: gold. Otherwise con-colour.
+    ImU32 useCol = rareName ? IM_COL32(200, 130, 245, 255)
+                 : elite    ? IM_COL32(255, 210, 120, 255) : col;
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    ImVec2 ts = ImGui::CalcTextSize(buf);
+    ImVec2 p(sx - ts.x * 0.5f, sy - ts.y * 0.5f);
+    if (rareName) {                                   // purple name above the level
+        ImVec2 nts = ImGui::CalcTextSize(rareName);
+        ImVec2 np(sx - nts.x * 0.5f, p.y - nts.y - 1.0f);
+        dl->AddText(ImVec2(np.x + 1, np.y + 1), IM_COL32(0, 0, 0, 200), rareName);
+        dl->AddText(np, useCol, rareName);
+    }
+    dl->AddText(ImVec2(p.x + 1, p.y + 1), IM_COL32(0, 0, 0, 200), buf);   // shadow
+    dl->AddText(p, useCol, buf);
+    if (aggro) {                                       // red "!" — this foe is hunting a player
+        ImVec2 ep(p.x + ts.x + 4.0f, p.y);
+        dl->AddText(ImVec2(ep.x + 1, ep.y + 1), IM_COL32(0, 0, 0, 200), "!");
+        dl->AddText(ep, IM_COL32(255, 80, 70, 255), "!");
+    }
+}
+
 // F3 debug / session overlay — performance, world, rendered objects, server.
+// Floating combat-text numbers: project each to screen, rise + fade over its
+// life. Drawn on the foreground draw list so they sit above the world.
+static void drawFloatingCombatText(AppContext& ctx, const Renderer& renderer) {
+    if (ctx.floatingTexts.empty()) return;
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    for (const auto& f : ctx.floatingTexts) {
+        float t  = (f.life > 0.0f) ? f.age / f.life : 1.0f;          // 0..1
+        glm::vec3 wp = f.worldPos + glm::vec3(0.0f, t * 1.4f, 0.0f);  // rise as it ages
+        glm::vec4 clip = renderer.frameProj * renderer.frameView * glm::vec4(wp, 1.0f);
+        if (clip.w <= 0.01f) continue;
+        glm::vec3 ndc = glm::vec3(clip) / clip.w;
+        if (ndc.z < -1.0f || ndc.z > 1.0f) continue;
+        float sx = (ndc.x * 0.5f + 0.5f) * (float)renderer.frameFbW;
+        float sy = (1.0f - (ndc.y * 0.5f + 0.5f)) * (float)renderer.frameFbH;
+        int a = (int)(255.0f * (1.0f - t * t));                      // fade out, slow then fast
+        if (a < 0) a = 0;
+        ImU32 col = IM_COL32(f.color.r, f.color.g, f.color.b, a);
+        ImU32 sh  = IM_COL32(0, 0, 0, a);
+        ImVec2 ts = ImGui::CalcTextSize(f.text.c_str());
+        ImVec2 p(sx - ts.x * 0.5f, sy - ts.y * 0.5f);
+        dl->AddText(ImVec2(p.x + 1, p.y + 1), sh, f.text.c_str());
+        dl->AddText(p, col, f.text.c_str());
+    }
+}
+
 static void renderDebugOverlay(AppContext& ctx) {
     // Tally the live client-side objects by kind.
     int vill = 0, band = 0, guard = 0, anim = 0, ferry = 0;
@@ -137,6 +209,13 @@ static void renderDebugOverlay(AppContext& ctx) {
     ImGui::Text("Pos    %.1f, %.1f, %.1f", cp.x, cp.y, cp.z);
     ImGui::Text("Chunk  %d, %d   loaded %d", cx, cz, (int)ctx.world.chunks.size());
     ImGui::Text("Biome  %s   render dist %d", biome, ctx.world.renderDistance);
+    int dangerTier = dangerTierAt(cp.x, cp.z);
+    float spawnDist = distanceFromSpawn(cp.x, cp.z);
+    // Warm the colour as the tier climbs: green (safe) → amber → red (deadly).
+    float dt01 = (float)(dangerTier - 1) / (float)(DANGER_MAX_TIER - 1);
+    ImVec4 tierCol(0.45f + 0.55f * dt01, 0.95f - 0.65f * dt01, 0.35f, 1.0f);
+    ImGui::TextColored(tierCol, "Danger tier %d / %d   (%.0fm from spawn)",
+                       dangerTier, DANGER_MAX_TIER, spawnDist);
     ImGui::Text("Time   %.2f  (%s)", gt, phase);
 
     ImGui::TextColored(head, "Rendered objects (%d)", totalObj);
@@ -172,7 +251,8 @@ static void renderDebugOverlay(AppContext& ctx) {
 // the attack, not while idle. Hidden during any menu/overlay or while sitting.
 static bool shouldShowCrosshair(const AppContext& ctx) {
     if (ctx.showInventory || ctx.showCharacterLoadout || ctx.showMap ||
-        ctx.paused || ctx.chatOpen || ctx.showTrainer) return false;
+        ctx.paused || ctx.chatOpen || ctx.showTrainer || ctx.showQuestGiver ||
+        ctx.showVendor || ctx.showQuestLog) return false;
     if (ctx.playerPose != PlayerPose::Standing) return false;
     Item* mh = ctx.inventory.equipped(EquipSlot::MainHand);
     if (!mh || mh->getKind() != ItemKind::Weapon) return false;
@@ -502,6 +582,421 @@ static void drawTrainerWindow(AppContext& ctx) {
     ImGui::End();
 }
 
+// The Quest Giver window — opened by pressing E at a town quest-giver NPC. Lists
+// the town's deterministic quest board (getTownQuests); Accept adds a quest to
+// the player's active list. Progress tracking + turn-in arrive in later phases.
+static void drawQuestGiverWindow(AppContext& ctx) {
+    if (!ctx.showQuestGiver) return;
+    ImVec2 vp = vpPos(), vs = vpSize();
+    const float W = 540.0f, H = 440.0f;
+    ImGui::SetNextWindowPos(ImVec2(vp.x + (vs.x - W) * 0.5f, vp.y + (vs.y - H) * 0.5f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(W, H), ImGuiCond_Always);
+    ImGui::Begin("Quest Giver", &ctx.showQuestGiver,
+                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+
+    ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.5f, 1.0f), "Tasks for an able adventurer");
+    ImGui::SameLine(ImGui::GetWindowWidth() - 130.0f);
+    ImGui::TextColored(ImVec4(0.93f, 0.82f, 0.35f, 1.0f), "Gold: %d", ctx.playerGold);
+    ImGui::TextWrapped("There's work to be done out in the wilds. Take what suits you.");
+    ImGui::Separator();
+
+    // Completed quests ready to hand in (grant rewards on turn-in).
+    int turnIn = -1;
+    bool anyComplete = false;
+    for (size_t i = 0; i < ctx.activeQuests.size(); ++i) {
+        const Quest& aq = ctx.activeQuests[i];
+        if (aq.status != QuestStatus::Complete) continue;
+        anyComplete = true;
+        ImGui::PushID(1000 + (int)i);
+        ImGui::TextColored(ImVec4(0.55f, 0.95f, 0.6f, 1.0f), "[Done] %s", aq.title.c_str());
+        ImGui::SameLine();
+        if (ImGui::Button("Turn in", ImVec2(90, 0))) turnIn = (int)i;
+        ImGui::PopID();
+    }
+    if (anyComplete) ImGui::Separator();
+    if (turnIn >= 0) { turnInQuest(ctx, turnIn); ImGui::End(); return; }  // list mutated; redraw next frame
+
+    const std::vector<Quest>& board = getTownQuests(ctx.questGiverTown);
+    if (board.empty()) ImGui::TextDisabled("No work available right now.");
+
+    auto isActive = [&](uint32_t id) {
+        for (const Quest& q : ctx.activeQuests) if (q.id == id) return true;
+        return false;
+    };
+
+    ImGui::BeginChild("questlist", ImVec2(0, H - 120.0f), false);
+    for (const Quest& q : board) {
+        ImGui::PushID((int)q.id);
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(0.85f, 0.92f, 1.0f, 1.0f), "%s", q.title.c_str());
+        ImGui::TextWrapped("%s", q.text.c_str());
+        ImGui::TextDisabled("Recommended level %d  -  Reward: %d XP, %d gold%s",
+                            q.recommendedLevel, q.rewardXp, q.rewardGold,
+                            q.rewardItem ? ", + an item" : "");
+        if (isActive(q.id)) {
+            ImGui::TextColored(ImVec4(0.55f, 0.95f, 0.6f, 1.0f), "Accepted");
+        } else if (ImGui::Button("Accept", ImVec2(110, 0))) {
+            Quest accepted = q;
+            accepted.status   = QuestStatus::Active;
+            accepted.progress = 0;
+            ctx.activeQuests.push_back(std::move(accepted));
+            AppContext::HudToast t{ std::string("Quest accepted: ") + q.title,
+                                    Voxel{255, 220, 120, 255}, 3.0f };
+            ctx.toasts.push_back(std::move(t));
+        }
+        ImGui::Separator();
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+
+    ImGui::Text("Active quests: %d", (int)ctx.activeQuests.size());
+    if (ImGui::Button("Close", ImVec2(-1, 0))) ctx.showQuestGiver = false;
+    ImGui::End();
+}
+
+// Quest journal (J) — a full panel listing every active/complete quest with its
+// objective progress, target region, recommended level and rewards.
+static void drawQuestLog(AppContext& ctx) {
+    if (!ctx.showQuestLog) return;
+    ImVec2 vp = vpPos(), vs = vpSize();
+    const float W = 520.0f, H = 460.0f;
+    ImGui::SetNextWindowPos(ImVec2(vp.x + (vs.x - W) * 0.5f, vp.y + (vs.y - H) * 0.5f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(W, H), ImGuiCond_Always);
+    ImGui::Begin("Quest Journal", &ctx.showQuestLog,
+                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+
+    int active = 0;
+    for (const Quest& q : ctx.activeQuests)
+        if (q.status != QuestStatus::TurnedIn) ++active;
+    ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.5f, 1.0f), "Active quests (%d)", active);
+    ImGui::Separator();
+    if (ctx.activeQuests.empty())
+        ImGui::TextDisabled("No active quests. Find a Quest Giver in a town.");
+
+    ImGui::BeginChild("questlogscroll", ImVec2(0, H - 90.0f), false);
+    for (const Quest& q : ctx.activeQuests) {
+        if (q.status == QuestStatus::TurnedIn) continue;
+        ImGui::PushID((int)q.id);
+        bool done = (q.status == QuestStatus::Complete);
+        ImGui::TextColored(done ? ImVec4(0.55f, 0.95f, 0.6f, 1.0f) : ImVec4(0.88f, 0.92f, 1.0f, 1.0f),
+                           "%s%s", q.title.c_str(), done ? "  [COMPLETE]" : "");
+        ImGui::TextWrapped("%s", q.text.c_str());
+        const char* what = (q.kind == QuestKind::KillEnemies) ? questEnemyLabel(q.targetNpcType)
+                         : (q.kind == QuestKind::SlayBoss)     ? "Boss"
+                         : (q.kind == QuestKind::Explore)      ? "Scout"
+                         : (q.kind == QuestKind::Deliver)      ? "Deliver"
+                         : q.collectName.c_str();
+        ImGui::Text("   Progress: %s %d / %d", what, q.progress, q.requiredCount);
+        ImGui::TextDisabled("   Region: %s (tier %d, rec. level %d)",
+                            q.targetName.c_str(), q.targetTier, q.recommendedLevel);
+        ImGui::TextDisabled("   Reward: %d XP, %d gold%s", q.rewardXp, q.rewardGold,
+                            q.rewardItem ? ", + an item" : "");
+        ImGui::Separator();
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+    if (ImGui::Button("Close", ImVec2(-1, 0))) ctx.showQuestLog = false;
+    ImGui::End();
+}
+
+// Target frame (top-centre) + an in-world selection marker over the locked
+// target. Shows the foe's name, level (con-coloured) and health.
+static void drawTargetFrame(AppContext& ctx, const Renderer& renderer) {
+    NPC* t = currentTargetNpc(ctx);
+    if (!t) return;
+    int   lvl   = (int)t->level;
+    float maxHp = defaultNpcHealth(t->type) * npcHpScaleForLevel(t->level);
+    float frac  = std::clamp(maxHp > 0.0f ? t->health / maxHp : 1.0f, 0.0f, 1.0f);
+    const char* name = isHostileNpc(t->type) ? questEnemyLabel((uint8_t)t->type) : "Target";
+    ImU32 con  = conColor(lvl, ctx.playerLevel);
+    ImVec4 conV = ImGui::ColorConvertU32ToFloat4(con);
+
+    ImVec2 vp = vpPos(), vs = vpSize();
+    const float W = 248.0f;
+    ImGui::SetNextWindowPos(ImVec2(vp.x + (vs.x - W) * 0.5f, vp.y + 16.0f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(W, 0), ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.55f);
+    ImGui::Begin("##targetframe", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                 ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoFocusOnAppearing |
+                 ImGuiWindowFlags_NoNav | ImGuiWindowFlags_AlwaysAutoResize);
+    ImGui::TextColored(conV, "%s", name);
+    ImGui::SameLine();
+    ImGui::TextColored(conV, "  Lv %d", lvl);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    float bw = W - 16.0f;
+    dl->AddRectFilled(p, ImVec2(p.x + bw, p.y + 12.0f), IM_COL32(20, 15, 12, 220));
+    dl->AddRectFilled(p, ImVec2(p.x + bw * frac, p.y + 12.0f), IM_COL32(200, 45, 40, 255));
+    ImGui::Dummy(ImVec2(bw, 14.0f));
+    ImGui::Text("%.0f / %.0f", t->health, maxHp);
+    ImGui::End();
+
+    // In-world selection marker: a con-coloured downward chevron above the head.
+    glm::vec4 clip = renderer.frameProj * renderer.frameView *
+                     glm::vec4(t->position + glm::vec3(0.0f, 3.0f, 0.0f), 1.0f);
+    if (clip.w > 0.01f) {
+        glm::vec3 ndc = glm::vec3(clip) / clip.w;
+        if (ndc.z >= -1.0f && ndc.z <= 1.0f) {
+            float sx = (ndc.x * 0.5f + 0.5f) * (float)renderer.frameFbW;
+            float sy = (1.0f - (ndc.y * 0.5f + 0.5f)) * (float)renderer.frameFbH;
+            ImDrawList* fg = ImGui::GetForegroundDrawList();
+            fg->AddTriangleFilled(ImVec2(sx - 8, sy - 10), ImVec2(sx + 8, sy - 10),
+                                  ImVec2(sx, sy), con);
+            fg->AddTriangle(ImVec2(sx - 8, sy - 10), ImVec2(sx + 8, sy - 10),
+                            ImVec2(sx, sy), IM_COL32(0, 0, 0, 200), 1.5f);
+        }
+    }
+}
+
+// The Vendor window — opened by pressing E at a town merchant. Buy generated,
+// tier-appropriate gear for gold; sell items from your bags. Client-side.
+static void drawVendorWindow(AppContext& ctx) {
+    if (!ctx.showVendor) return;
+    ImVec2 vp = vpPos(), vs = vpSize();
+    const float W = 560.0f, H = 460.0f;
+    ImGui::SetNextWindowPos(ImVec2(vp.x + (vs.x - W) * 0.5f, vp.y + (vs.y - H) * 0.5f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(W, H), ImGuiCond_Always);
+    ImGui::Begin("Merchant", &ctx.showVendor,
+                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+
+    ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.5f, 1.0f), "Wares & trade");
+    ImGui::SameLine(ImGui::GetWindowWidth() - 130.0f);
+    ImGui::TextColored(ImVec4(0.93f, 0.82f, 0.35f, 1.0f), "Gold: %d", ctx.playerGold);
+    ImGui::Separator();
+
+    ImGui::Columns(2, "vendorcols", true);
+
+    // --- For sale ---------------------------------------------------------
+    ImGui::TextColored(ImVec4(0.85f, 0.92f, 1.0f, 1.0f), "For sale");
+    ImGui::BeginChild("buy", ImVec2(0, H - 120.0f), false);
+    int n = vendorStockCount(ctx.vendorTown);
+    for (int i = 0; i < n; ++i) {
+        const Item* it = vendorStockItem(ctx.vendorTown, i);
+        if (!it) continue;
+        int price = vendorStockPrice(ctx.vendorTown, i);
+        ImGui::PushID(i);
+        Voxel rc = rarityUiColor(it->rarity);
+        ImGui::TextColored(ImVec4(rc.r / 255.f, rc.g / 255.f, rc.b / 255.f, 1.f),
+                           "%s", it->getName().c_str());
+        ImGui::TextDisabled("iLvl %d   %dg", it->level, price);
+        bool afford = ctx.playerGold >= price;
+        if (!afford) ImGui::BeginDisabled();
+        if (ImGui::Button("Buy", ImVec2(70, 0))) vendorBuy(ctx, ctx.vendorTown, i);
+        if (!afford) ImGui::EndDisabled();
+        ImGui::Separator();
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+
+    ImGui::NextColumn();
+
+    // --- Your bags (sell) -------------------------------------------------
+    ImGui::TextColored(ImVec4(0.85f, 0.92f, 1.0f, 1.0f), "Your bags");
+    ImGui::BeginChild("sell", ImVec2(0, H - 120.0f), false);
+    const auto& bag = ctx.inventory.items();
+    int sellIdx = -1;
+    for (int i = 0; i < (int)bag.size(); ++i) {
+        Item* it = bag[(size_t)i].get();
+        if (!it) continue;
+        ImGui::PushID(10000 + i);
+        Voxel rc = rarityUiColor(it->rarity);
+        ImGui::TextColored(ImVec4(rc.r / 255.f, rc.g / 255.f, rc.b / 255.f, 1.f),
+                           "%s", it->getName().c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Sell")) sellIdx = i;
+        ImGui::SameLine();
+        ImGui::TextDisabled("%dg", itemSellPrice(*it));
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+    if (sellIdx >= 0) vendorSell(ctx, sellIdx);
+
+    ImGui::Columns(1);
+    if (ImGui::Button("Close", ImVec2(-1, 0))) ctx.showVendor = false;
+    ImGui::End();
+}
+
+// The Stablemaster window — opened by pressing E at a town stable trader. Sells
+// the three personal vehicles for gold; buying drops the item straight in the
+// bag (right-click it there to deploy). Fully client-side, like the Merchant.
+static void drawStableWindow(AppContext& ctx) {
+    if (!ctx.showStable) return;
+    struct StableWare { VehicleKind kind; int price; const char* blurb; };
+    static const StableWare WARES[] = {
+        { VehicleKind::Horse, 150, "A sturdy mount — ride to cross the world far faster." },
+        { VehicleKind::Wagon,  90, "A pull-along cart — a mobile storage stash for your loot." },
+        { VehicleKind::Kite,   70, "A canvas glider — leap off a ledge and soar." },
+    };
+    ImVec2 vp = vpPos(), vs = vpSize();
+    const float W = 480.0f, H = 360.0f;
+    ImGui::SetNextWindowPos(ImVec2(vp.x + (vs.x - W) * 0.5f, vp.y + (vs.y - H) * 0.5f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(W, H), ImGuiCond_Always);
+    ImGui::Begin("Stablemaster", &ctx.showStable,
+                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+
+    ImGui::TextColored(ImVec4(0.6f, 0.9f, 0.65f, 1.0f), "Horses, carts & gliders");
+    ImGui::SameLine(ImGui::GetWindowWidth() - 130.0f);
+    ImGui::TextColored(ImVec4(0.93f, 0.82f, 0.35f, 1.0f), "Gold: %d", ctx.playerGold);
+    ImGui::Separator();
+
+    for (const StableWare& w : WARES) {
+        ImGui::PushID((int)w.kind);
+        ImGui::TextColored(ImVec4(0.95f, 0.9f, 0.7f, 1.0f), "%s", vehicleKindName(w.kind));
+        ImGui::TextDisabled("%s", w.blurb);
+        bool afford = ctx.playerGold >= w.price;
+        if (!afford) ImGui::BeginDisabled();
+        char label[32]; snprintf(label, sizeof(label), "Buy  (%dg)", w.price);
+        if (ImGui::Button(label, ImVec2(140, 0))) {
+            auto item = makeVehicleItem(w.kind);
+            std::string nm = item->getName();
+            if (ctx.inventory.addItem(std::move(item))) {
+                ctx.playerGold -= w.price;
+                ctx.toasts.push_back(AppContext::HudToast{
+                    "Bought " + nm + " (-" + std::to_string(w.price) + "g)",
+                    Voxel{235, 205, 90, 255}, 2.5f });
+            } else {
+                ctx.toasts.push_back(AppContext::HudToast{
+                    "Your bags are full", Voxel{235, 120, 90, 255}, 2.5f });
+            }
+        }
+        if (!afford) ImGui::EndDisabled();
+        ImGui::Separator();
+        ImGui::PopID();
+    }
+
+    if (ImGui::Button("Close", ImVec2(-1, 0))) ctx.showStable = false;
+    ImGui::End();
+}
+
+// The Wagon stash window — opened with E while pulling a wagon (and no NPC in
+// reach). A simple two-column transfer: Store moves a bag item into the cart,
+// Take moves it back. Fully client-side, session-only storage.
+static void drawStashWindow(AppContext& ctx) {
+    if (!ctx.showStash) return;
+    ImVec2 vp = vpPos(), vs = vpSize();
+    const float W = 560.0f, H = 460.0f;
+    ImGui::SetNextWindowPos(ImVec2(vp.x + (vs.x - W) * 0.5f, vp.y + (vs.y - H) * 0.5f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(W, H), ImGuiCond_Always);
+    ImGui::Begin("Wagon Storage", &ctx.showStash,
+                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+
+    ImGui::TextColored(ImVec4(0.85f, 0.78f, 0.55f, 1.0f), "Stow loot in the cart");
+    ImGui::Separator();
+    ImGui::Columns(2, "stashcols", true);
+
+    Item* toStore = nullptr;   // bag -> stash
+    Item* toTake  = nullptr;   // stash -> bag
+
+    // --- Your bags --------------------------------------------------------
+    ImGui::TextColored(ImVec4(0.85f, 0.92f, 1.0f, 1.0f), "Your bags");
+    ImGui::BeginChild("bag", ImVec2(0, H - 110.0f), false);
+    const auto& bag = ctx.inventory.items();
+    for (int i = 0; i < (int)bag.size(); ++i) {
+        Item* it = bag[(size_t)i].get();
+        if (!it || ctx.inventory.isEquipped(it)) continue;   // don't stash worn gear
+        ImGui::PushID(i);
+        Voxel rc = rarityUiColor(it->rarity);
+        ImGui::TextColored(ImVec4(rc.r / 255.f, rc.g / 255.f, rc.b / 255.f, 1.f),
+                           "%s", it->getName().c_str());
+        ImGui::SameLine(ImGui::GetColumnWidth() - 70.0f);
+        if (ImGui::SmallButton("Store >>")) toStore = it;
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+
+    ImGui::NextColumn();
+
+    // --- Wagon stash ------------------------------------------------------
+    ImGui::TextColored(ImVec4(0.85f, 0.92f, 1.0f, 1.0f), "Wagon");
+    ImGui::BeginChild("stash", ImVec2(0, H - 110.0f), false);
+    const auto& cart = ctx.wagonStash.items();
+    for (int i = 0; i < (int)cart.size(); ++i) {
+        Item* it = cart[(size_t)i].get();
+        if (!it) continue;
+        ImGui::PushID(20000 + i);
+        if (ImGui::SmallButton("<< Take")) toTake = it;
+        ImGui::SameLine();
+        Voxel rc = rarityUiColor(it->rarity);
+        ImGui::TextColored(ImVec4(rc.r / 255.f, rc.g / 255.f, rc.b / 255.f, 1.f),
+                           "%s", it->getName().c_str());
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+
+    ImGui::Columns(1);
+    if (ImGui::Button("Close", ImVec2(-1, 0))) ctx.showStash = false;
+    ImGui::End();
+
+    // Apply transfers after drawing (mutating the bags mid-iteration is unsafe).
+    if (toStore) {
+        if (auto moved = ctx.inventory.extractItem(toStore)) {
+            if (!ctx.wagonStash.addItem(std::move(moved)))   // cart full — put it back
+                ctx.toasts.push_back(AppContext::HudToast{"Wagon is full",
+                                     Voxel{235, 120, 90, 255}, 2.0f});
+        }
+    }
+    if (toTake) {
+        if (auto moved = ctx.wagonStash.extractItem(toTake)) {
+            if (!ctx.inventory.addItem(std::move(moved)))     // bags full — put it back
+                ctx.toasts.push_back(AppContext::HudToast{"Your bags are full",
+                                     Voxel{235, 120, 90, 255}, 2.0f});
+        }
+    }
+}
+
+// A small always-on gold readout (bottom-left of the viewport).
+static void drawGoldChip(AppContext& ctx) {
+    if (ctx.paused) return;
+    ImVec2 vp = vpPos(), vs = vpSize();
+    ImGui::SetNextWindowPos(ImVec2(vp.x + 14.0f, vp.y + vs.y - 40.0f), ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.40f);
+    ImGui::Begin("##goldchip", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                 ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoFocusOnAppearing |
+                 ImGuiWindowFlags_NoNav | ImGuiWindowFlags_AlwaysAutoResize);
+    ImGui::TextColored(ImVec4(0.95f, 0.84f, 0.38f, 1.0f), "Gold: %d", ctx.playerGold);
+    ImGui::End();
+}
+
+// On-screen quest tracker (top-right) — lists active quests + live progress.
+static void drawQuestTracker(AppContext& ctx) {
+    if (ctx.activeQuests.empty()) return;
+    if (ctx.paused || ctx.showMap || ctx.showInventory || ctx.showCharacterLoadout ||
+        ctx.showQuestGiver || ctx.showTrainer) return;
+    ImVec2 vp = vpPos(), vs = vpSize();
+    const float W = 268.0f;
+    ImGui::SetNextWindowPos(ImVec2(vp.x + vs.x - W - 14.0f, vp.y + 70.0f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(W, 0), ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.42f);
+    ImGui::Begin("##questtracker", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                 ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoFocusOnAppearing |
+                 ImGuiWindowFlags_NoNav | ImGuiWindowFlags_AlwaysAutoResize);
+    ImGui::TextColored(ImVec4(1.0f, 0.82f, 0.35f, 1.0f), "Quests");
+    ImGui::Separator();
+    int shown = 0;
+    for (const Quest& q : ctx.activeQuests) {
+        if (q.status == QuestStatus::TurnedIn) continue;
+        if (++shown > 6) break;
+        bool done = (q.status == QuestStatus::Complete);
+        ImGui::TextColored(done ? ImVec4(0.55f, 0.95f, 0.6f, 1.0f)
+                                : ImVec4(0.90f, 0.92f, 1.0f, 1.0f),
+                           "%s", q.title.c_str());
+        if (done) {
+            ImGui::TextDisabled("   Complete - return to a giver");
+        } else {
+            const char* what = (q.kind == QuestKind::KillEnemies) ? questEnemyLabel(q.targetNpcType)
+                             : (q.kind == QuestKind::SlayBoss)     ? "Boss"
+                             : (q.kind == QuestKind::Explore)      ? "Scout"
+                             : (q.kind == QuestKind::Deliver)      ? "Deliver"
+                             : q.collectName.c_str();
+            ImGui::TextDisabled("   %s  %d/%d", what, q.progress, q.requiredCount);
+        }
+    }
+    ImGui::End();
+}
+
 void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer) {
     (void)window;
 
@@ -655,7 +1150,9 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
     }
     if (ctx.talkTimer > 0.0f) {
         ImVec2 vp = vpPos(), vs = vpSize();
-        ImGui::SetNextWindowPos(ImVec2(vp.x + vs.x * 0.5f - 220.0f, vp.y + vs.y - 172.0f));
+        // Sit well clear of the ability hotbar (which draws on the foreground
+        // draw list and would otherwise cover this regular window).
+        ImGui::SetNextWindowPos(ImVec2(vp.x + vs.x * 0.5f - 220.0f, vp.y + vs.y - 268.0f));
         ImGui::SetNextWindowSize(ImVec2(440, 80));
         ImGui::Begin("NpcDialogue", nullptr,
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
@@ -686,18 +1183,35 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
         ImGui::End();
     }
 
-    // NPC health bars over damaged NPCs.
+    // NPC health bars over damaged NPCs, and a level tag over nearby hostiles
+    // (shown even at full health so the player can size up a fight before
+    // engaging — coloured by level relative to the player).
     for (auto& o : ctx.objectManager.objects()) {
         if (o->dead || o->kind != ObjectKind::NPC) continue;
         NPC* n = static_cast<NPC*>(o.get());
         if (n->dyingFlag) continue;
-        float maxHp = defaultNpcHealth(n->type);          // per-type max (Skeleton 60, Brute 220, ...)
+        // Max HP must mirror the server's level-scaled spawn HP, else a leveled
+        // foe's bar would read past full.
+        float maxHp = defaultNpcHealth(n->type) * npcHpScaleForLevel(n->level);
         float frac  = (maxHp > 0.0f) ? (n->health / maxHp) : 1.0f;
+        bool hostile = isHostileNpc(n->type);
+        float dist   = glm::distance(n->position, ctx.camera.position);
+        if (hostile && dist < 45.0f) {
+            std::string rn = n->rare ? rareName(n->appearanceSeed) : std::string();
+            drawLevelTag(n->position + glm::vec3(0.0f, 2.65f, 0.0f),
+                         (int)n->level, conColor((int)n->level, ctx.playerLevel),
+                         renderer.frameView, renderer.frameProj,
+                         renderer.frameFbW, renderer.frameFbH, n->elite,
+                         n->rare ? rn.c_str() : nullptr, n->aggro);
+        }
         if (frac >= 0.995f) continue;                     // hide the bar at full health
         drawHealthBar(n->position + glm::vec3(0.0f, 2.3f, 0.0f), frac,
                       renderer.frameView, renderer.frameProj,
                       renderer.frameFbW, renderer.frameFbH);
     }
+
+    // Floating combat-text damage numbers rising off struck enemies.
+    drawFloatingCombatText(ctx, renderer);
 
     // Chat
     if (ctx.client) {
@@ -774,6 +1288,22 @@ void renderPlayUI(AppContext& ctx, GLFWwindow* window, const Renderer& renderer)
 
     // Class Trainer window (E at a town trainer) — change role mid-game.
     drawTrainerWindow(ctx);
+    // Quest Giver window (E at a town quest-giver) — accept town quests.
+    drawQuestGiverWindow(ctx);
+    // Vendor shop window (E at a town merchant) — buy/sell gear for gold.
+    drawVendorWindow(ctx);
+    // Stablemaster window (E at a town stable) — buy personal vehicles.
+    drawStableWindow(ctx);
+    // Wagon storage window (E while pulling a wagon) — stash loot.
+    drawStashWindow(ctx);
+    // Always-on gold readout.
+    drawGoldChip(ctx);
+    // Active-quest tracker (top-right HUD).
+    drawQuestTracker(ctx);
+    // Target frame + in-world selection marker (top-centre).
+    drawTargetFrame(ctx, renderer);
+    // Quest journal (J).
+    drawQuestLog(ctx);
 
     // Toast queue — XP / level-up / loot notifications stacked top-right.
     // Newest at the bottom of the stack so the eye lands on the latest

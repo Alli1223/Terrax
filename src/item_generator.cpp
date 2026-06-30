@@ -173,6 +173,38 @@ const ArmorSet KNOWN_SETS[] = {
         { 40,  75, 110, 255}, {200, 230, 220, 255} },
     { "Emberforge",  "Emberforge",  ClothingTier::Plate,
         { 70,  35,  35, 255}, {255, 110,  45, 255} },
+    { "Stormcaller", "Stormcaller", ClothingTier::Cloth,
+        { 60,  80, 120, 255}, {180, 230, 255, 255} },   // storm-blue + lightning white
+    { "Thornweave",  "Thornweave",  ClothingTier::Leather,
+        { 48,  78,  50, 255}, {150, 110,  70, 255} },   // bramble green + bark
+    { "Obsidian",    "Obsidian",    ClothingTier::Plate,
+        { 24,  24,  30, 255}, {200,  50,  40, 255} },   // black glass + ember red
+    { "Moonveil",    "Moonveil",    ClothingTier::Cloth,
+        {200, 205, 230, 255}, {120, 150, 220, 255} },   // pale silver + moonlit blue
+    { "Bloodforged", "Bloodforged", ClothingTier::Plate,
+        { 90,  30,  30, 255}, {200, 180, 190, 255} },   // dark blood + pale steel
+    { "Verdant",     "Verdant",     ClothingTier::Leather,
+        { 60, 100,  55, 255}, {220, 200, 110, 255} },   // living green + gold
+    { "Ashen",       "Ashen",       ClothingTier::Cloth,
+        { 90,  88,  92, 255}, {235, 120,  60, 255} },   // grey ash + smouldering ember
+    { "Aurelian",    "Aurelian",    ClothingTier::Plate,
+        {215, 180,  90, 255}, {255, 245, 220, 255} },   // gilded gold + ivory
+    { "Ravenfeather","Ravenfeather",ClothingTier::Leather,
+        { 34,  32,  44, 255}, {120,  80, 170, 255} },   // black feather + violet sheen
+    { "Glacial",     "Glacial",     ClothingTier::Cloth,
+        {200, 228, 240, 255}, { 70, 150, 200, 255} },   // ice white + deep glacier blue
+    { "Sandscar",    "Sandscar",    ClothingTier::Leather,
+        {180, 150,  95, 255}, {205,  95,  45, 255} },   // desert raider tan + burnt orange
+    { "Mirrorsteel", "Mirrorsteel", ClothingTier::Plate,
+        {200, 205, 215, 255}, {110, 180, 230, 255} },   // polished silver + sky blue
+    { "Venomweave",  "Venomweave",  ClothingTier::Cloth,
+        { 95, 130,  70, 255}, {170,  90, 200, 255} },   // toxin green + venom violet
+    { "Gravewarden", "Gravewarden", ClothingTier::Leather,
+        {150, 145, 130, 255}, {120, 190, 110, 255} },   // bone grey + grave-light green
+    { "Goldleaf",    "Goldleaf",    ClothingTier::Cloth,
+        {200, 150,  70, 255}, {180,  60,  50, 255} },   // autumn amber + crimson
+    { "Tempest",     "Tempest",     ClothingTier::Plate,
+        { 70,  90, 110, 255}, {220, 240, 255, 255} },   // storm steel + lightning white
 };
 
 // Slot noun pools. Common slots have more "plain" nouns; rare/legendary
@@ -378,9 +410,18 @@ const char* pickWeaponAdj(WeaponType type, ItemRarity rarity,
                           STAFF_ADJ_RARE,   arrLen(STAFF_ADJ_RARE),
                           STAFF_ADJ_LEGENDARY, arrLen(STAFF_ADJ_LEGENDARY));
         case WeaponType::Axe:
+        case WeaponType::Mace:   // heavy weapons share the brutal adjective pool
+        case WeaponType::Warhammer:
+        case WeaponType::Halberd:
             return choose(AXE_ADJ_COMMON, arrLen(AXE_ADJ_COMMON),
                           AXE_ADJ_RARE,   arrLen(AXE_ADJ_RARE),
                           AXE_ADJ_LEGENDARY, arrLen(AXE_ADJ_LEGENDARY));
+        case WeaponType::Dagger: // bladed weapons share the sword adjective pool
+        case WeaponType::Greatsword:
+        case WeaponType::Spear:
+            return choose(SWORD_ADJ_COMMON, arrLen(SWORD_ADJ_COMMON),
+                          SWORD_ADJ_RARE,   arrLen(SWORD_ADJ_RARE),
+                          SWORD_ADJ_LEGENDARY, arrLen(SWORD_ADJ_LEGENDARY));
         default: return "";
     }
 }
@@ -435,6 +476,19 @@ int colorPerturbForRarity(ItemRarity rarity) {
 }
 
 }  // namespace
+
+// Public view of the themed-set table (anon-namespace symbols are visible
+// within this TU, so we can read KNOWN_SETS here). Built once on first use.
+const std::vector<ArmorSetInfo>& armorSetCatalog() {
+    static const std::vector<ArmorSetInfo> cat = [] {
+        std::vector<ArmorSetInfo> v;
+        for (int i = 0; i < arrLen(KNOWN_SETS); ++i)
+            v.push_back({ KNOWN_SETS[i].name, KNOWN_SETS[i].tier,
+                          KNOWN_SETS[i].primary, KNOWN_SETS[i].accent });
+        return v;
+    }();
+    return cat;
+}
 
 // =============================================================================
 // Public API
@@ -625,9 +679,22 @@ std::unique_ptr<WeaponItem> generateRandomWeapon(uint32_t seed, WeaponType type,
             break;
         }
         case WeaponType::Axe:
+        case WeaponType::Mace:
+        case WeaponType::Warhammer:
             item->primaryColor = metallic(150, 230);
             item->accentColor  = (rarity == ItemRarity::Legendary) ? glowAcc()
                                 : Voxel{ rndByte(80, 150), rndByte(50, 100), rndByte(30, 70), 255 };
+            break;
+        case WeaponType::Dagger:
+        case WeaponType::Greatsword:
+            item->primaryColor = metallic(140, 230);
+            item->accentColor  = (rarity == ItemRarity::Legendary) ? glowAcc()
+                                : Voxel{ rndByte(60, 130), rndByte(30, 90), rndByte(20, 60), 255 };
+            break;
+        case WeaponType::Spear:    // steel head, wooden shaft
+        case WeaponType::Halberd:  // steel blade + spike, wooden haft
+            item->primaryColor = metallic(150, 230);
+            item->accentColor  = wood();
             break;
         default: break;
     }
@@ -643,9 +710,12 @@ std::unique_ptr<WeaponItem> generateRandomWeapon(uint32_t seed,
     std::mt19937 outer(seed);
     static const WeaponType types[] = {
         WeaponType::Sword, WeaponType::Shield, WeaponType::Bow,
-        WeaponType::Staff, WeaponType::Axe,
+        WeaponType::Staff, WeaponType::Axe, WeaponType::Dagger, WeaponType::Mace,
+        WeaponType::Spear, WeaponType::Greatsword, WeaponType::Warhammer,
+        WeaponType::Halberd,
     };
-    WeaponType t = types[std::uniform_int_distribution<int>(0, 4)(outer)];
+    WeaponType t = types[std::uniform_int_distribution<int>(
+        0, (int)(sizeof(types) / sizeof(types[0])) - 1)(outer)];
     return generateRandomWeapon(outer(), t, targetLevel);
 }
 

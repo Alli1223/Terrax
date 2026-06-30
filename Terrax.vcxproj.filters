@@ -139,6 +139,8 @@
     <ClCompile Include="src\game_session.cpp"><Filter>Networking &amp; Session</Filter></ClCompile>
     <!-- Audio -->
     <ClCompile Include="src\audio.cpp"><Filter>Core &amp; App</Filter></ClCompile>
+    <ClCompile Include="src\screenshot.cpp"><Filter>Core &amp; App</Filter></ClCompile>
+    <ClCompile Include="src\quest.cpp"><Filter>Core &amp; App</Filter></ClCompile>
     <!-- Third-Party -->
     <ClCompile Include="third_party\imgui\imgui.cpp"><Filter>Third-Party\ImGui</Filter></ClCompile>
     <ClCompile Include="third_party\imgui\imgui_draw.cpp"><Filter>Third-Party\ImGui</Filter></ClCompile>
@@ -153,6 +155,8 @@
   <ItemGroup>
     <!-- Core & App -->
     <ClInclude Include="include\app_context.h"><Filter>Core &amp; App</Filter></ClInclude>
+    <ClInclude Include="include\screenshot.h"><Filter>Core &amp; App</Filter></ClInclude>
+    <ClInclude Include="include\quest.h"><Filter>Core &amp; App</Filter></ClInclude>
     <ClInclude Include="include\camera.h"><Filter>Core &amp; App</Filter></ClInclude>
     <ClInclude Include="include\input.h"><Filter>Core &amp; App</Filter></ClInclude>
     <ClInclude Include="include\physics.h"><Filter>Core &amp; App</Filter></ClInclude>

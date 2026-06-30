@@ -1,4 +1,24 @@
 #include "prop_builders.h"
+#include <algorithm>
+
+// Shared voxel box-fill used by every prop builder. Lives here (rather than in
+// prop.cpp) so the headless asset-catalog tool can link the builders without
+// the audio / object-manager closure.
+void voxFill(VoxelVolume* v, int x0, int y0, int z0,
+             int x1, int y1, int z1, Voxel c) {
+    if (!v) return;
+    if (x0 > x1) std::swap(x0, x1);
+    if (y0 > y1) std::swap(y0, y1);
+    if (z0 > z1) std::swap(z0, z1);
+    x0 = std::max(0, x0); y0 = std::max(0, y0); z0 = std::max(0, z0);
+    x1 = std::min(v->sizeX - 1, x1);
+    y1 = std::min(v->sizeY - 1, y1);
+    z1 = std::min(v->sizeZ - 1, z1);
+    for (int z = z0; z <= z1; z++)
+        for (int y = y0; y <= y1; y++)
+            for (int x = x0; x <= x1; x++)
+                v->setVoxel(x, y, z, c);
+}
 
 // --- Furniture: small-voxel models baked into the player houses ------------
 
@@ -90,6 +110,80 @@ VoxelVolume* buildChair() {
             voxFill(v, lx, 0, lz, lx + 1, 10, lz + 1, WOODD);  // legs
     voxFill(v, 0, 11, 0, W - 1, 12, D - 1, WOOD);              // seat (~y=12 ≈ 0.72)
     voxFill(v, 0, 13, 0, W - 1, H - 1, 1, WOOD);               // backrest
+    return v;
+}
+
+VoxelVolume* buildChest() {
+    const int W = 16, H = 11, D = 11;
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    voxFill(v, 0, 0, 0, W - 1, 6, D - 1, WOOD);                // body
+    voxFill(v, 0, 7, 0, W - 1, H - 1, D - 1, WOODD);           // lid
+    for (int x : { 2, W - 3 }) voxFill(v, x, 0, 0, x, H - 1, D - 1, METAL);  // iron bands
+    voxFill(v, W / 2 - 1, 5, 0, W / 2, 8, 0, METAL);           // front latch
+    return v;
+}
+
+VoxelVolume* buildStool() {
+    const int W = 10, H = 12, D = 10;
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    for (int lx = 0; lx <= W - 2; lx += W - 2)
+        for (int lz = 0; lz <= D - 2; lz += D - 2)
+            voxFill(v, lx, 0, lz, lx + 1, 8, lz + 1, WOODD);   // four short legs
+    voxFill(v, 0, 9, 0, W - 1, 10, D - 1, WOOD);               // seat (~y=10 ≈ 0.5)
+    return v;
+}
+
+VoxelVolume* buildCandelabra() {
+    const int W = 7, H = 20, D = 7;
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    voxFill(v, 2, 0, 2, 4, 1, 4, METAL);                       // weighted base
+    voxFill(v, 3, 1, 3, 3, 14, 3, METAL);                      // central stem
+    voxFill(v, 1, 14, 3, 5, 14, 3, METAL);                     // candle crossbar
+    for (int cx : { 1, 3, 5 }) {
+        voxFill(v, cx, 15, 3, cx, 17, 3, WHITE);               // wax candle
+        v->setVoxel(cx, 18, 3, GLOW);                          // flame
+    }
+    return v;
+}
+
+VoxelVolume* buildBookpile() {
+    // A short stack of books, each a coloured band with a pale page edge.
+    const int W = 10, H = 8, D = 8;
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    const Voxel covers[4] = { {150, 50, 45, 255}, {45, 80, 130, 255},
+                              {60, 120, 70, 255}, {170, 140, 60, 255} };
+    for (int b = 0; b < 4; b++) {
+        int y0 = b * 2;
+        voxFill(v, 0, y0, 0, W - 1, y0 + 1, D - 1, covers[b]);
+        voxFill(v, W - 1, y0, 0, W - 1, y0 + 1, D - 1, Voxel{230, 225, 205, 255});  // pages
+    }
+    return v;
+}
+
+VoxelVolume* buildWallShelf() {
+    // A thin wall plank with a few trinkets on top.
+    const int W = 18, H = 8, D = 6;
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    voxFill(v, 0, 0, 0, W - 1, 1, D - 1, WOOD);                // the plank
+    voxFill(v, 2, 2, 1, 4, 6, 3, Voxel{150, 60, 55, 255});     // a small book/box
+    voxFill(v, 9, 2, 1, 11, 5, 3, Voxel{70, 110, 140, 255});   // a pot
+    v->setVoxel(14, 2, 2, GLOW);                               // a tiny candle
+    return v;
+}
+
+VoxelVolume* buildWallClock() {
+    // A round wall clock: dark rim, pale face, two metal hands.
+    const int W = 9, H = 9, D = 2;
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    const float cx = 4.0f, cy = 4.0f;
+    for (int x = 0; x < W; x++)
+        for (int y = 0; y < H; y++) {
+            float dx = x - cx, dy = y - cy, r2 = dx * dx + dy * dy;
+            if (r2 > 18.5f) continue;                          // outside the disc
+            v->setVoxel(x, y, 0, (r2 > 10.9f) ? WOODD : Voxel{235, 232, 220, 255});  // rim / face
+        }
+    voxFill(v, 4, 4, 0, 4, 7, 0, METAL);                       // minute hand
+    voxFill(v, 4, 4, 0, 6, 4, 0, METAL);                       // hour hand
     return v;
 }
 

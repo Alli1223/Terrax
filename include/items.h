@@ -16,6 +16,27 @@
 enum class ItemKind {
     Clothing,
     Weapon,
+    Consumable,
+    Vehicle,
+};
+
+// A personal vehicle bought from the town Stablemaster. Unlike the
+// server-simulated Ferry, these are attached to the player (player position =
+// vehicle position) and toggled on/off ("deployed") from the bag — so only a
+// single state byte is networked. One can be active at a time.
+enum class VehicleKind : uint8_t {
+    None  = 0,
+    Horse = 1,   // mount — ride much faster
+    Wagon = 2,   // pulled behind you — a mobile storage stash
+    Kite  = 3,   // held overhead — glide when you jump off an edge
+};
+
+// A usable consumable's effect family. Potions restore a fraction of the
+// player's max health or resource; food grants a timed "well-fed" power buff.
+enum class ConsumableKind {
+    HealthPotion,
+    ManaPotion,
+    FoodRation,
 };
 
 // Slots on a humanoid where a piece of equipment can go.
@@ -49,6 +70,12 @@ enum class WeaponType {
     Axe,
     Hoe,      // farm tool — a working "weapon" carried by farmer NPCs
     Scythe,   // farm tool — used to harvest ripe wheat
+    Dagger,   // short fast blade
+    Mace,     // heavy hafted bludgeon
+    Spear,    // long reach polearm
+    Greatsword, // huge two-handed blade
+    Warhammer,  // heavy two-handed hammer
+    Halberd,    // long polearm — axe blade + top spike
 };
 
 // Elemental school carried by staves (and any future spell-casting
@@ -265,6 +292,62 @@ public:
     void onPrimaryAttack(AppContext& ctx, float chargeAmount, NPC* target) override;
     void onSecondaryAttack(AppContext& ctx) override;
 };
+
+// A usable consumable (potion). Restores a fraction of the player's max
+// health and/or resource when used (right-click in the bag); one is spent
+// per use. Not equippable — `slot` stays None — so it never touches the
+// equip / networked-loadout / save paths. Its world-drop + inventory icon
+// mesh is a small glass bottle coloured by its liquid.
+class ConsumableItem : public Item {
+public:
+    ConsumableItem(std::string name, ConsumableKind kind);
+    ~ConsumableItem() override = default;
+
+    ConsumableKind getConsumable() const { return consumable; }
+
+    float restoreHealthPct   = 0.0f;   // 0..1 fraction of max health restored
+    float restoreResourcePct = 0.0f;   // 0..1 fraction of max resource restored
+    float buffPowerPct       = 0.0f;   // food: ability-power buff magnitude (added to mult)
+    float buffSeconds        = 0.0f;   // food: buff duration
+    Voxel liquidColor = {210, 55, 55, 255};
+
+protected:
+    VoxelVolume* buildVoxelVolume() override;
+
+private:
+    ConsumableKind consumable;
+};
+
+// A deployable personal vehicle (horse / wagon / kite). Not equippable —
+// `slot` stays None, so it never touches the equip / networked-loadout / save
+// paths. Right-clicking it in the bag "deploys" (toggles) it rather than being
+// consumed; the in-world model is rendered from a shared mesh (see vehicle.h),
+// not this icon mesh. The icon mesh exists only to satisfy Item.
+class VehicleItem : public Item {
+public:
+    VehicleItem(std::string name, VehicleKind kind);
+    ~VehicleItem() override = default;
+
+    VehicleKind getVehicle() const { return vehicle; }
+
+    Voxel primaryColor = {150, 110,  70, 255};
+    Voxel accentColor  = { 90,  60,  40, 255};
+
+protected:
+    VoxelVolume* buildVoxelVolume() override;
+
+private:
+    VehicleKind vehicle;
+};
+
+// Factory — build a stock potion of the given kind (fixed restore amounts).
+std::unique_ptr<ConsumableItem> makeConsumable(ConsumableKind kind);
+
+// Factory — build a personal vehicle item (fixed name per kind).
+std::unique_ptr<VehicleItem> makeVehicleItem(VehicleKind kind);
+
+// Human-readable label for a vehicle kind ("Horse" / "Wagon" / "Kite").
+const char* vehicleKindName(VehicleKind k);
 
 // Factory — pick the right concrete subclass for a given WeaponType.
 // All code that needs to build a weapon (procedural generator, network

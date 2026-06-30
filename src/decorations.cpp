@@ -443,6 +443,82 @@ VoxelVolume* buildProducePile() {
     return v;
 }
 
+VoxelVolume* buildBonePile() {
+    // A scattered heap of bleached bones crowned with a skull — crypt dressing.
+    const int W = 14, H = 8, D = 14;
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    const Voxel BONE  {222, 218, 200, 255};
+    const Voxel BONED {180, 174, 156, 255};
+    const Voxel SHAD  {110, 106,  96, 255};
+    // Low mound of jumbled bones
+    voxFill(v, 2, 0, 2, W-3, 1, D-3, BONED);
+    voxFill(v, 3, 1, 3, W-4, 2, D-4, BONE);
+    // A few long bones (ribs / femurs) laid across the heap
+    voxFill(v, 1, 1, 5, W-2, 1, 6, BONE);
+    voxFill(v, 4, 2, 1, 5, 2, D-2, BONE);
+    voxFill(v, W-6, 2, 2, W-5, 2, D-4, BONED);
+    // Skull resting on top
+    const int sx = W / 2 - 2, sz = D / 2 - 2;
+    voxFill(v, sx, 3, sz, sx + 3, 5, sz + 3, BONE);          // cranium
+    voxFill(v, sx + 1, 3, sz - 1, sx + 2, 4, sz - 1, BONE);  // jaw juts forward
+    v->setVoxel(sx + 1, 4, sz, SHAD);                        // eye sockets
+    v->setVoxel(sx + 2, 4, sz, SHAD);
+    return v;
+}
+
+VoxelVolume* buildTreasurePile() {
+    // A glittering mound of gold coins studded with a few gems — boss/vault loot.
+    const int W = 16, H = 8, D = 16;
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    const Voxel GOLD  {235, 196,  72, 255};
+    const Voxel GOLDD {196, 154,  44, 255};
+    const Voxel GOLDH {255, 230, 140, 255};
+    const Voxel RUBY  {210,  48,  64, 255};
+    const Voxel EMER  { 56, 186, 110, 255};
+    const Voxel SAPP  { 66, 120, 224, 255};
+    // Stepped, heaped coin mound
+    voxFill(v, 2, 0, 2, W-3, 1, D-3, GOLDD);
+    voxFill(v, 3, 1, 3, W-4, 2, D-4, GOLD);
+    voxFill(v, 5, 2, 5, W-6, 3, D-6, GOLD);
+    voxFill(v, 6, 3, 6, W-7, 4, D-7, GOLDH);
+    // Scattered gems glinting in the hoard
+    v->setVoxel(4, 2, 6, RUBY);
+    v->setVoxel(W-5, 2, 5, EMER);
+    v->setVoxel(7, 3, W-6, SAPP);
+    v->setVoxel(W-7, 2, W-5, RUBY);
+    v->setVoxel(5, 2, W-7, EMER);
+    return v;
+}
+
+VoxelVolume* buildBrazier() {
+    // An iron brazier on a splayed foot, its bowl full of glowing coals + flame.
+    // The actual point light comes from its PropLightDef; the bright ember/flame
+    // voxels just make it read as lit.
+    const int W = 12, H = 20, D = 12;
+    VoxelVolume* v = new VoxelVolume(W, H, D);
+    const Voxel IRON  { 72,  74,  80, 255};
+    const Voxel IROND { 48,  50,  56, 255};
+    const Voxel COAL  {110,  36,  18, 255};
+    const Voxel EMBER {235, 120,  40, 255};
+    const Voxel FLAME {255, 205,  80, 255};
+    const int cx = W / 2, cz = D / 2;
+    // Splayed foot + central column
+    voxFill(v, cx-3, 0, cz-3, cx+2, 1, cz+2, IROND);
+    voxFill(v, cx-1, 1, cz-1, cx,   12, cz,  IRON);
+    // Bowl: rim ring + sloped wall
+    voxFill(v, 2, 12, 2, W-3, 13, D-3, IRON);
+    voxFill(v, 3, 13, 3, W-4, 16, D-4, IROND);
+    // Glowing contents
+    voxFill(v, 4, 14, 4, W-5, 16, D-5, COAL);
+    voxFill(v, 4, 15, 4, W-5, 16, D-5, EMBER);
+    // A lick of flame rising from the centre
+    voxFill(v, cx-1, 16, cz-1, cx+1, 18, cz+1, EMBER);
+    voxFill(v, cx, 18, cz, cx, 19, cz, FLAME);
+    v->setVoxel(cx-1, 17, cz, FLAME); v->setVoxel(cx+1, 17, cz, FLAME);
+    v->setVoxel(cx, 17, cz-1, FLAME); v->setVoxel(cx, 17, cz+1, FLAME);
+    return v;
+}
+
 VoxelVolume* buildFountain() {
     // A tiered stone fountain — lower basin, central column, upper bowl, spray.
     const int W = 20, H = 16, D = 20;

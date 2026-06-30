@@ -341,3 +341,26 @@ TEST_CASE(TownPlaza_PavesACentralSquare) {
     CHECK(ctr == BlockType::Stone || ctr == BlockType::Gravel);
     CHECK(c.get(8, baseY + 1, 8) == BlockType::Air);        // walkable above the paving
 }
+
+TEST_CASE(DangerTier_RisesWithDistanceFromSpawn) {
+    // Spawn (origin) and the home zone are tier 1.
+    CHECK_EQ(dangerTierAt(0.0f, 0.0f), 1);
+    CHECK_EQ(dangerTierAt(DANGER_SAFE_RADIUS - 1.0f, 0.0f), 1);
+
+    // Just past the safe radius is still tier 1; one tier width past it is tier 2.
+    CHECK_EQ(dangerTierAt(DANGER_SAFE_RADIUS + 1.0f, 0.0f), 1);
+    CHECK_EQ(dangerTierAt(DANGER_SAFE_RADIUS + DANGER_TIER_WIDTH + 1.0f, 0.0f), 2);
+
+    // Monotonic non-decreasing as you walk straight out along +X.
+    int prev = 0;
+    for (float d = 0.0f; d <= 60000.0f; d += 500.0f) {
+        int t = dangerTierAt(d, 0.0f);
+        CHECK(t >= prev);
+        CHECK(t >= 1 && t <= DANGER_MAX_TIER);
+        prev = t;
+    }
+
+    // Far out is clamped to the max tier, and direction doesn't matter (radial).
+    CHECK_EQ(dangerTierAt(100000.0f, 0.0f), DANGER_MAX_TIER);
+    CHECK_EQ(dangerTierAt(-3000.0f, 0.0f), dangerTierAt(0.0f, 3000.0f));
+}

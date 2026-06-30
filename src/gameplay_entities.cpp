@@ -9,7 +9,9 @@
 #include "physics.h"
 #include "network.h"
 #include "game_session.h"
+#include "audio.h"
 #include "town.h"
+#include "dungeon.h"
 #include "prop_placement.h"
 #include "vehicle.h"
 #include "npc.h"
@@ -24,6 +26,8 @@
 #include <cmath>
 #include <cstring>
 #include <mutex>
+#include <atomic>
+#include <unordered_map>
 #include <random>
 #include <memory>
 #include "gameplay_internal.h"
@@ -85,10 +89,10 @@ static int xpForNextLevel(int level) {
     return 100 + 50 * (level - 1);
 }
 
-// XP awarded per enemy kill, slightly scaling with the player's level so
-// kills don't feel devalued at the top of the curve.
-static int xpForEnemyKill(int playerLevel) {
-    return 20 + 5 * playerLevel;
+// Base XP for an enemy of the given level — higher-level foes (found further
+// from spawn) are worth more, so venturing out pays off.
+static int xpForEnemyKill(int enemyLevel) {
+    return 20 + 5 * enemyLevel;
 }
 
 // Push a transient HUD message. UI renders the queue in renderPlayUI;
@@ -174,8 +178,10 @@ static void spawnDeathParticles(AppContext& ctx, const NPC* npc) {
 // processed by syncLootDrops below. Simple attribution — any nearby
 // observer awards themselves XP — good enough for single-player and
 // small-coop play.
-void awardEnemyKill(AppContext& ctx, const NPC* npc) {
-    int xp = xpForEnemyKill(ctx.playerLevel);
+// Add XP to the player, running the level-up loop (skill point per level, HUD
+// toasts, role-stat recompute + model resend). Shared by kills and quest turn-in.
+static void grantPlayerXp(AppContext& ctx, int xp) {
+    if (xp <= 0) return;
     ctx.playerXp += float(xp);
     pushToast(ctx, std::string("+") + std::to_string(xp) + " XP",
               Voxel{160, 210, 255, 255}, 2.5f);
@@ -190,12 +196,109 @@ void awardEnemyKill(AppContext& ctx, const NPC* npc) {
                        + std::to_string(ctx.playerLevel) + "  (+1 skill point)",
                   Voxel{255, 220, 80, 255}, 5.5f);
     }
-    // Resend the PlayerModel so the server knows our new level — future
-    // loot rolls for our kills will scale to the new level. Refresh the cached
-    // role stats so the larger HP pool takes effect immediately.
+    if (leveledUp && g_audio) g_audio->play2D(SoundId::LevelUp, 0.6f);
+    // Resend the PlayerModel so the server knows our new level — future loot rolls
+    // scale to it. Refresh cached role stats so the larger HP pool takes effect.
     if (leveledUp) {
         ctx.recomputeRoleStats();
         sendPlayerModelUpdate(ctx);
+    }
+}
+
+void turnInQuest(AppContext& ctx, int activeIndex) {
+    if (activeIndex < 0 || activeIndex >= (int)ctx.activeQuests.size()) return;
+    Quest& q = ctx.activeQuests[(size_t)activeIndex];
+    if (q.status != QuestStatus::Complete) return;
+
+    std::string title = q.title;
+    grantPlayerXp(ctx, q.rewardXp);
+    if (q.rewardGold > 0) {
+        ctx.playerGold += q.rewardGold;
+        pushToast(ctx, std::string("+") + std::to_string(q.rewardGold) + " gold",
+                  Voxel{235, 205, 90, 255}, 2.5f);
+    }
+    if (q.rewardItem) {
+        auto item = generateRandomItem((uint32_t)(q.id * 2654435761u + 0x9981u),
+                                       q.recommendedLevel);
+        if (item) {
+            std::string nm = item->getName();
+            if (ctx.inventory.addItem(std::move(item)))
+                pushToast(ctx, "Reward: " + nm, Voxel{205, 180, 255, 255}, 3.5f);
+        }
+    }
+    q.status = QuestStatus::TurnedIn;
+    pushToast(ctx, "Quest turned in: " + title, Voxel{120, 230, 140, 255}, 4.0f);
+
+    ctx.activeQuests.erase(
+        std::remove_if(ctx.activeQuests.begin(), ctx.activeQuests.end(),
+                       [](const Quest& x) { return x.status == QuestStatus::TurnedIn; }),
+        ctx.activeQuests.end());
+}
+
+void awardEnemyKill(AppContext& ctx, const NPC* npc) {
+    if (g_audio) g_audio->playAt(SoundId::EnemyDeath, npc->position, 0.6f);
+    int enemyLevel = std::max(1, (int)npc->level);
+    int xp = xpForEnemyKill(enemyLevel);
+    // Con-based scaling: trivial (far-below) kills give a fraction; equal-or-above
+    // foes give full XP. Keeps low-tier grinding from out-pacing venturing out.
+    int diff = enemyLevel - ctx.playerLevel;
+    if (diff < -8)     xp = std::max(1, xp / 5);
+    else if (diff < 0) xp = std::max(1, (int)(xp * (1.0f + 0.06f * (float)diff)));
+    if (npc->rare) {                                  // a named rare — a real prize
+        xp = (int)(xp * 2.5f);
+        pushToast(ctx, "Rare slain: " + rareName(npc->appearanceSeed) + "!",
+                  Voxel{200, 130, 245, 255}, 3.0f);
+    } else if (npc->elite) {                          // elites are worth markedly more
+        xp = (int)(xp * 1.8f);
+        pushToast(ctx, "Elite slain!", Voxel{255, 210, 120, 255}, 2.0f);
+    }
+    grantPlayerXp(ctx, xp);
+
+    // Kill-quest progress: credit any active KillEnemies quest whose foe + region
+    // match this kill (region = within one danger tier of the kill location).
+    int killTier = dangerTierAt(npc->position.x, npc->position.z);
+    static std::mt19937 questDropRng(0xC0FFEEu);
+    for (Quest& q : ctx.activeQuests) {
+        bool credit = false;
+        if (questKillCounts(q, (uint8_t)npc->type, killTier)) {
+            credit = true;
+        } else if (npc->boss && questBossKillCounts(q, killTier)) {
+            credit = true;   // slew the dungeon's master
+        } else if (questCollectCounts(q, killTier)) {
+            // The slain foe yields the quest collectible ~70% of the time.
+            if ((questDropRng() % 100u) < 70u) {
+                credit = true;
+                if (q.progress + 1 < q.requiredCount)
+                    pushToast(ctx, "+1 " + q.collectName + " ("
+                                   + std::to_string(q.progress + 1) + "/"
+                                   + std::to_string(q.requiredCount) + ")",
+                              Voxel{200, 220, 160, 255}, 1.6f);
+            }
+        }
+        if (!credit) continue;
+        if (q.progress < q.requiredCount) q.progress++;
+        if (q.progress >= q.requiredCount && q.status == QuestStatus::Active) {
+            q.status = QuestStatus::Complete;
+            pushToast(ctx, std::string("Quest complete: ") + q.title
+                           + " - return to a quest giver",
+                      Voxel{120, 230, 140, 255}, 5.0f);
+        }
+    }
+
+    // Boss down → mark the dungeon it belonged to as cleared (a real milestone).
+    if (npc->boss) {
+        const DungeonPlan& dp = getDungeonPlan();
+        int bx = (int)npc->position.x, bz = (int)npc->position.z;
+        for (size_t i = 0; i < dp.dungeons.size(); ++i) {
+            const Dungeon& d = *dp.dungeons[i];
+            if (bx < d.bbMin.x || bx > d.bbMax.x || bz < d.bbMin.y || bz > d.bbMax.y) continue;
+            // Mark cleared for 5 minutes, then it re-populates. insert_or_assign's
+            // bool is true only on the first clear, so the toast fires just once.
+            if (ctx.clearedDungeons.insert_or_assign((int)i, 300.0f).second)
+                pushToast(ctx, std::string("Cleared: ") + d.name + "!",
+                          Voxel{120, 235, 140, 255}, 6.0f);
+            break;
+        }
     }
 
     spawnDeathParticles(ctx, npc);
@@ -273,6 +376,7 @@ void syncNPCObjects(AppContext& ctx) {
             auto nn = std::make_unique<NPC>();
             nn->id             = np.entityId;
             nn->type           = (NPCType)np.npcType;
+            nn->level          = np.level;
             nn->appearanceSeed = np.appearanceSeed;
             nn->position       = glm::vec3(np.x, np.y, np.z);
             nn->yaw            = np.yaw;
@@ -288,13 +392,30 @@ void syncNPCObjects(AppContext& ctx) {
             bool wasDying = (!isNewNpc) ? n->dyingFlag : true;
             bool nowDying = (np.flags & 4) != 0;
 
+            // Floating combat text: a known enemy's synced health dropping means
+            // it just took a hit — pop a rising damage number off it (the delta).
+            if (!isNewNpc && isHostileNpc(n->type) && ctx.floatingTexts.size() < 64) {
+                float dmg = n->health - np.health;
+                if (dmg > 0.5f) {
+                    AppContext::FloatingText ft;
+                    ft.worldPos = n->position + glm::vec3(0.0f, 2.4f, 0.0f);
+                    ft.text  = "-" + std::to_string((int)(dmg + 0.5f));
+                    ft.color = n->elite ? Voxel{255, 200, 110, 255}
+                                        : Voxel{255, 240, 200, 255};
+                    ctx.floatingTexts.push_back(std::move(ft));
+                }
+            }
             n->targetPos  = glm::vec3(np.x, np.y, np.z);
             n->targetYaw  = np.yaw;
             n->velocity   = glm::vec3(np.vx, np.vy, np.vz);
             n->health     = np.health;
+            n->level      = np.level;
             n->walking    = (np.flags & 1) != 0;
             n->attackFlag = (np.flags & 2) != 0;
             n->sitting    = (np.flags & 8) != 0;
+            n->elite      = (np.flags & 16) != 0;
+            n->rare       = (np.flags & 32) != 0;
+            n->aggro      = (np.flags & 64) != 0;
             n->dyingFlag  = nowDying;
             n->lastUpdate = now;
 
@@ -417,6 +538,7 @@ void syncLootDrops(AppContext& ctx) {
                     Voxel col = rarityUiColor(taken->rarity);
                     std::string name = taken->getName();
                     ctx.inventory.addItem(std::move(taken));
+                    if (g_audio) g_audio->play2D(SoundId::LootPickup, 0.5f);
                     pushToast(ctx, "Picked up: " + name, col, 3.0f);
                 }
             }
@@ -560,7 +682,9 @@ void updateNpcInteraction(AppContext& ctx) {
     for (auto& o : ctx.objectManager.objects()) {
         if (o->dead || o->kind != ObjectKind::NPC) continue;
         NPC* n = static_cast<NPC*>(o.get());
-        if (n->type != NPCType::Villager && n->type != NPCType::Trainer) continue;
+        if (n->type != NPCType::Villager && n->type != NPCType::Trainer &&
+            n->type != NPCType::Questgiver && n->type != NPCType::Vendor &&
+            n->type != NPCType::Stablemaster) continue;
         glm::vec3 to = n->position - eye; to.y = 0.0f;
         float d2 = to.x * to.x + to.z * to.z;
         if (d2 > bestD2) continue;
@@ -570,8 +694,11 @@ void updateNpcInteraction(AppContext& ctx) {
     }
 
     if (best) {
-        bool trainer = (best->type == NPCType::Trainer);
-        ctx.talkTargetName = trainer ? "Class Trainer" : npcName(best->appearanceSeed);
+        ctx.talkTargetName = (best->type == NPCType::Trainer)      ? "Class Trainer"
+                           : (best->type == NPCType::Questgiver)   ? "Quest Giver"
+                           : (best->type == NPCType::Vendor)       ? "Merchant"
+                           : (best->type == NPCType::Stablemaster) ? "Stablemaster"
+                           : npcName(best->appearanceSeed);
         ctx.talkTargetSeed = best->appearanceSeed;
         ctx.talkTargetPos  = best->position;
     } else {
@@ -582,12 +709,30 @@ void updateNpcInteraction(AppContext& ctx) {
         if (best->type == NPCType::Trainer) {
             // Open the class-change window instead of a flavour line.
             ctx.showTrainer = true;
+        } else if (best->type == NPCType::Questgiver || best->type == NPCType::Vendor ||
+                   best->type == NPCType::Stablemaster) {
+            // Open the town board/shop/stable. Client NPCs don't carry the town
+            // index, so map the NPC's position to the nearest town in the plan.
+            const TownPlan& tp = getTownPlan();
+            int bestT = -1; long long bestTD = -1;
+            for (size_t i = 0; i < tp.towns.size(); ++i) {
+                long long dx = (long long)tp.towns[i].center.x - (long long)best->position.x;
+                long long dz = (long long)tp.towns[i].center.y - (long long)best->position.z;
+                long long d2 = dx * dx + dz * dz;
+                if (bestTD < 0 || d2 < bestTD) { bestTD = d2; bestT = (int)i; }
+            }
+            if      (best->type == NPCType::Questgiver)   { ctx.questGiverTown = bestT; ctx.showQuestGiver = true; }
+            else if (best->type == NPCType::Vendor)       { ctx.vendorTown = bestT;     ctx.showVendor = true; }
+            else                                          { ctx.stableTown = bestT;     ctx.showStable = true; }
         } else {
             ctx.talkName  = npcName(best->appearanceSeed);
             ctx.talkLine  = npcFlavorLine(best->appearanceSeed, ctx.talkCount);
             ctx.talkTimer = 6.0f;
             ctx.talkCount++;
         }
+    } else if (ctx.interactPressed && !best && ctx.activeVehicle == VehicleKind::Wagon) {
+        // No NPC in reach but pulling a wagon — E opens/closes its storage stash.
+        ctx.showStash = !ctx.showStash;
     }
     ctx.interactPressed = false;
     if (ctx.talkTimer > 0.0f) ctx.talkTimer -= ctx.deltaTime;
@@ -596,8 +741,54 @@ void updateNpcInteraction(AppContext& ctx) {
 // The NPC a swing/shot should land on — nearest one ahead within range.
 // Melee uses a 3.8-block radius and a generous facing cone; bows use a
 // 28-block radius and a tighter cone (you have to actually aim).
+NPC* currentTargetNpc(AppContext& ctx) {
+    if (ctx.targetNpcId == 0) return nullptr;
+    GameObject* o = ctx.objectManager.findById(ctx.targetNpcId);
+    if (!o || o->dead || o->kind != ObjectKind::NPC) { ctx.targetNpcId = 0; return nullptr; }
+    return static_cast<NPC*>(o);
+}
+
+// Lock the next nearby hostile in view, cycling past the current target.
+static void acquireNextTarget(AppContext& ctx) {
+    glm::vec3 eye = ctx.camera.position;
+    glm::vec3 fwd = glm::vec3(ctx.camera.front.x, 0.0f, ctx.camera.front.z);
+    if (glm::length(fwd) > 0.001f) fwd = glm::normalize(fwd);
+    const float MAXR = 45.0f;
+    std::vector<std::pair<float, uint32_t>> cands;
+    for (auto& o : ctx.objectManager.objects()) {
+        if (o->dead || o->kind != ObjectKind::NPC) continue;
+        NPC* n = static_cast<NPC*>(o.get());
+        if (!isHostileNpc(n->type) || n->dyingFlag) continue;
+        glm::vec3 to = n->position - eye; to.y = 0.0f;
+        float d2 = to.x * to.x + to.z * to.z;
+        if (d2 > MAXR * MAXR) continue;
+        if (d2 > 0.04f && glm::dot(glm::normalize(to), fwd) < 0.1f) continue;  // roughly in front
+        cands.push_back({ d2, n->id });
+    }
+    if (cands.empty()) { ctx.targetNpcId = 0; return; }
+    std::sort(cands.begin(), cands.end());
+    int curIdx = -1;
+    for (size_t i = 0; i < cands.size(); ++i)
+        if (cands[i].second == ctx.targetNpcId) curIdx = (int)i;
+    int next = (curIdx >= 0) ? (curIdx + 1) % (int)cands.size() : 0;
+    ctx.targetNpcId = cands[next].second;
+}
+
+void updateTargeting(AppContext& ctx) {
+    if (ctx.cycleTargetPressed) { acquireNextTarget(ctx); ctx.cycleTargetPressed = false; }
+    if (NPC* t = currentTargetNpc(ctx)) {
+        if (glm::distance(t->position, ctx.camera.position) > 70.0f) ctx.targetNpcId = 0;
+    }
+}
+
 NPC* findTargetNpc(AppContext& ctx, float maxRange, float minFacing) {
     glm::vec3 eye = ctx.camera.position;
+    // A locked target takes priority while it's alive and within range — abilities
+    // and attacks hit it without needing the precise aim cone (the point of locking).
+    if (NPC* t = currentTargetNpc(ctx)) {
+        glm::vec3 to = t->position - eye; to.y = 0.0f;
+        if (to.x * to.x + to.z * to.z <= maxRange * maxRange && !t->dyingFlag) return t;
+    }
     glm::vec3 fwd = glm::vec3(ctx.camera.front.x, 0.0f, ctx.camera.front.z);
     if (glm::length(fwd) > 0.001f) fwd = glm::normalize(fwd);
     NPC* best = nullptr;
@@ -621,6 +812,212 @@ NPC* findMeleeTargetNpc(AppContext& ctx) {
 
 NPC* findRangedTargetNpc(AppContext& ctx) {
     return findTargetNpc(ctx, 28.0f, 0.95f);   // tight cone for bow aim
+}
+
+// --- Town vendor economy (Track G) -----------------------------------------
+namespace {
+int itemValue(const Item& it) {
+    int   base = 12 + 9 * std::max(1, it.level);
+    float rar  = (it.rarity == ItemRarity::Legendary) ? 6.0f
+               : (it.rarity == ItemRarity::Rare)      ? 2.5f : 1.0f;
+    float stat = 1.0f + 0.05f * (it.attackPower + it.defenseValue);
+    return std::max(1, (int)(base * rar * stat));
+}
+struct VendorSlot { std::unique_ptr<Item> item; uint32_t seed; int level; int price;
+                    int consumable = -1; };   // >=0 = a ConsumableKind potion slot
+std::unordered_map<int, std::vector<VendorSlot>> g_vendorCache;
+std::atomic<uint64_t> g_vendorSeed{ ~0ull };
+std::mutex g_vendorMtx;
+
+const std::vector<VendorSlot>& vendorStock(int townIndex) {
+    static const std::vector<VendorSlot> empty;
+    std::lock_guard<std::mutex> lock(g_vendorMtx);
+    if (g_vendorSeed.load() != worldSeed()) { g_vendorCache.clear(); g_vendorSeed.store(worldSeed()); }
+    auto it = g_vendorCache.find(townIndex);
+    if (it != g_vendorCache.end()) return it->second;
+
+    const TownPlan& tp = getTownPlan();
+    if (townIndex < 0 || townIndex >= (int)tp.towns.size()) return empty;
+    glm::ivec2 c = tp.towns[townIndex].center;
+    int tier  = dangerTierAt((float)c.x, (float)c.y);
+    int baseLv = enemyLevelForTier(tier);
+
+    std::vector<VendorSlot> stock;
+    // Every town apothecary always stocks restorative potions at a fixed price.
+    {
+        VendorSlot s;
+        s.consumable = (int)ConsumableKind::HealthPotion; s.seed = 0; s.level = 1;
+        s.item = makeConsumable(ConsumableKind::HealthPotion); s.price = 25;
+        stock.push_back(std::move(s));
+    }
+    {
+        VendorSlot s;
+        s.consumable = (int)ConsumableKind::ManaPotion; s.seed = 0; s.level = 1;
+        s.item = makeConsumable(ConsumableKind::ManaPotion); s.price = 20;
+        stock.push_back(std::move(s));
+    }
+    {
+        VendorSlot s;
+        s.consumable = (int)ConsumableKind::FoodRation; s.seed = 0; s.level = 1;
+        s.item = makeConsumable(ConsumableKind::FoodRation); s.price = 18;
+        stock.push_back(std::move(s));
+    }
+    for (int i = 0; i < 8; ++i) {
+        uint32_t seed = (uint32_t)((townIndex * 2654435761u) ^ (uint32_t)(i * 40503u) ^ 0x5E11D00Du);
+        int lv = std::max(1, baseLv + (int)(seed % 4u) - 1);
+        auto item = generateRandomItem(seed, lv);
+        if (!item) continue;
+        VendorSlot s;
+        s.price = itemValue(*item);
+        s.seed = seed; s.level = lv;
+        s.item = std::move(item);
+        stock.push_back(std::move(s));
+    }
+    g_vendorCache[townIndex] = std::move(stock);
+    return g_vendorCache[townIndex];
+}
+}  // namespace
+
+int vendorStockCount(int townIndex) { return (int)vendorStock(townIndex).size(); }
+
+const Item* vendorStockItem(int townIndex, int i) {
+    const auto& s = vendorStock(townIndex);
+    return (i >= 0 && i < (int)s.size()) ? s[(size_t)i].item.get() : nullptr;
+}
+
+int vendorStockPrice(int townIndex, int i) {
+    const auto& s = vendorStock(townIndex);
+    return (i >= 0 && i < (int)s.size()) ? s[(size_t)i].price : 0;
+}
+
+bool vendorBuy(AppContext& ctx, int townIndex, int i) {
+    uint32_t seed; int lv, price, consumable;
+    {
+        std::lock_guard<std::mutex> lock(g_vendorMtx);
+        auto it = g_vendorCache.find(townIndex);
+        if (it == g_vendorCache.end() || i < 0 || i >= (int)it->second.size()) return false;
+        seed = it->second[(size_t)i].seed; lv = it->second[(size_t)i].level;
+        price = it->second[(size_t)i].price; consumable = it->second[(size_t)i].consumable;
+    }
+    if (ctx.playerGold < price) return false;
+    // Potion slots rebuild a fresh potion; everything else regenerates the same
+    // gear deterministically from its seed (so the bought copy matches display).
+    std::unique_ptr<Item> fresh = (consumable >= 0)
+        ? std::unique_ptr<Item>(makeConsumable((ConsumableKind)consumable))
+        : generateRandomItem(seed, lv);
+    if (!fresh) return false;
+    std::string nm = fresh->getName();
+    if (!ctx.inventory.addItem(std::move(fresh))) return false;   // bags full
+    ctx.playerGold -= price;
+    pushToast(ctx, "Bought " + nm + " (-" + std::to_string(price) + "g)",
+              Voxel{235, 205, 90, 255}, 2.5f);
+    return true;
+}
+
+int itemSellPrice(const Item& it) { return std::max(1, (int)(itemValue(it) * 0.35f)); }
+
+bool vendorSell(AppContext& ctx, int inventoryIndex) {
+    const auto& bag = ctx.inventory.items();
+    if (inventoryIndex < 0 || inventoryIndex >= (int)bag.size()) return false;
+    Item* it = bag[(size_t)inventoryIndex].get();
+    if (!it) return false;
+    int gold = itemSellPrice(*it);
+    std::string nm = it->getName();
+    if (!ctx.inventory.removeItem(it)) return false;
+    ctx.playerGold += gold;
+    pushToast(ctx, "Sold " + nm + " (+" + std::to_string(gold) + "g)",
+              Voxel{235, 205, 90, 255}, 2.5f);
+    return true;
+}
+
+// Spawn a floating combat number just above the local player — used for damage
+// taken (red) and heals received (green), mirroring the enemy-side numbers (D5).
+static void spawnPlayerFloatText(AppContext& ctx, const std::string& txt, Voxel col) {
+    if (ctx.floatingTexts.size() >= 64) return;
+    glm::vec3 base = ctx.localPlayer ? ctx.localPlayer->position : ctx.camera.position;
+    AppContext::FloatingText ft;
+    ft.worldPos = base + glm::vec3(0.0f, 2.2f, 0.0f);
+    ft.text  = txt;
+    ft.color = col;
+    ctx.floatingTexts.push_back(std::move(ft));
+}
+
+bool useConsumable(AppContext& ctx, Item* item) {
+    if (!item || item->getKind() != ItemKind::Consumable) return false;
+    auto* cc = static_cast<ConsumableItem*>(item);
+    // Food: grant a timed "well-fed" ability-power buff (no potion cooldown — it's
+    // a buff, not an emergency heal). Re-eating refreshes the single food buff.
+    if (cc->buffSeconds > 0.0f) {
+        for (auto it = ctx.activeBuffs.begin(); it != ctx.activeBuffs.end(); ++it)
+            if (it->id == AbilityId::None) { ctx.activeBuffs.erase(it); break; }
+        ActiveBuff b;
+        b.id = AbilityId::None; b.kind = BuffKind::Power;
+        b.magnitude = cc->buffPowerPct; b.ttl = cc->buffSeconds; b.total = cc->buffSeconds;
+        ctx.activeBuffs.push_back(b);
+        std::string nm = item->getName();
+        ctx.inventory.removeItem(item);
+        if (g_audio) g_audio->play2D(SoundId::Quaff, 0.5f);
+        pushToast(ctx, "Well Fed (+" + std::to_string((int)(cc->buffPowerPct * 100)) + "% power)",
+                  Voxel{210, 170, 110, 255}, 2.0f);
+        return true;
+    }
+    // Shared "potion sickness" cooldown — no chain-quaffing to full mid-fight.
+    if (ctx.potionCooldown > 0.0f) {
+        pushToast(ctx, "Potion not ready (" + std::to_string((int)ctx.potionCooldown + 1) + "s)",
+                  Voxel{200, 180, 120, 255}, 1.4f);
+        return false;
+    }
+    auto* c = static_cast<ConsumableItem*>(item);
+    float beforeHp = ctx.playerHealth;
+    bool used = false;
+    if (c->restoreHealthPct > 0.0f && ctx.playerHealth < 1.0f) {
+        ctx.playerHealth = std::min(1.0f, ctx.playerHealth + c->restoreHealthPct);
+        ctx.regenDelay   = 0.0f;   // a quaff doesn't reset the out-of-combat timer
+        used = true;
+    }
+    if (c->restoreResourcePct > 0.0f && ctx.resource < ctx.resourceMax) {
+        ctx.resource = std::min(ctx.resourceMax,
+                                ctx.resource + c->restoreResourcePct * ctx.resourceMax);
+        used = true;
+    }
+    if (!used) {                   // already topped up — don't waste the potion
+        pushToast(ctx, "Already at full", Voxel{200, 200, 210, 255}, 1.4f);
+        return false;
+    }
+    float healedHp = (ctx.playerHealth - beforeHp) * ctx.maxHpScaled;
+    if (healedHp > 0.5f)
+        spawnPlayerFloatText(ctx, "+" + std::to_string((int)(healedHp + 0.5f)),
+                             Voxel{120, 230, 130, 255});
+    std::string nm = item->getName();
+    ctx.inventory.removeItem(item);
+    ctx.potionCooldown = 12.0f;            // start the shared cooldown
+    if (g_audio) g_audio->play2D(SoundId::Quaff, 0.5f);
+    pushToast(ctx, "Drank " + nm, Voxel{120, 220, 130, 255}, 1.8f);
+    return true;
+}
+
+// Toggle a personal vehicle on/off ("deploy"). The item is NOT consumed — it
+// stays in the bag and can be re-deployed. Only one vehicle is active at a time,
+// so deploying a new one replaces the current. Right-clicking the active
+// vehicle's item stows it. Fully client-side; the active kind is networked so
+// other players see the horse/wagon/kite (Phase 5).
+bool deployVehicle(AppContext& ctx, Item* item) {
+    if (!item || item->getKind() != ItemKind::Vehicle) return false;
+    VehicleKind k = static_cast<VehicleItem*>(item)->getVehicle();
+    if (ctx.activeVehicle == k) {
+        ctx.activeVehicle = VehicleKind::None;          // stow the active one
+        if (k == VehicleKind::Wagon) ctx.showStash = false;
+        pushToast(ctx, std::string("Put away the ") + vehicleKindName(k),
+                  Voxel{205, 205, 215, 255}, 1.8f);
+        return true;
+    }
+    if (ctx.activeVehicle == VehicleKind::Wagon) ctx.showStash = false;  // switching away
+    ctx.activeVehicle = k;
+    const char* verb = (k == VehicleKind::Horse) ? "Mounted the "
+                     : (k == VehicleKind::Kite)  ? "Readied the "
+                                                 : "Hitched the ";
+    pushToast(ctx, std::string(verb) + vehicleKindName(k), Voxel{150, 220, 160, 255}, 1.8f);
+    return true;
 }
 
 // Applies incoming damage to the player, regenerates health out of combat,
@@ -662,7 +1059,11 @@ void updatePlayerVitals(AppContext& ctx) {
         float defense = ctx.defenseMult;
         for (const ActiveBuff& b : ctx.activeBuffs)
             if (b.kind == BuffKind::Defense) defense += b.magnitude;
-        ctx.playerHealth -= (dmg / defense) / ctx.maxHpScaled;
+        float hpLost = dmg / defense;
+        ctx.playerHealth -= hpLost / ctx.maxHpScaled;
+        if (hpLost > 0.5f)
+            spawnPlayerFloatText(ctx, "-" + std::to_string((int)(hpLost + 0.5f)),
+                                 Voxel{255, 110, 90, 255});
         // Tanks build Rage by weathering hits.
         if (ctx.resourceType == ResourceType::Rage)
             ctx.resource = std::min(ctx.resourceMax, ctx.resource + dmg * 0.5f);
@@ -672,7 +1073,11 @@ void updatePlayerVitals(AppContext& ctx) {
     // Incoming heals (chain heal / sanctuary cast by any player, including us)
     // top the bar back up. Capped at full; never blocked by the regen delay.
     if (ctx.client && ctx.client->pendingSelfHeal > 0.0f) {
-        ctx.playerHealth = std::min(1.0f, ctx.playerHealth + ctx.client->pendingSelfHeal / ctx.maxHpScaled);
+        float h = ctx.client->pendingSelfHeal;
+        ctx.playerHealth = std::min(1.0f, ctx.playerHealth + h / ctx.maxHpScaled);
+        if (h > 0.5f)
+            spawnPlayerFloatText(ctx, "+" + std::to_string((int)(h + 0.5f)),
+                                 Voxel{120, 230, 130, 255});
         ctx.client->pendingSelfHeal = 0.0f;
     }
     if (ctx.regenDelay > 0.0f) {
